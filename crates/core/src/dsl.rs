@@ -1,0 +1,1175 @@
+//! The human-friendly text format (`.diagram` files).
+//!
+//! ```text
+//! title: Checkout
+//! direction: right
+//!
+//! user: Customer [person]
+//! group backend: Backend {
+//!   api: Orders API [detail: Rust · Axum]
+//!   db: Postgres [cylinder]
+//! }
+//! user -> api: POST /orders
+//! api -> db
+//! api ..> mail: receipt
+//!
+//! comment on api by deyan: Should payments be a separate service?
+//! reply c1 by ana: Not before launch.
+//! ```
+//!
+//! One statement per line. Full-line `#` / `//` comments are ignored (and
+//! not kept when the file is re-printed). `docs/LANGUAGE.md` is the reference.
+use crate::model::*;
+
+pub const SETTINGS: &[&str] = &[
+    "title",
+    "description",
+    "direction",
+    "layout",
+    "routing",
+    "theme",
+];
+
+/// Edge operators, longest first: (token, arrow, line, reversed).
+const OPS: &[(&str, Arrow, Line, bool)] = &[
+    ("<..>", Arrow::Both, Line::Dashed, false),
+    ("<=>", Arrow::Both, Line::Thick, false),
+    ("<->", Arrow::Both, Line::Solid, false),
+    ("-->", Arrow::End, Line::Solid, false),
+    ("..>", Arrow::End, Line::Dashed, false),
+    ("<..", Arrow::End, Line::Dashed, true),
+    ("->", Arrow::End, Line::Solid, false),
+    ("<-", Arrow::End, Line::Solid, true),
+    ("=>", Arrow::End, Line::Thick, false),
+    ("<=", Arrow::End, Line::Thick, true),
+    ("--", Arrow::None, Line::Solid, false),
+    ("..", Arrow::None, Line::Dashed, false),
+    ("==", Arrow::None, Line::Thick, false),
+];
+
+/// Parse, failing on any error.
+pub fn parse(src: &str) -> Result<Document, Vec<Diagnostic>> {
+    let (doc, errors) = parse_lenient(src);
+    if errors.is_empty() {
+        Ok(doc)
+    } else {
+        Err(errors)
+    }
+}
+
+/// Parse as much as possible; bad lines are skipped and reported.
+pub fn parse_lenient(src: &str) -> (Document, Vec<Diagnostic>) {
+    let mut p = Parser {
+        doc: Document::default(),
+        errors: Vec::new(),
+        stack: Vec::new(),
+        line: 0,
+    };
+    for (i, raw) in src.lines().enumerate() {
+        p.line = i + 1;
+        let t = raw.trim();
+        if t.is_empty() || t.starts_with('#') || t.starts_with("//") {
+            continue;
+        }
+        if let Err(e) = p.statement(t) {
+            p.errors.push(Diagnostic::new(p.line, e));
+        }
+    }
+    if let Some((g, line)) = p.stack.last() {
+        p.errors.push(Diagnostic::new(
+            *line,
+            format!("group `{g}` is never closed (missing `}}`)"),
+        ));
+    }
+    p.doc.normalize();
+    for c in &p.doc.comments {
+        if let Some(on) = &c.on {
+            if p.doc.element(on).is_none() {
+                p.errors.push(Diagnostic::new(
+                    0,
+                    format!("comment `{}` is on `{on}`, which does not exist", c.id),
+                ));
+            }
+        }
+    }
+    (p.doc, p.errors)
+}
+
+struct Parser {
+    doc: Document,
+    errors: Vec<Diagnostic>,
+    /// Open groups and the line that opened them.
+    stack: Vec<(String, usize)>,
+    line: usize,
+}
+
+type Attrs = Vec<(String, Option<String>)>;
+
+impl Parser {
+    fn group(&self) -> Option<String> {
+        self.stack.last().map(|(g, _)| g.clone())
+    }
+
+    fn statement(&mut self, t: &str) -> Result<(), String> {
+        if t == "}" {
+            return self
+                .stack
+                .pop()
+                .map(|_| ())
+                .ok_or_else(|| "unexpected `}`".to_string());
+        }
+        let mut c = Cursor::new(t);
+        let word = c.peek_word();
+        match word {
+            "group" if c.rest()[5..].starts_with(|ch: char| ch.is_whitespace()) => {
+                c.advance(5);
+                return self.group_decl(c);
+            }
+            "comment" if c.rest()[7..].starts_with(|ch: char| ch.is_whitespace() || ch == ':') => {
+                c.advance(7);
+                return self.comment(c);
+            }
+            "reply" if c.rest()[5..].starts_with(|ch: char| ch.is_whitespace()) => {
+                c.advance(5);
+                return self.reply(c);
+            }
+            w if SETTINGS.contains(&w) && c.rest()[w.len()..].trim_start().starts_with(':') => {
+                if !self.stack.is_empty() {
+                    return Err(format!("`{w}` can only be set at the top level"));
+                }
+                let value = c.rest()[w.len()..].trim_start()[1..].trim();
+                return self.setting(w, value);
+            }
+            _ => {}
+        }
+        let first = self.ref_list(&mut c)?;
+        c.skip_ws();
+        if let Some(op) = c.edge_op() {
+            return self.edges(first, op, c);
+        }
+        self.node_decl(first, c)
+    }
+
+    fn setting(&mut self, key: &str, value: &str) -> Result<(), String> {
+        let value = unquote(value);
+        let s = &mut self.doc.settings;
+        match key {
+            "title" => self.doc.title = Some(value).filter(|v| !v.is_empty()),
+            "description" => self.doc.description = Some(value).filter(|v| !v.is_empty()),
+            "direction" => {
+                s.direction = Direction::parse(&value).ok_or_else(|| {
+                    format!("unknown direction `{value}` (use {})", Direction::names())
+                })?
+            }
+            "layout" => {
+                s.layout = LayoutKind::parse(&value).ok_or_else(|| {
+                    format!("unknown layout `{value}` (use {})", LayoutKind::names())
+                })?
+            }
+            "routing" => {
+                s.routing = Routing::parse(&value).ok_or_else(|| {
+                    format!("unknown routing `{value}` (use {})", Routing::names())
+                })?
+            }
+            "theme" => {
+                s.theme = Theme::parse(&value)
+                    .ok_or_else(|| format!("unknown theme `{value}` (use {})", Theme::names()))?
+            }
+            _ => unreachable!(),
+        }
+        Ok(())
+    }
+
+    /// `a`, `"Some label"`, `a, b, "C"`
+    fn ref_list(&mut self, c: &mut Cursor) -> Result<Vec<(String, Option<String>)>, String> {
+        let mut out = vec![c.reference()?];
+        loop {
+            c.skip_ws();
+            if c.eat(',') {
+                c.skip_ws();
+                out.push(c.reference()?);
+            } else {
+                return Ok(out);
+            }
+        }
+    }
+
+    /// Make sure a node exists (edges create them on first mention).
+    fn ensure_node(&mut self, id: &str, label: Option<&str>) {
+        if self.doc.node(id).is_some() || self.doc.group(id).is_some() {
+            return;
+        }
+        let mut n = Node::new(id);
+        if let Some(l) = label {
+            n.label = l.to_string();
+        }
+        n.group = self.group();
+        self.doc.nodes.push(n);
+    }
+
+    fn node_decl(
+        &mut self,
+        refs: Vec<(String, Option<String>)>,
+        mut c: Cursor,
+    ) -> Result<(), String> {
+        let (label, attrs) = label_and_attrs(&mut c)?;
+        if !c.at_end() {
+            return Err(format!("unexpected `{}`", c.rest()));
+        }
+        if refs.len() > 1 && label.is_some() {
+            return Err("a label needs a single node (`a: Label`), not a list".into());
+        }
+        for (id, qlabel) in refs {
+            if self.doc.group(&id).is_some() {
+                return Err(format!("`{id}` is a group"));
+            }
+            let group = self.group();
+            if self.doc.node(&id).is_none() {
+                self.doc.nodes.push(Node::new(&id));
+            }
+            let n = self.doc.node_mut(&id).unwrap();
+            if group.is_some() {
+                n.group = group;
+            }
+            if let Some(l) = label.clone().or(qlabel) {
+                n.label = l;
+            }
+            apply_node_attrs(n, &attrs)?;
+        }
+        Ok(())
+    }
+
+    fn edges(
+        &mut self,
+        first: Vec<(String, Option<String>)>,
+        op: (Arrow, Line, bool),
+        mut c: Cursor,
+    ) -> Result<(), String> {
+        let mut lists = vec![first];
+        let mut ops = vec![op];
+        loop {
+            c.skip_ws();
+            lists.push(self.ref_list(&mut c)?);
+            c.skip_ws();
+            match c.edge_op() {
+                Some(op) => ops.push(op),
+                None => break,
+            }
+        }
+        let (label, attrs) = label_and_attrs(&mut c)?;
+        if !c.at_end() {
+            return Err(format!("unexpected `{}`", c.rest()));
+        }
+        for list in &lists {
+            for (id, l) in list {
+                self.ensure_node(id, l.as_deref());
+            }
+        }
+        for (i, (arrow, line, reversed)) in ops.iter().enumerate() {
+            for (a, _) in &lists[i] {
+                for (b, _) in &lists[i + 1] {
+                    let (from, to) = if *reversed { (b, a) } else { (a, b) };
+                    let mut e = Edge {
+                        from: from.clone(),
+                        to: to.clone(),
+                        label: label.clone(),
+                        arrow: *arrow,
+                        line: *line,
+                        ..Default::default()
+                    };
+                    apply_edge_attrs(&mut e, &attrs)?;
+                    if e.id.is_empty() {
+                        e.id = self.doc.fresh_edge_id(&e.from, &e.to);
+                    } else if self.doc.id_taken(&e.id) {
+                        return Err(format!("id `{}` is already used", e.id));
+                    }
+                    self.doc.edges.push(e);
+                }
+            }
+        }
+        Ok(())
+    }
+
+    fn group_decl(&mut self, mut c: Cursor) -> Result<(), String> {
+        c.skip_ws();
+        let (id, qlabel) = c.reference()?;
+        let (label, attrs) = label_and_attrs_until_brace(&mut c)?;
+        c.skip_ws();
+        if !c.eat('{') {
+            return Err("a group needs a body: `group id: Label {` … `}`".into());
+        }
+        c.skip_ws();
+        let closes_inline = c.eat('}');
+        if !c.at_end() {
+            return Err("put the group's contents on the following lines".into());
+        }
+        if self.doc.node(&id).is_some() {
+            return Err(format!("`{id}` is already a node"));
+        }
+        let parent = self.group();
+        if self.doc.group(&id).is_none() {
+            self.doc.groups.push(Group {
+                id: id.clone(),
+                ..Default::default()
+            });
+        }
+        let g = self.doc.group_mut(&id).unwrap();
+        g.parent = parent;
+        if let Some(l) = label.or(qlabel) {
+            g.label = l;
+        }
+        for (k, v) in &attrs {
+            match (k.as_str(), v) {
+                ("color" | "colour", Some(v)) => g.color = Some(color(v)?),
+                ("label", Some(v)) => g.label = v.clone(),
+                (c, None) if valid_color(c) => g.color = Some(c.to_string()),
+                (k, _) => return Err(format!("unknown group attribute `{k}`")),
+            }
+        }
+        if !closes_inline {
+            self.stack.push((id, self.line));
+        }
+        Ok(())
+    }
+
+    /// `comment [ID] [on REF] [at X,Y] [by AUTHOR]: text [attrs]`
+    fn comment(&mut self, mut c: Cursor) -> Result<(), String> {
+        let mut cm = Comment::default();
+        loop {
+            c.skip_ws();
+            if c.peek() == Some(':') || c.at_end() {
+                break;
+            }
+            match c.peek_word() {
+                "on" => {
+                    c.advance(2);
+                    c.skip_ws();
+                    cm.on = Some(c.target()?);
+                }
+                "at" => {
+                    c.advance(2);
+                    c.skip_ws();
+                    let w = c.target()?;
+                    let (x, y) = w.split_once(',').ok_or("use `at X,Y`")?;
+                    cm.x = Some(num("x", x)?);
+                    cm.y = Some(num("y", y)?);
+                }
+                "by" => {
+                    c.advance(2);
+                    c.skip_ws();
+                    cm.author = Some(author(c.reference()?));
+                }
+                _ if cm.id.is_empty() && cm.on.is_none() => cm.id = c.target()?,
+                w => return Err(format!("unexpected `{w}` in comment (use `comment [ID] [on TARGET] [by AUTHOR]: text`)")),
+            }
+        }
+        if !c.eat(':') {
+            return Err("a comment needs text after `:`".into());
+        }
+        let (text, attrs) = split_attrs(c.rest());
+        cm.text = unescape_label(text.trim());
+        for (k, v) in parse_attrs(attrs.unwrap_or(""))? {
+            match (k.as_str(), v) {
+                ("status", Some(v)) => {
+                    cm.status = Status::parse(&v)
+                        .ok_or_else(|| format!("unknown status `{v}` (use open, resolved)"))?
+                }
+                ("resolved" | "done", None) => cm.status = Status::Resolved,
+                ("open", None) => cm.status = Status::Open,
+                ("resolution", Some(v)) => cm.resolution = Some(v),
+                ("author" | "by", Some(v)) => cm.author = Some(v),
+                ("x", Some(v)) => cm.x = Some(num("x", &v)?),
+                ("y", Some(v)) => cm.y = Some(num("y", &v)?),
+                (k, _) => return Err(format!("unknown comment attribute `{k}`")),
+            }
+        }
+        if cm.id.is_empty() {
+            cm.id = self.doc.fresh_comment_id();
+        } else if self.doc.comment(&cm.id).is_some() {
+            return Err(format!("comment `{}` already exists", cm.id));
+        }
+        self.doc.comments.push(cm);
+        Ok(())
+    }
+
+    /// `reply ID [by AUTHOR]: text`
+    fn reply(&mut self, mut c: Cursor) -> Result<(), String> {
+        c.skip_ws();
+        let id = c.target()?;
+        c.skip_ws();
+        let mut by = None;
+        if c.peek_word() == "by" {
+            c.advance(2);
+            c.skip_ws();
+            by = Some(author(c.reference()?));
+            c.skip_ws();
+        }
+        if !c.eat(':') {
+            return Err("a reply needs text after `:`".into());
+        }
+        let text = unescape_label(c.rest().trim());
+        let cm = self.doc.comment_mut(&id).ok_or_else(|| {
+            format!("no comment `{id}` to reply to (replies go after their comment)")
+        })?;
+        cm.replies.push(Reply { author: by, text });
+        Ok(())
+    }
+}
+
+/// `by "Ana B."` keeps the text as written, `by ana` the word.
+fn author(r: (String, Option<String>)) -> String {
+    r.1.unwrap_or(r.0)
+}
+
+fn num(what: &str, v: &str) -> Result<f64, String> {
+    v.trim()
+        .parse::<f64>()
+        .map_err(|_| format!("`{what}` must be a number, got `{}`", v.trim()))
+}
+
+fn color(v: &str) -> Result<String, String> {
+    let v = v.trim().to_ascii_lowercase();
+    if valid_color(&v) {
+        Ok(v)
+    } else {
+        Err(format!(
+            "unknown colour `{v}` (use {} or #rrggbb)",
+            COLORS.join(", ")
+        ))
+    }
+}
+
+/// `: label [attrs]` or `[attrs]` or nothing.
+fn label_and_attrs(c: &mut Cursor) -> Result<(Option<String>, Attrs), String> {
+    c.skip_ws();
+    if c.eat(':') {
+        let (text, attrs) = split_attrs(c.rest());
+        c.i = c.s.len();
+        let label = unescape_label(text.trim());
+        return Ok((
+            Some(label).filter(|l| !l.is_empty()),
+            parse_attrs(attrs.unwrap_or(""))?,
+        ));
+    }
+    if c.peek() == Some('[') {
+        let (text, attrs) = split_attrs(c.rest());
+        if text.trim().is_empty() {
+            c.i = c.s.len();
+            return Ok((None, parse_attrs(attrs.unwrap_or(""))?));
+        }
+    }
+    Ok((None, Vec::new()))
+}
+
+/// Like `label_and_attrs`, but stops before a trailing `{` / `{}`.
+fn label_and_attrs_until_brace(c: &mut Cursor) -> Result<(Option<String>, Attrs), String> {
+    let rest = c.rest().trim_end();
+    let cut = if rest.ends_with("{}") {
+        rest.len() - 2
+    } else if rest.ends_with('{') {
+        rest.len() - 1
+    } else {
+        rest.len()
+    };
+    let head = rest[..cut].to_string();
+    let start = c.i;
+    let mut sub = Cursor::new(&head);
+    let out = label_and_attrs(&mut sub)?;
+    if !sub.at_end() {
+        return Err(format!("unexpected `{}`", sub.rest().trim()));
+    }
+    c.i = start + cut;
+    Ok(out)
+}
+
+/// Split `text [key: value, …]` into the text and the attribute block's
+/// contents. A trailing `[...]` only counts as attributes when it looks like
+/// them (`key: value` items or known keywords), so `Step [draft]` stays a label.
+pub fn split_attrs(text: &str) -> (&str, Option<&str>) {
+    let t = text.trim_end();
+    if !t.ends_with(']') {
+        return (text, None);
+    }
+    for (pos, ch) in t.char_indices() {
+        if ch != '[' {
+            continue;
+        }
+        if let Some(end) = scan_block(&t[pos..]) {
+            if pos + end == t.len() {
+                let inner = &t[pos + 1..t.len() - 1];
+                if looks_like_attrs(inner) {
+                    return (&t[..pos], Some(inner));
+                }
+            }
+        }
+    }
+    (text, None)
+}
+
+/// Byte length of a `[...]` block at the start of `s`, honouring quotes.
+fn scan_block(s: &str) -> Option<usize> {
+    let mut quoted = false;
+    let mut escaped = false;
+    for (i, ch) in s.char_indices().skip(1) {
+        match ch {
+            _ if escaped => escaped = false,
+            '\\' if quoted => escaped = true,
+            '"' => quoted = !quoted,
+            ']' if !quoted => return Some(i + 1),
+            '[' if !quoted => return None,
+            _ => {}
+        }
+    }
+    None
+}
+
+fn looks_like_attrs(inner: &str) -> bool {
+    let items = split_items(inner);
+    !items.is_empty()
+        && items.iter().all(|item| {
+            let item = item.trim();
+            match item.split_once(':') {
+                Some((k, _)) => {
+                    !k.trim().is_empty()
+                        && k.trim()
+                            .chars()
+                            .all(|c| c.is_ascii_alphanumeric() || c == '_')
+                }
+                None => {
+                    Shape::parse(item).is_some()
+                        || Line::parse(item).is_some()
+                        || valid_color(&item.to_ascii_lowercase())
+                        || matches!(item, "resolved" | "open" | "done")
+                }
+            }
+        })
+}
+
+fn split_items(inner: &str) -> Vec<String> {
+    let mut out = Vec::new();
+    let mut cur = String::new();
+    let mut quoted = false;
+    let mut escaped = false;
+    for ch in inner.chars() {
+        match ch {
+            _ if escaped => {
+                escaped = false;
+                cur.push(ch);
+            }
+            '\\' if quoted => {
+                escaped = true;
+                cur.push(ch);
+            }
+            '"' => {
+                quoted = !quoted;
+                cur.push(ch);
+            }
+            ',' | ';' if !quoted => out.push(std::mem::take(&mut cur)),
+            _ => cur.push(ch),
+        }
+    }
+    out.push(cur);
+    out.into_iter().filter(|s| !s.trim().is_empty()).collect()
+}
+
+fn parse_attrs(inner: &str) -> Result<Attrs, String> {
+    let mut out = Vec::new();
+    for item in split_items(inner) {
+        let item = item.trim();
+        match item.split_once(':') {
+            Some((k, v)) if !k.contains('"') => {
+                out.push((k.trim().to_ascii_lowercase(), Some(unquote(v.trim()))))
+            }
+            _ => out.push((item.to_ascii_lowercase(), None)),
+        }
+    }
+    Ok(out)
+}
+
+pub fn apply_node_attrs(n: &mut Node, attrs: &Attrs) -> Result<(), String> {
+    for (k, v) in attrs {
+        match (k.as_str(), v) {
+            ("shape", Some(v)) => {
+                n.shape = Shape::parse(v)
+                    .ok_or_else(|| format!("unknown shape `{v}` (use {})", Shape::names()))?
+            }
+            ("color" | "colour", Some(v)) => n.color = Some(color(v)?),
+            ("detail", Some(v)) => n.detail = Some(unescape_label(v)).filter(|s| !s.is_empty()),
+            ("label", Some(v)) => n.label = unescape_label(v),
+            ("link" | "url", Some(v)) => n.link = Some(v.clone()).filter(|s| !s.is_empty()),
+            ("tags" | "tag", Some(v)) => n.tags = v.split_whitespace().map(String::from).collect(),
+            ("x", Some(v)) => n.x = Some(num("x", v)?),
+            ("y", Some(v)) => n.y = Some(num("y", v)?),
+            ("w" | "width", Some(v)) => n.w = Some(num("w", v)?),
+            ("h" | "height", Some(v)) => n.h = Some(num("h", v)?),
+            (k, None) if Shape::parse(k).is_some() => n.shape = Shape::parse(k).unwrap(),
+            (k, None) if valid_color(k) => n.color = Some(k.to_string()),
+            (k, _) => {
+                return Err(format!(
+                    "unknown node attribute `{k}` (shape, color, detail, link, tags, x, y, w, h)"
+                ))
+            }
+        }
+    }
+    Ok(())
+}
+
+pub fn apply_edge_attrs(e: &mut Edge, attrs: &Attrs) -> Result<(), String> {
+    for (k, v) in attrs {
+        match (k.as_str(), v) {
+            ("label", Some(v)) => e.label = Some(unescape_label(v)).filter(|s| !s.is_empty()),
+            ("arrow", Some(v)) => {
+                e.arrow = Arrow::parse(v)
+                    .ok_or_else(|| format!("unknown arrow `{v}` (use {})", Arrow::names()))?
+            }
+            ("line" | "style", Some(v)) => {
+                e.line = Line::parse(v)
+                    .ok_or_else(|| format!("unknown line `{v}` (use {})", Line::names()))?
+            }
+            ("color" | "colour", Some(v)) => e.color = Some(color(v)?),
+            ("id", Some(v)) => e.id = v.clone(),
+            (k, None) if Line::parse(k).is_some() => e.line = Line::parse(k).unwrap(),
+            (k, None) if valid_color(k) => e.color = Some(k.to_string()),
+            (k, _) => {
+                return Err(format!(
+                    "unknown edge attribute `{k}` (label, arrow, line, color, id)"
+                ))
+            }
+        }
+    }
+    Ok(())
+}
+
+/// `"text"` → text with escapes resolved; anything else unchanged.
+pub fn unquote(s: &str) -> String {
+    let s = s.trim();
+    if s.len() >= 2 && s.starts_with('"') && s.ends_with('"') {
+        unescape(&s[1..s.len() - 1])
+    } else {
+        s.to_string()
+    }
+}
+
+fn unescape(s: &str) -> String {
+    let mut out = String::new();
+    let mut chars = s.chars();
+    while let Some(c) = chars.next() {
+        if c == '\\' {
+            match chars.next() {
+                Some('n') => out.push('\n'),
+                Some('t') => out.push('\t'),
+                Some(o) => out.push(o),
+                None => out.push('\\'),
+            }
+        } else {
+            out.push(c);
+        }
+    }
+    out
+}
+
+/// Labels: `"quoted"` or bare text where `\n` is a line break.
+pub fn unescape_label(s: &str) -> String {
+    let s = s.trim();
+    if s.len() >= 2 && s.starts_with('"') && s.ends_with('"') {
+        unquote(s)
+    } else {
+        unescape(s)
+    }
+}
+
+struct Cursor<'a> {
+    s: &'a str,
+    i: usize,
+}
+
+impl<'a> Cursor<'a> {
+    fn new(s: &'a str) -> Self {
+        Cursor { s, i: 0 }
+    }
+    fn rest(&self) -> &'a str {
+        &self.s[self.i..]
+    }
+    fn at_end(&self) -> bool {
+        self.rest().trim().is_empty()
+    }
+    fn peek(&self) -> Option<char> {
+        self.rest().chars().next()
+    }
+    fn advance(&mut self, n: usize) {
+        self.i = (self.i + n).min(self.s.len());
+    }
+    fn eat(&mut self, ch: char) -> bool {
+        if self.peek() == Some(ch) {
+            self.i += ch.len_utf8();
+            true
+        } else {
+            false
+        }
+    }
+    fn skip_ws(&mut self) {
+        let r = self.rest();
+        self.i += r.len() - r.trim_start().len();
+    }
+    fn peek_word(&self) -> &'a str {
+        let r = self.rest();
+        let end = r
+            .find(|c: char| !(c.is_ascii_alphabetic() || c == '_'))
+            .unwrap_or(r.len());
+        &r[..end]
+    }
+    fn edge_op(&mut self) -> Option<(Arrow, Line, bool)> {
+        let r = self.rest();
+        let (tok, a, l, rev) = OPS.iter().find(|(tok, ..)| r.starts_with(tok))?;
+        self.i += tok.len();
+        Some((*a, *l, *rev))
+    }
+    fn string(&mut self) -> Result<String, String> {
+        let r = self.rest();
+        let mut escaped = false;
+        for (i, ch) in r.char_indices().skip(1) {
+            match ch {
+                _ if escaped => escaped = false,
+                '\\' => escaped = true,
+                '"' => {
+                    self.i += i + 1;
+                    return Ok(unescape(&r[1..i]));
+                }
+                _ => {}
+            }
+        }
+        Err("unterminated string".into())
+    }
+    fn ident(&mut self) -> Option<String> {
+        let r = self.rest();
+        let chars: Vec<(usize, char)> = r.char_indices().collect();
+        let word = |c: char| c.is_alphanumeric() || c == '_';
+        let mut end = 0;
+        for (k, &(i, c)) in chars.iter().enumerate() {
+            let ok = word(c)
+                || ((c == '-' || c == '.')
+                    && end > 0
+                    && chars.get(k + 1).is_some_and(|&(_, n)| word(n)));
+            if !ok {
+                break;
+            }
+            end = i + c.len_utf8();
+        }
+        if end == 0 {
+            return None;
+        }
+        self.i += end;
+        Some(r[..end].to_string())
+    }
+    /// An id (`api`) or a quoted label (`"Orders API"` → id `orders-api`).
+    fn reference(&mut self) -> Result<(String, Option<String>), String> {
+        if self.peek() == Some('"') {
+            let text = self.string()?;
+            return Ok((slug(&text), Some(text)));
+        }
+        match self.ident() {
+            Some(id) => Ok((id, None)),
+            None => Err(match self.peek() {
+                Some(c) => format!("expected a name, found `{c}`"),
+                None => "expected a name".into(),
+            }),
+        }
+    }
+    /// A comment target or id: up to whitespace or `:` (`api->db#2`, `10,20`).
+    fn target(&mut self) -> Result<String, String> {
+        if self.peek() == Some('"') {
+            return self.string();
+        }
+        let r = self.rest();
+        let end = r
+            .find(|c: char| c.is_whitespace() || c == ':')
+            .unwrap_or(r.len());
+        if end == 0 {
+            return Err("expected a name".into());
+        }
+        self.i += end;
+        Ok(r[..end].to_string())
+    }
+}
+
+// ---------------------------------------------------------------- printing
+
+pub fn is_ident(s: &str) -> bool {
+    let mut c = Cursor::new(s);
+    c.ident().is_some_and(|id| id.len() == s.len())
+}
+
+fn id_text(id: &str) -> String {
+    if is_ident(id) {
+        id.to_string()
+    } else {
+        quote(id)
+    }
+}
+
+fn quote(s: &str) -> String {
+    let mut out = String::from("\"");
+    for c in s.chars() {
+        match c {
+            '"' => out.push_str("\\\""),
+            '\\' => out.push_str("\\\\"),
+            '\n' => out.push_str("\\n"),
+            '\t' => out.push_str("\\t"),
+            c => out.push(c),
+        }
+    }
+    out.push('"');
+    out
+}
+
+fn label_text(s: &str) -> String {
+    let needs_quotes =
+        s.starts_with('"') || s.trim() != s || s.trim_end().ends_with(']') || s.is_empty();
+    if needs_quotes {
+        quote(s)
+    } else {
+        s.replace('\\', "\\\\")
+            .replace('\n', "\\n")
+            .replace('\t', "\\t")
+    }
+}
+
+fn attr_value(v: &str) -> String {
+    if v.is_empty() || v.trim() != v || v.contains([',', ';', '[', ']', '"', '\n']) {
+        quote(v)
+    } else {
+        v.to_string()
+    }
+}
+
+fn fmt_num(v: f64) -> String {
+    let r = (v * 10.0).round() / 10.0;
+    if r.fract() == 0.0 {
+        format!("{}", r as i64)
+    } else {
+        format!("{r}")
+    }
+}
+
+fn attrs_text(items: &[String]) -> String {
+    if items.is_empty() {
+        String::new()
+    } else {
+        format!(" [{}]", items.join(", "))
+    }
+}
+
+fn node_line(n: &Node) -> String {
+    let mut s = id_text(&n.id);
+    if !n.label.is_empty() && n.label != n.id {
+        s.push_str(": ");
+        s.push_str(&label_text(&n.label));
+    }
+    let mut a = Vec::new();
+    if n.shape != Shape::default() {
+        a.push(n.shape.as_str().to_string());
+    }
+    if let Some(c) = &n.color {
+        a.push(if c.starts_with('#') {
+            format!("color: {c}")
+        } else {
+            c.clone()
+        });
+    }
+    if let Some(d) = &n.detail {
+        a.push(format!("detail: {}", attr_value(&d.replace('\n', "\\n"))));
+    }
+    if let Some(l) = &n.link {
+        a.push(format!("link: {}", attr_value(l)));
+    }
+    if !n.tags.is_empty() {
+        a.push(format!("tags: {}", attr_value(&n.tags.join(" "))));
+    }
+    for (k, v) in [("x", n.x), ("y", n.y), ("w", n.w), ("h", n.h)] {
+        if let Some(v) = v {
+            a.push(format!("{k}: {}", fmt_num(v)));
+        }
+    }
+    s + &attrs_text(&a)
+}
+
+fn edge_line(e: &Edge) -> String {
+    let base = |l: Line| match l {
+        Line::Solid | Line::Dotted => ("->", "<->", "--"),
+        Line::Dashed => ("..>", "<..>", ".."),
+        Line::Thick => ("=>", "<=>", "=="),
+    };
+    let (end, both, none) = base(e.line);
+    let mut a = Vec::new();
+    let op = match e.arrow {
+        Arrow::End => end,
+        Arrow::Both => both,
+        Arrow::None => none,
+        Arrow::Start => {
+            a.push("arrow: start".to_string());
+            end
+        }
+    };
+    if e.line == Line::Dotted {
+        a.push("dotted".into());
+    }
+    if let Some(c) = &e.color {
+        a.push(if c.starts_with('#') {
+            format!("color: {c}")
+        } else {
+            c.clone()
+        });
+    }
+    let auto = format!("{}->{}", e.from, e.to);
+    if !e.id.starts_with(&auto) {
+        a.push(format!("id: {}", attr_value(&e.id)));
+    }
+    let mut s = format!("{} {op} {}", id_text(&e.from), id_text(&e.to));
+    if let Some(l) = &e.label {
+        s.push_str(": ");
+        s.push_str(&label_text(l));
+    }
+    s + &attrs_text(&a)
+}
+
+fn comment_lines(c: &Comment, out: &mut String) {
+    let mut s = format!("comment {}", id_text(&c.id));
+    if let Some(on) = &c.on {
+        s.push_str(&format!(
+            " on {}",
+            if on.contains(char::is_whitespace) || on.contains(':') {
+                quote(on)
+            } else {
+                on.clone()
+            }
+        ));
+    }
+    if let (Some(x), Some(y)) = (c.x, c.y) {
+        s.push_str(&format!(" at {},{}", fmt_num(x), fmt_num(y)));
+    }
+    if let Some(a) = &c.author {
+        s.push_str(&format!(" by {}", id_text(a)));
+    }
+    s.push_str(": ");
+    s.push_str(&label_text(&c.text));
+    let mut a = Vec::new();
+    if c.status == Status::Resolved {
+        a.push("resolved".to_string());
+    }
+    if let Some(r) = &c.resolution {
+        a.push(format!(
+            "resolution: {}",
+            attr_value(&r.replace('\n', "\\n"))
+        ));
+    }
+    out.push_str(&s);
+    out.push_str(&attrs_text(&a));
+    out.push('\n');
+    for r in &c.replies {
+        let by = r
+            .author
+            .as_ref()
+            .map(|a| format!(" by {}", id_text(a)))
+            .unwrap_or_default();
+        out.push_str(&format!(
+            "reply {}{by}: {}\n",
+            id_text(&c.id),
+            label_text(&r.text)
+        ));
+    }
+}
+
+/// Canonical text form. `parse(print(doc)) == doc` for normalized documents.
+pub fn print(doc: &Document) -> String {
+    let mut out = String::new();
+    let mut head = Vec::new();
+    if let Some(t) = &doc.title {
+        head.push(format!("title: {}", t.replace('\n', " ")));
+    }
+    if let Some(d) = &doc.description {
+        head.push(format!("description: {}", d.replace('\n', " ")));
+    }
+    let s = &doc.settings;
+    let def = Settings::default();
+    if s.direction != def.direction {
+        head.push(format!("direction: {}", s.direction.as_str()));
+    }
+    if s.layout != def.layout {
+        head.push(format!("layout: {}", s.layout.as_str()));
+    }
+    if s.routing != def.routing {
+        head.push(format!("routing: {}", s.routing.as_str()));
+    }
+    if s.theme != def.theme {
+        head.push(format!("theme: {}", s.theme.as_str()));
+    }
+    let mut sections: Vec<String> = Vec::new();
+    if !head.is_empty() {
+        sections.push(head.join("\n") + "\n");
+    }
+
+    fn group_block(doc: &Document, g: &Group, depth: usize, out: &mut String) {
+        let pad = "  ".repeat(depth);
+        let mut line = format!("{pad}group {}", id_text(&g.id));
+        if !g.label.is_empty() && g.label != g.id {
+            line.push_str(": ");
+            line.push_str(&label_text(&g.label));
+        }
+        if let Some(c) = &g.color {
+            line.push_str(&attrs_text(&[if c.starts_with('#') {
+                format!("color: {c}")
+            } else {
+                c.clone()
+            }]));
+        }
+        out.push_str(&line);
+        out.push_str(" {\n");
+        let (nodes, groups) = doc.members(Some(&g.id));
+        for n in nodes {
+            out.push_str(&format!("{pad}  {}\n", node_line(n)));
+        }
+        for child in groups {
+            group_block(doc, child, depth + 1, out);
+        }
+        out.push_str(&format!("{pad}}}\n"));
+    }
+    let (top_nodes, top_groups) = doc.members(None);
+    // groups whose parent is missing are printed at the top level too
+    let orphans: Vec<&Group> = doc
+        .groups
+        .iter()
+        .filter(|g| g.parent.as_ref().is_some_and(|p| doc.group(p).is_none()))
+        .collect();
+    let mut groups = String::new();
+    for g in top_groups.into_iter().chain(orphans) {
+        group_block(doc, g, 0, &mut groups);
+    }
+    let mut nodes = String::new();
+    for n in top_nodes.into_iter().chain(
+        doc.nodes
+            .iter()
+            .filter(|n| n.group.as_ref().is_some_and(|g| doc.group(g).is_none())),
+    ) {
+        // an undecorated node that an edge mentions needs no line of its own
+        let bare = n.label.is_empty()
+            && *n
+                == Node {
+                    id: n.id.clone(),
+                    group: n.group.clone(),
+                    ..Default::default()
+                };
+        if bare && n.group.is_none() && doc.edges.iter().any(|e| e.from == n.id || e.to == n.id) {
+            continue;
+        }
+        nodes.push_str(&node_line(n));
+        nodes.push('\n');
+    }
+    let edges: String = doc.edges.iter().map(|e| edge_line(e) + "\n").collect();
+    let mut comments = String::new();
+    for c in &doc.comments {
+        comment_lines(c, &mut comments);
+    }
+    for part in [nodes, groups, edges, comments] {
+        if !part.is_empty() {
+            sections.push(part);
+        }
+    }
+    out.push_str(&sections.join("\n"));
+    out
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    const SRC: &str = r#"
+title: Checkout
+direction: down
+
+# people
+user: Customer [person]
+group backend: Backend [blue] {
+  api: Orders API [detail: Rust · Axum, x: 10, y: 20]
+  db: Postgres [cylinder]
+  group jobs {
+    worker
+  }
+}
+user -> api: POST /orders
+api -> db -> "Read replica"
+api ..> mail, worker: async [red]
+a <- b
+c <-> d [thick]
+comment on api by deyan: Should payments be separate?
+reply c1 by "Ana B": Not before launch.
+comment review at 10,20: Overall looks good [resolved, resolution: "ok"]
+"#;
+
+    #[test]
+    fn parses_everything() {
+        let d = parse(SRC).unwrap();
+        assert_eq!(d.title.as_deref(), Some("Checkout"));
+        assert_eq!(d.settings.direction, Direction::Down);
+        let api = d.node("api").unwrap();
+        assert_eq!(api.label, "Orders API");
+        assert_eq!(api.group.as_deref(), Some("backend"));
+        assert_eq!(api.detail.as_deref(), Some("Rust · Axum"));
+        assert_eq!(api.x, Some(10.0));
+        assert_eq!(d.node("db").unwrap().shape, Shape::Cylinder);
+        assert_eq!(d.node("user").unwrap().shape, Shape::Person);
+        assert_eq!(d.node("worker").unwrap().group.as_deref(), Some("jobs"));
+        assert_eq!(d.group("jobs").unwrap().parent.as_deref(), Some("backend"));
+        assert_eq!(d.node("read-replica").unwrap().label, "Read replica");
+        assert!(d.edge("db->read-replica").is_some());
+        let e = d.edge("api->worker").unwrap();
+        assert_eq!(
+            (e.line, e.color.as_deref(), e.label.as_deref()),
+            (Line::Dashed, Some("red"), Some("async"))
+        );
+        assert!(d.edge("b->a").is_some());
+        assert_eq!(d.edge("c->d").unwrap().arrow, Arrow::Both);
+        assert_eq!(d.edge("c->d").unwrap().line, Line::Thick);
+        assert_eq!(d.comments.len(), 2);
+        assert_eq!(d.comments[0].id, "c1");
+        assert_eq!(d.comments[0].replies[0].author.as_deref(), Some("Ana B"));
+        assert_eq!(d.comments[1].status, Status::Resolved);
+        assert_eq!(d.comments[1].x, Some(10.0));
+    }
+
+    #[test]
+    fn round_trips() {
+        let d = parse(SRC).unwrap();
+        let text = print(&d);
+        let mut again = parse(&text).unwrap_or_else(|e| panic!("{e:?}\n{text}"));
+        let mut d = d;
+        d.nodes.sort_by(|a, b| a.id.cmp(&b.id));
+        let printed_again = print(&again);
+        again.nodes.sort_by(|a, b| a.id.cmp(&b.id));
+        assert_eq!(d, again, "\n{text}");
+        assert_eq!(printed_again, text);
+    }
+
+    #[test]
+    fn labels_keep_brackets_and_newlines() {
+        let d = parse("a: Step [draft]\nb: Two\\nlines\nc: \"  padded \"").unwrap();
+        assert_eq!(d.node("a").unwrap().label, "Step [draft]");
+        assert_eq!(d.node("b").unwrap().label, "Two\nlines");
+        assert_eq!(d.node("c").unwrap().label, "  padded ");
+        assert_eq!(parse(&print(&d)).unwrap(), d);
+    }
+
+    #[test]
+    fn hyphenated_ids_and_tight_operators() {
+        let d = parse("web-app->api.v2\nx-->y\np..q").unwrap();
+        assert!(d.edge("web-app->api.v2").is_some());
+        assert!(d.edge("x->y").is_some());
+        assert_eq!(d.edge("p->q").unwrap().arrow, Arrow::None);
+    }
+
+    #[test]
+    fn reports_errors_with_lines() {
+        let (_, errs) = parse_lenient("a [shape: blob]\n}\ngroup g {\n");
+        let lines: Vec<usize> = errs.iter().map(|e| e.line).collect();
+        assert_eq!(lines, vec![1, 2, 3], "{errs:?}");
+    }
+}

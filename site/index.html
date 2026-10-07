@@ -1,0 +1,85 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>diagram — FigJam-style diagrams as text, with review comments that become LLM prompts</title>
+<meta name="description" content="Lightweight diagrams you write as text or draw in a browser editor. Comment like in FigJam, then turn the comments into a prompt for Claude, Codex or any LLM. SVG/PNG export, Mermaid, a Rust crate and a JS library.">
+<link rel="icon" type="image/svg+xml" href="favicon.svg">
+<link rel="stylesheet" href="site.css">
+</head>
+<body>
+<header class="nav">
+  <a class="brand" href="./"><img src="favicon.svg" width="22" height="22" alt="">diagram</a>
+  <nav><a href="app/">Playground</a><a href="examples/">Examples</a><a href="{{REPO_URL}}/blob/main/crates/core/LANGUAGE.md">Language</a><a href="{{REPO_URL}}">GitHub</a></nav>
+</header>
+
+<main>
+<section class="hero">
+  <h1>Diagrams as text,<br>reviews as prompts.</h1>
+  <p class="lead">A lightweight FigJam for engineers. You can write a diagram in a small, readable language or draw it in the browser. Colleagues comment on boxes and arrows, and one click turns those comments into a prompt your LLM can act on.</p>
+  <p class="cta"><a class="button primary" href="app/">Open the playground</a> <a class="button" href="{{REPO_URL}}#install">Install the CLI</a></p>
+</section>
+
+<section class="demo">
+  <div class="split">
+    <pre class="code"><code>title: Checkout
+user: Customer [person]
+group backend: Backend [blue] {
+  api: Orders API [detail: Rust · Axum]
+  db: Postgres [cylinder]
+}
+mail: E-mail [cloud]
+user -> api: POST /orders
+api -> db
+api ..> mail: receipt
+
+comment on api by deyan: Split payments out?</code></pre>
+    <div class="live" data-diagram data-mode="view"><script type="text/plain">title: Checkout
+user: Customer [person]
+group backend: Backend [blue] {
+  api: Orders API [detail: Rust · Axum]
+  db: Postgres [cylinder]
+}
+mail: E-mail [cloud]
+user -> api: POST /orders
+api -> db
+api ..> mail: receipt
+
+comment on api by deyan: Split payments out?</script></div>
+  </div>
+</section>
+
+<section class="features">
+  <div><h3>Two languages</h3><p>The <b>DSL</b> is for people: one statement per line, easy to diff in a PR. The <b>JSON model</b> and <b>ops</b> are for programs and LLMs: strict, schema-checked edits that are applied all at once or not at all. Mermaid works in both directions.</p></div>
+  <div><h3>A real editor</h3><p>Double-click to add a box. Drag a dot to connect two boxes, or drop it on empty space to create a new one. You get sticky notes, groups, an inspector, undo, a live code pane, light and dark themes, and pan and zoom.</p></div>
+  <div><h3>Comments → prompts</h3><p>Press <kbd>M</kbd> and click anything to start a thread. <b>Prompt</b> turns the open threads into a task for an agent: change the diagram, change the code, or just discuss. Paste the reply back and the changes are applied and the comments resolved.</p></div>
+  <div><h3>Export anywhere</h3><p>Export SVG and PNG, or a single self-contained HTML file. You can also copy Mermaid for GitHub, copy a Markdown brief for LLM context, or share a link that carries the whole diagram in the URL.</p></div>
+  <div><h3>Git-aware</h3><p><code>diagram svg arch.diagram --base main</code> draws what a branch changed: green for added, red for removed, amber for changed. <code>diagram diff</code> prints the same changes as Markdown.</p></div>
+  <div><h3>A library</h3><p>Use the Rust crate on servers, or one <code>diagram.embed.js</code> file (JS plus WASM) to render diagrams or mount the full editor in your app. It is the same engine everywhere.</p></div>
+</section>
+
+<section class="loop">
+  <h2>The review loop</h2>
+  <ol>
+    <li><b>Draw</b>: <code>diagram docs/checkout.diagram</code> opens the editor and saves to the file as you work.</li>
+    <li><b>Review</b>: colleagues comment in the editor, or with <code>diagram comment FILE --on api "…"</code>.</li>
+    <li><b>Prompt</b>: <code>diagram prompt FILE --target code</code>, or the Prompt button.</li>
+    <li><b>Apply</b>: paste the LLM's reply into <i>Apply reply</i> or pipe it to <code>diagram apply FILE</code>. Each comment is resolved with a note on what was done.</li>
+  </ol>
+</section>
+
+<section class="install" id="install">
+  <h2>Install</h2>
+  <pre class="code"><code>git clone {{REPO_URL}} && cd diagram
+make install          # needs Rust, the wasm32 target and wasm-pack
+diagram new docs/arch.diagram --template architecture
+diagram docs/arch.diagram</code></pre>
+  <p>Agent skills for Claude Code: <code>diagram skills install</code>.</p>
+</section>
+</main>
+
+<footer>MIT · <a href="{{REPO_URL}}">{{REPO_URL}}</a></footer>
+<script src="diagram.embed.js"></script>
+</body>
+</html>

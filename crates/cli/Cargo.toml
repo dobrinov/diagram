@@ -1,0 +1,18 @@
+[package]
+name = "diagram"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+repository.workspace = true
+description = "Lightweight FigJam-style diagrams as text: editor, CLI, SVG/PNG export and LLM review prompts"
+build = "build.rs"
+
+[[bin]]
+name = "diagram"
+path = "src/main.rs"
+
+[dependencies]
+diagram-core = { path = "../core" }
+resvg = { version = "0.48.1", default-features = false, features = ["text", "system-fonts", "memmap-fonts"] }
+serde_json.workspace = true
+tiny_http = "0.12"

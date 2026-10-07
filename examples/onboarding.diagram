@@ -1,0 +1,18 @@
+title: User onboarding
+direction: down
+
+start: Sign up [pill, green]
+verify: Verify e-mail
+verified: Verified? [diamond]
+resend: Resend link [rounded]
+profile: Complete profile
+invite: Invite teammates [rounded, detail: optional]
+done: Workspace ready [pill, green]
+
+start -> verify -> verified
+verified -> profile: yes
+verified -> resend: no
+resend ..> verify
+profile -> invite -> done
+
+comment on invite: Can we skip this for solo users?

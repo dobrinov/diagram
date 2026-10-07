@@ -1,0 +1,5 @@
+/target
+/web/pkg
+/docs
+.DS_Store
+*.log

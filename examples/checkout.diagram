@@ -1,0 +1,35 @@
+title: Checkout architecture
+description: How an order flows from the storefront to fulfilment.
+
+customer: Customer [person]
+stripe: Stripe [cloud, purple, detail: payments]
+mail: E-mail provider [cloud]
+note: Every write carries an\nidempotency key [sticky]
+
+group edge: Edge [gray] {
+  web: Storefront [rounded, detail: Next.js]
+  gateway: API gateway [hexagon]
+}
+group backend: Backend [blue] {
+  orders: Orders API [detail: Rust · Axum]
+  payments: Payments [detail: Rust]
+  queue: Job queue [pill]
+  worker: Fulfilment worker
+  db: Postgres [cylinder]
+}
+
+customer -> web: browses
+web -> gateway: HTTPS
+gateway -> orders: POST /orders
+orders -> payments: charge
+payments -> stripe: PaymentIntent
+orders -> db
+orders ..> queue: order.created
+queue ..> worker
+worker -> mail: receipt
+worker -> db
+
+comment on payments by deyan: Should payments own its own database?
+reply c1 by ana: Not before launch; a separate schema is enough.
+comment on queue->worker by ana: What happens when the worker crashes mid-order?
+comment c3 at 40,-60 by deyan: Add the admin dashboard to this picture

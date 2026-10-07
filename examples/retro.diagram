@@ -1,0 +1,11 @@
+title: Sprint 42 retro
+layout: grid
+
+good1: Shipped the importer a week early [sticky, green]
+good2: Pairing on the parser worked well [sticky, green]
+bad1: Flaky CI on macOS runners [sticky, red]
+bad2: Too many meetings on Wednesday [sticky, red]
+idea1: Try async stand-ups [sticky, blue]
+idea2: Cache the WASM build in CI [sticky, blue]
+
+comment on bad1 by deyan: Owner? Let's pick someone this week.

@@ -1,0 +1,11 @@
+[package]
+name = "diagram-core"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+repository.workspace = true
+description = "Diagram model, DSL / JSON / Mermaid parsing, layout, SVG rendering, review comments and LLM prompts"
+
+[dependencies]
+serde.workspace = true
+serde_json.workspace = true

@@ -1,0 +1,165 @@
+/* diagram editor. All rules are scoped under .dge so it can be embedded. */
+.dge {
+  --bg: #ffffff; --bg2: #f6f8fa; --bg3: #eef1f4; --fg: #1f2328; --muted: #656d76; --line: #d0d7de;
+  --accent: #2f6fed; --accent-fg: #ffffff; --accent-bg: #e8f0fe; --danger: #cf222e; --pin: #7048e8;
+  --canvas: #fbfbfc; --dot: #dfe3e8; --shadow: 0 8px 28px rgba(31, 35, 40, .16);
+  --mono: ui-monospace, "SF Mono", Menlo, Consolas, monospace;
+  position: relative; display: flex; flex-direction: column; height: 100%; min-height: 320px; overflow: hidden;
+  font: 13px/1.4 -apple-system, BlinkMacSystemFont, "Segoe UI", Helvetica, Arial, sans-serif;
+  color: var(--fg); background: var(--bg); box-sizing: border-box;
+}
+.dge[data-theme="dark"] {
+  --bg: #0d1117; --bg2: #161b22; --bg3: #21262d; --fg: #e6edf3; --muted: #8d96a0; --line: #30363d;
+  --accent: #4c8dff; --accent-bg: #172a4a; --danger: #f85149; --pin: #9775fa;
+  --canvas: #0d1117; --dot: #21262d; --shadow: 0 8px 28px rgba(0, 0, 0, .5);
+}
+.dge *, .dge *::before, .dge *::after { box-sizing: border-box; }
+.dge button, .dge select, .dge input, .dge textarea { font: inherit; color: inherit; }
+.dge button {
+  display: inline-flex; align-items: center; justify-content: center; gap: 4px; min-height: 28px; padding: 0 9px;
+  border: 1px solid transparent; border-radius: 6px; background: transparent; cursor: pointer; white-space: nowrap;
+}
+.dge button:hover { background: var(--bg3); }
+.dge button:disabled { opacity: .45; cursor: default; }
+.dge button.on { background: var(--accent-bg); color: var(--accent); }
+.dge button.dge-primary { background: var(--accent); color: var(--accent-fg); }
+.dge button.dge-primary:hover { filter: brightness(1.08); }
+.dge button.danger { color: var(--danger); }
+.dge :focus-visible { outline: 2px solid var(--accent); outline-offset: 1px; }
+.dge input[type=text], .dge textarea, .dge .dge-select {
+  width: 100%; padding: 5px 8px; border: 1px solid var(--line); border-radius: 6px; background: var(--bg);
+}
+.dge .dge-select { width: auto; min-height: 28px; padding: 2px 6px; }
+.dge code { font-family: var(--mono); font-size: 12px; color: var(--muted); }
+
+.dge-toolbar { display: flex; align-items: center; gap: 6px; padding: 6px 8px; border-bottom: 1px solid var(--line); background: var(--bg); overflow-x: auto; flex: none; }
+.dge-group { display: flex; align-items: center; gap: 2px; padding-right: 6px; border-right: 1px solid var(--line); }
+.dge-group:last-child { border-right: 0; padding-right: 0; }
+.dge-group:empty { display: none; }
+.dge-spacer { flex: 1; }
+.dge-chip { display: inline-flex; align-items: center; gap: 2px; padding: 2px 4px 2px 10px; border-radius: 999px; background: #fff8c5; color: #7d5c00; font-size: 12px; }
+.dge[data-theme="dark"] .dge-chip { background: #2b2111; color: #d29922; }
+.dge-chip[hidden] { display: none; }
+.dge-chip button { min-height: 20px; padding: 0 6px; }
+
+.dge-body { position: relative; display: flex; flex: 1; min-height: 0; }
+.dge-code { display: flex; flex-direction: column; width: 28%; min-width: 240px; max-width: 460px; border-right: 1px solid var(--line); background: var(--bg2); }
+.dge-code[hidden], .dge-panel[hidden] { display: none; }
+.dge-tabs { display: flex; align-items: center; gap: 2px; padding: 4px 6px; border-bottom: 1px solid var(--line); }
+.dge-tabs button { min-height: 24px; font-size: 12px; }
+.dge-help { margin-left: auto; font-size: 12px; color: var(--muted); text-decoration: none; }
+.dge-help:hover { color: var(--accent); }
+.dge-code-wrap { position: relative; display: flex; flex: 1; min-height: 0; }
+.dge-gutter { flex: none; width: 38px; padding: 10px 6px 10px 0; overflow: hidden; text-align: right; font: 12px/20px var(--mono); color: var(--muted); user-select: none; opacity: .7; }
+.dge-gutter .err { color: var(--danger); font-weight: 700; opacity: 1; }
+.dge .dge-text {
+  flex: 1; padding: 10px 10px 10px 4px; border: 0; border-radius: 0; background: transparent; resize: none;
+  font: 12.5px/20px var(--mono); white-space: pre; overflow: auto; tab-size: 2; outline: none;
+}
+.dge-errors { max-height: 30%; overflow: auto; border-top: 1px solid var(--line); }
+.dge-errors[hidden] { display: none; }
+.dge button.dge-error { display: block; width: 100%; height: auto; padding: 5px 10px; border-radius: 0; text-align: left; white-space: normal; color: var(--danger); font-size: 12px; }
+
+.dge-canvas {
+  position: relative; flex: 1; min-width: 0; overflow: hidden; outline: none; cursor: default; touch-action: none;
+  background-color: var(--canvas); background-image: radial-gradient(var(--dot) 1px, transparent 1px); background-size: 20px 20px;
+}
+.dge .dge-canvas:focus-visible { outline: none; }
+.dge-canvas[data-tool="node"], .dge-canvas[data-tool="sticky"], .dge-canvas[data-tool="comment"] { cursor: crosshair; }
+.dge-canvas[data-tool="connect"] .dg-node { cursor: crosshair; }
+.dge-canvas.space, .dge-view .dge-canvas { cursor: grab; }
+.dge-canvas.panning { cursor: grabbing; }
+.dge-stage { position: absolute; top: 0; left: 0; transform-origin: 0 0; }
+.dge-stage > svg.dg { display: block; overflow: visible; box-shadow: 0 0 0 1px var(--line); border-radius: 4px; }
+.dge-overlay { position: absolute; top: 0; left: 0; overflow: visible; pointer-events: none; }
+.dge-overlay .dge-handle { fill: var(--bg); stroke: var(--accent); stroke-width: 1.5; pointer-events: all; cursor: crosshair; }
+.dge-overlay .dge-handle:hover { fill: var(--accent); }
+.dge-rubber { fill: none; stroke: var(--accent); stroke-width: 2; stroke-dasharray: 5 4; }
+.dge-target { fill: none; stroke: var(--accent); stroke-width: 2; }
+.dge-marquee { fill: rgba(47, 111, 237, .08); stroke: var(--accent); stroke-width: 1; stroke-dasharray: 4 3; }
+.dge .dg-node { cursor: move; }
+.dge-view .dg-node, .dge-view .dg-group { cursor: inherit; }
+.dge .dg-node:hover .dg-shape { filter: brightness(.98); }
+.dge .dg-node.sel .dg-shape, .dge .dg-group.sel > .dg-shape { stroke: var(--accent) !important; stroke-width: 2.5px !important; }
+.dge .dg-node.cmt .dg-shape, .dge .dg-group.cmt > .dg-shape { stroke: var(--pin) !important; stroke-width: 2.5px !important; }
+.dge .dg-edge { cursor: pointer; }
+.dge .dg-edge:hover .dg-line, .dge .dg-edge.sel .dg-line { stroke: var(--accent) !important; }
+.dge .dg-edge.sel .dg-arrow, .dge .dg-edge:hover .dg-arrow { fill: var(--accent) !important; }
+.dge .dg-edge.cmt .dg-line { stroke: var(--pin) !important; }
+.dge .dg-pin { cursor: pointer; }
+.dge .dg-pin:hover circle, .dge .dg-pin.sel circle { r: 12px; }
+.dge-zoombar { position: absolute; right: 10px; bottom: 10px; display: flex; gap: 2px; padding: 3px; border: 1px solid var(--line); border-radius: 8px; background: var(--bg); box-shadow: 0 1px 3px rgba(0,0,0,.06); }
+.dge-zoombar button { min-height: 24px; min-width: 26px; padding: 0 6px; }
+.dge-zoom-label { font-variant-numeric: tabular-nums; min-width: 48px !important; }
+.dge-hint { position: absolute; inset: 0; display: grid; place-items: center; color: var(--muted); pointer-events: none; font-size: 14px; }
+.dge-hint[hidden] { display: none; }
+.dge-inline {
+  position: absolute; z-index: 5; padding: 6px 8px !important; border: 2px solid var(--accent) !important; border-radius: 6px !important;
+  background: var(--bg) !important; text-align: center; resize: none; line-height: 1.3; box-shadow: var(--shadow);
+}
+
+.dge-panel { width: 300px; flex: none; overflow-y: auto; border-left: 1px solid var(--line); background: var(--bg); }
+.dge-inspector, .dge-comments { padding: 12px; }
+.dge-inspector { border-bottom: 1px solid var(--line); }
+.dge h3 { display: flex; align-items: center; gap: 6px; margin: 0 0 10px; font-size: 13px; font-weight: 600; }
+.dge h4 { margin: 12px 0 6px; font-size: 12px; font-weight: 600; color: var(--muted); text-transform: uppercase; letter-spacing: .04em; }
+.dge-field { display: grid; grid-template-columns: 76px 1fr; align-items: center; gap: 8px; margin-bottom: 8px; }
+.dge-field > span { color: var(--muted); font-size: 12px; }
+.dge-swatches { display: flex; flex-wrap: wrap; gap: 4px; }
+.dge button.dge-swatch { width: 20px; min-height: 20px; height: 20px; padding: 0; border: 2px solid var(--bg); border-radius: 50%; box-shadow: 0 0 0 1px var(--line); }
+.dge button.dge-swatch.none { background: linear-gradient(135deg, var(--bg) 45%, var(--danger) 45%, var(--danger) 55%, var(--bg) 55%); }
+.dge button.dge-swatch.on { box-shadow: 0 0 0 2px var(--accent); }
+.dge-actions { display: flex; flex-wrap: wrap; gap: 6px; margin: 8px 0; }
+.dge-actions.end { justify-content: flex-end; margin: 12px 0 0; }
+.dge-actions button:not(.dge-primary) { border-color: var(--line); }
+.dge-actions.small button { min-height: 24px; font-size: 12px; }
+.dge-muted { color: var(--muted); }
+.dge-tip { color: var(--muted); font-size: 12px; padding: 8px 10px; border-radius: 6px; background: var(--bg2); }
+.dge-comments-head { display: flex; align-items: center; justify-content: space-between; }
+.dge-comments-head h3 { margin: 0; }
+.dge-count { padding: 0 7px; border-radius: 999px; background: var(--pin); color: #fff; font-size: 11px; line-height: 18px; }
+.dge-check { display: flex; align-items: center; gap: 6px; color: var(--muted); font-size: 12px; cursor: pointer; }
+.dge-check.resolved { text-decoration: line-through; }
+.dge-composer { margin: 8px 0; }
+.dge-card { margin: 8px 0; padding: 10px; border: 1px solid var(--line); border-radius: 8px; cursor: pointer; }
+.dge-card.active { border-color: var(--pin); box-shadow: 0 0 0 1px var(--pin); }
+.dge-card.resolved { opacity: .7; }
+.dge-card-head { display: flex; align-items: center; flex-wrap: wrap; gap: 4px; font-size: 12px; color: var(--muted); }
+.dge-card-head b { color: var(--fg); }
+.dge-num { display: inline-grid; place-items: center; width: 18px; height: 18px; border-radius: 50%; background: var(--pin); color: #fff; font-size: 10px; font-weight: 700; }
+.dge-num.done { background: var(--muted); }
+.dge-cid { margin-left: auto; }
+.dge button.dge-link { min-height: 0; padding: 0; color: var(--accent); }
+.dge button.dge-link:hover { background: none; text-decoration: underline; }
+.dge-card-text { margin: 6px 0; white-space: pre-wrap; }
+.dge-reply { margin: 4px 0 0 10px; padding-left: 8px; border-left: 2px solid var(--line); font-size: 12px; white-space: pre-wrap; }
+.dge-resolution { margin-top: 6px; font-size: 12px; color: #1a7f37; }
+.dge[data-theme="dark"] .dge-resolution { color: #3fb950; }
+.dge .dge-reply-in { margin-top: 6px; font-size: 12px; }
+
+.dge-menu { position: absolute; z-index: 20; min-width: 210px; padding: 4px; border: 1px solid var(--line); border-radius: 8px; background: var(--bg); box-shadow: var(--shadow); }
+.dge-menu[hidden] { display: none; }
+.dge-menu button { display: flex; width: 100%; justify-content: flex-start; }
+.dge-menu hr { margin: 4px 0; border: 0; border-top: 1px solid var(--line); }
+.dge-modal { position: absolute; inset: 0; z-index: 30; display: grid; place-items: center; padding: 16px; background: rgba(15, 18, 22, .45); }
+.dge-modal[hidden] { display: none; }
+.dge-dialog { width: min(860px, 100%); max-height: 100%; overflow: auto; padding: 16px; border-radius: 12px; background: var(--bg); box-shadow: var(--shadow); }
+.dge-dialog-head { display: flex; align-items: center; justify-content: space-between; }
+.dge-dialog-head h3 { margin: 0; font-size: 15px; }
+.dge-x { font-size: 18px; }
+.dge-cols { display: grid; grid-template-columns: 1fr 1fr; gap: 16px; }
+.dge-radio { display: flex; gap: 8px; align-items: flex-start; padding: 4px 0; cursor: pointer; }
+.dge-radio span { display: flex; flex-direction: column; }
+.dge-radio small { color: var(--muted); }
+.dge-checklist { max-height: 150px; overflow: auto; margin-bottom: 8px; }
+.dge .dge-preview { margin-top: 12px; font: 12px/1.5 var(--mono); background: var(--bg2); resize: vertical; }
+.dge-toast { position: absolute; left: 50%; bottom: 16px; z-index: 40; max-width: 80%; padding: 8px 14px; border-radius: 8px; background: var(--fg); color: var(--bg); opacity: 0; transform: translate(-50%, 8px); transition: .18s; pointer-events: none; }
+.dge-toast.show { opacity: 1; transform: translate(-50%, 0); }
+.dge-toast.error { background: var(--danger); color: #fff; }
+
+@media (max-width: 760px) {
+  .dge-code { position: absolute; inset: 0 auto 0 0; z-index: 10; width: 88%; max-width: none; box-shadow: var(--shadow); }
+  .dge-panel { position: absolute; inset: 0 0 0 auto; z-index: 10; width: 88%; box-shadow: var(--shadow); }
+  .dge-cols { grid-template-columns: 1fr; }
+  .dge-toolbar .dge-select { display: none; }
+}
