@@ -1,3 +1,4 @@
+mod ai;
 mod assets;
 mod export;
 mod png;
@@ -18,7 +19,8 @@ use diagram_core::{Document, RenderOptions};
 pub const HELP: &str = r#"diagram — lightweight diagrams as text, with review comments that become LLM prompts
 
 USAGE
-  diagram [FILE]                     open FILE in the editor (created if missing)
+  diagram [FILE]                     open FILE in the editor (created if missing;
+                                     no FILE starts a new untitled.diagram)
   diagram new FILE [--template flow|architecture|board]   start a diagram from a template
 
 EXPORT
@@ -30,6 +32,14 @@ EXPORT
   diagram convert FILE --to dsl|json|mermaid|brief [-o OUT]
                                      FILE may be DSL, JSON or Mermaid (detected)
   diagram brief FILE                 Markdown description for LLM context
+
+MINDMAPS
+  diagram outline FILE [ID] [--md]   a mindmap as an indented outline (--md: Markdown, ready as a prompt)
+  diagram expand  FILE ID [--ask TEXT] [--count N] [--levels N] [--print]
+                                     grow topic ID with AI (prints the prompt with --print or without a harness)
+  diagram expand  FILE --new TOPIC [--ask TEXT]   a new mindmap about TOPIC
+    AI harness: --ai CMD or $DIAGRAM_AI (any command reading the prompt on stdin;
+                default `claude -p --model haiku` when Claude Code is installed)
 
 REVIEW
   diagram comments FILE [--all] [--json]          list comment threads
@@ -53,7 +63,7 @@ MORE
   diagram version
 
 SERVER OPTIONS
-  --port N  --no-open
+  --port N  --no-open  --ai CMD
 
 FILE may be `-` for stdin. Formats are chosen by extension: .diagram (DSL),
 .json, .mmd (Mermaid). See https://github.com/dobrinov/diagram
@@ -77,6 +87,11 @@ const VALUE_FLAGS: &[&str] = &[
     "--dir",
     "--template",
     "--theme",
+    "--ai",
+    "--ask",
+    "--count",
+    "--levels",
+    "--new",
 ];
 
 struct Args {
@@ -107,7 +122,7 @@ impl Args {
         const COMMANDS: &[&str] = &[
             "new", "open", "svg", "png", "html", "convert", "brief", "comments", "comment",
             "reply", "resolve", "prompt", "apply", "check", "fmt", "diff", "spec", "embed",
-            "skills", "version", "help",
+            "skills", "version", "help", "outline", "expand",
         ];
         let cmd = match pos.first() {
             Some(c) if COMMANDS.contains(&c.as_str()) => pos.remove(0),
@@ -135,6 +150,26 @@ impl Args {
             .map(|s| s.as_str())
             .ok_or_else(|| format!("missing FILE (try `diagram {} FILE`)", self.cmd))
     }
+}
+
+/// The first free `untitled.diagram`, `untitled-2.diagram`, … in the current directory.
+fn untitled() -> String {
+    (1..)
+        .map(|n| match n {
+            1 => "untitled.diagram".to_string(),
+            n => format!("untitled-{n}.diagram"),
+        })
+        .find(|f| !Path::new(f).exists())
+        .unwrap()
+}
+
+/// The first mindmap's centre.
+fn first_map(doc: &Document) -> Result<String, String> {
+    let f = diagram_core::mindmap::Forest::new(doc);
+    (0..doc.nodes.len())
+        .find(|&i| f.root[i] == Some(i))
+        .map(|i| doc.nodes[i].id.clone())
+        .ok_or_else(|| "this diagram has no mindmap".to_string())
 }
 
 fn main() -> ExitCode {
@@ -353,11 +388,7 @@ fn run(args: Args) -> Result<ExitCode, String> {
             ok
         }
         "open" => {
-            let file = args
-                .pos
-                .first()
-                .cloned()
-                .unwrap_or_else(|| "diagram.diagram".into());
+            let file = args.pos.first().cloned().unwrap_or_else(untitled);
             if !Path::new(&file).exists() {
                 std::fs::write(
                     &file,
@@ -370,7 +401,8 @@ fn run(args: Args) -> Result<ExitCode, String> {
                 .val("--port")
                 .map(|p| p.parse::<u16>().map_err(|_| "--port must be a number"))
                 .transpose()?;
-            server::serve(PathBuf::from(file), port, !args.flag("--no-open"))?;
+            let ai = ai::command(args.val("--ai"));
+            server::serve(PathBuf::from(file), port, !args.flag("--no-open"), ai)?;
             ok
         }
         "new" => {
@@ -581,6 +613,76 @@ fn run(args: Args) -> Result<ExitCode, String> {
                 file: (file != "-").then(|| file.to_string()),
             };
             print!("{}", diagram_core::prompt::prompt(&doc, &opts));
+            ok
+        }
+        "outline" => {
+            let file = args.file(0)?;
+            let doc = load(file)?;
+            let id = match args.pos.get(1) {
+                Some(id) => id.clone(),
+                None => first_map(&doc)?,
+            };
+            if doc.node(&id).is_none() {
+                return Err(format!("no node `{id}`"));
+            }
+            if args.flag("--md") {
+                print!("{}", diagram_core::mindmap::to_markdown(&doc, &id));
+            } else {
+                print!("{}", diagram_core::mindmap::outline(&doc, &id, true));
+            }
+            ok
+        }
+        "expand" => {
+            let file = args.file(0)?;
+            let mut doc = load(file)?;
+            let o = diagram_core::mindmap::ExpandOptions {
+                instructions: args.val("--ask").map(String::from),
+                count: args.val("--count").and_then(|c| c.parse().ok()),
+                levels: args.val("--levels").and_then(|c| c.parse().ok()),
+            };
+            let (prompt, parent) = match args.val("--new") {
+                Some(topic) => (diagram_core::mindmap::generate_prompt(topic, &o), None),
+                None => {
+                    let id = args
+                        .pos
+                        .get(1)
+                        .ok_or("usage: diagram expand FILE ID (or --new TOPIC)")?;
+                    (
+                        diagram_core::mindmap::expand_prompt(&doc, id, &o)?,
+                        Some(id.clone()),
+                    )
+                }
+            };
+            let cmd = ai::command(args.val("--ai"));
+            let Some(cmd) = cmd.filter(|_| !args.flag("--print")) else {
+                print!("{prompt}");
+                if !args.flag("--print") {
+                    eprintln!(
+                        "no AI harness found: pass --ai CMD or set DIAGRAM_AI; the prompt is above"
+                    );
+                }
+                return ok;
+            };
+            eprintln!("asking `{cmd}`…");
+            let reply = ai::run(&cmd, &prompt)?;
+            let outline: String = diagram_core::mindmap::parse_reply(&reply)
+                .iter()
+                .map(|l| format!("{}{}\n", "  ".repeat(l.depth), l.text))
+                .collect();
+            let r = diagram_core::ops::apply(
+                &mut doc,
+                &[Op::AddOutline {
+                    parent,
+                    outline: outline.clone(),
+                    index: None,
+                    x: None,
+                    y: None,
+                }],
+            )
+            .map_err(|e| e.to_string())?;
+            save(file, &doc)?;
+            print!("{outline}");
+            eprintln!("added {} topics to {file}", r.created.len());
             ok
         }
         "apply" => {

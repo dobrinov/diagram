@@ -47,7 +47,9 @@
         if (pending != null) { var p = pending; pending = null; save(p); }
       }).catch(function (e) { saving = false; status("Not saved: " + e.message, "error"); });
     }
-    return fetch("api/file").then(function (r) { return r.json(); }).then(function (f) {
+    var ai = fetch("api/ai").then(function (r) { return r.json(); }).catch(function () { return {}; });
+    return Promise.all([fetch("api/file").then(function (r) { return r.json(); }), ai]).then(function (both) {
+      var f = both[0], harness = both[1];
       mtime = f.mtime;
       lastSaved = f.source;
       fileEl.textContent = f.path;
@@ -57,6 +59,13 @@
         author: f.author || undefined,
         file: f.path,
         name: f.name.replace(/\..*$/, ""),
+        // ✦ actions go to the harness the server was started with (--ai CMD)
+        ai: harness.available ? function (prompt) {
+          return fetch("api/ai", { method: "POST", body: prompt }).then(function (r) { return r.json(); }).then(function (res) {
+            if (!res.ok) throw new Error(res.error);
+            return res.text;
+          });
+        } : null,
         onChange: function (text) {
           if (text === lastSaved) return;
           status("Unsaved", "dirty");

@@ -164,3 +164,21 @@
   .dge-cols { grid-template-columns: 1fr; }
   .dge-toolbar .dge-select { display: none; }
 }
+
+/* mindmaps */
+.dge-overlay .dge-ctl { cursor: pointer; pointer-events: all; }
+.dge-overlay .dge-ctl circle { fill: var(--bg); stroke: var(--accent); stroke-width: 1.5; }
+.dge-overlay .dge-ctl text { fill: var(--accent); font-weight: 700; pointer-events: none; font-family: inherit; }
+.dge-overlay .dge-ctl:hover circle { fill: var(--accent); }
+.dge-overlay .dge-ctl:hover text { fill: var(--bg); }
+.dge .dg-fold { cursor: pointer; }
+.dge .dg-topic { cursor: default; }
+.dge .dg-topic.dragging, .dge .dg-branch.dragging { opacity: .55; pointer-events: none; }
+.dge-drop { stroke: var(--accent); stroke-width: 3; stroke-linecap: round; fill: none; }
+.dge .dg-node.thinking .dg-shape { animation: dge-think 1.1s ease-in-out infinite; stroke: var(--accent) !important; stroke-width: 2.5px !important; }
+@keyframes dge-think { 50% { stroke-opacity: .25; } }
+.dge-inline-topic { text-align: left; }
+.dge-ai { display: flex; flex-direction: column; gap: 6px; margin: 10px 0; }
+.dge-ai textarea { width: 100%; box-sizing: border-box; resize: vertical; font: inherit; padding: 6px 8px; border-radius: 6px; border: 1px solid var(--line, #ddd); background: var(--bg); color: var(--fg); }
+.dge .dg-branch { pointer-events: none; }
+.dge-stage svg text { user-select: none; -webkit-user-select: none; }

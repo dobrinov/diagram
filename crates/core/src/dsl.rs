@@ -64,6 +64,8 @@ pub fn parse_lenient(src: &str) -> (Document, Vec<Diagnostic>) {
         errors: Vec::new(),
         stack: Vec::new(),
         line: 0,
+        map: None,
+        implicit: Default::default(),
     };
     for (i, raw) in src.lines().enumerate() {
         p.line = i + 1;
@@ -71,9 +73,20 @@ pub fn parse_lenient(src: &str) -> (Document, Vec<Diagnostic>) {
         if t.is_empty() || t.starts_with('#') || t.starts_with("//") {
             continue;
         }
-        if let Err(e) = p.statement(t) {
+        let res = if p.map.is_some() {
+            p.outline_line(raw)
+        } else {
+            p.statement(t)
+        };
+        if let Err(e) = res {
             p.errors.push(Diagnostic::new(p.line, e));
         }
+    }
+    if let Some(m) = &p.map {
+        p.errors.push(Diagnostic::new(
+            m.line,
+            format!("mindmap `{}` is never closed (missing `}}`)", m.root),
+        ));
     }
     if let Some((g, line)) = p.stack.last() {
         p.errors.push(Diagnostic::new(
@@ -101,6 +114,19 @@ struct Parser {
     /// Open groups and the line that opened them.
     stack: Vec<(String, usize)>,
     line: usize,
+    /// The mindmap whose outline is being read.
+    map: Option<MapBlock>,
+    /// Nodes created only because an edge mentioned them; a mindmap topic
+    /// with that id adopts them.
+    implicit: std::collections::HashSet<String>,
+}
+
+struct MapBlock {
+    root: String,
+    line: usize,
+    indent: crate::mindmap::Indent,
+    /// The last topic at each depth.
+    chain: Vec<String>,
 }
 
 type Attrs = Vec<(String, Option<String>)>;
@@ -128,6 +154,10 @@ impl Parser {
             "comment" if c.rest()[7..].starts_with(|ch: char| ch.is_whitespace() || ch == ':') => {
                 c.advance(7);
                 return self.comment(c);
+            }
+            "mindmap" if c.rest()[7..].starts_with(|ch: char| ch.is_whitespace()) => {
+                c.advance(7);
+                return self.mindmap_decl(c);
             }
             "reply" if c.rest()[5..].starts_with(|ch: char| ch.is_whitespace()) => {
                 c.advance(5);
@@ -205,6 +235,96 @@ impl Parser {
         }
         n.group = self.group();
         self.doc.nodes.push(n);
+        self.implicit.insert(id.to_string());
+    }
+
+    /// `mindmap id: Centre topic [attrs] {` … indented topics … `}`
+    fn mindmap_decl(&mut self, mut c: Cursor) -> Result<(), String> {
+        c.skip_ws();
+        let (id, qlabel) = c.reference()?;
+        let (label, attrs) = label_and_attrs_until_brace(&mut c)?;
+        c.skip_ws();
+        if !c.eat('{') {
+            return Err("a mindmap needs a body: `mindmap id: Topic {` … `}`".into());
+        }
+        c.skip_ws();
+        let closes_inline = c.eat('}');
+        if !c.at_end() {
+            return Err("put the mindmap's topics on the following lines".into());
+        }
+        if self.doc.group(&id).is_some() {
+            return Err(format!("`{id}` is a group"));
+        }
+        if self.doc.node(&id).is_none() {
+            self.doc.nodes.push(Node::new(&id));
+        }
+        self.implicit.remove(&id);
+        let group = self.group();
+        let n = self.doc.node_mut(&id).unwrap();
+        if let Some(l) = label.or(qlabel) {
+            n.label = l;
+        }
+        n.group = group;
+        n.mindmap = Some(MapLayout::default());
+        apply_node_attrs(n, &attrs)?;
+        if !closes_inline {
+            self.map = Some(MapBlock {
+                root: id,
+                line: self.line,
+                indent: Default::default(),
+                chain: Vec::new(),
+            });
+        }
+        Ok(())
+    }
+
+    /// One topic of a mindmap outline (or the closing `}`).
+    fn outline_line(&mut self, raw: &str) -> Result<(), String> {
+        if raw.trim() == "}" {
+            self.map = None;
+            return Ok(());
+        }
+        let (w, t) = crate::mindmap::indent_of(raw);
+        let t = crate::mindmap::strip_bullet(t.trim_end());
+        let (text, attrs) = split_attrs(t);
+        let label = unescape_label(text.trim());
+        let mut attrs = parse_attrs(attrs.unwrap_or(""))?;
+        let mut explicit = None;
+        attrs.retain(|(k, v)| match (k.as_str(), v) {
+            ("id", Some(v)) => {
+                explicit = Some(v.clone());
+                false
+            }
+            _ => true,
+        });
+        let m = self.map.as_mut().unwrap();
+        let depth = m.indent.depth(w);
+        m.chain.truncate(depth);
+        let parent = m.chain.last().cloned().unwrap_or_else(|| m.root.clone());
+        let wanted = explicit.clone().unwrap_or_else(|| slug(&label));
+        let id = if !self.doc.id_taken(&wanted) {
+            wanted
+        } else if self.implicit.contains(&wanted) {
+            self.implicit.remove(&wanted);
+            wanted
+        } else if explicit.is_some() {
+            return Err(format!("id `{wanted}` is already used"));
+        } else {
+            self.doc.fresh_id(&wanted)
+        };
+        if self.doc.node(&id).is_none() {
+            self.doc.nodes.push(Node::new(&id));
+        } else {
+            // an adopted node moves to where the topic is written
+            self.doc.nodes.retain(|n| n.id != id);
+            self.doc.nodes.push(Node::new(&id));
+        }
+        let n = self.doc.node_mut(&id).unwrap();
+        n.label = if label == id { String::new() } else { label };
+        n.parent = Some(parent);
+        apply_node_attrs(n, &attrs)?;
+        self.map.as_mut().unwrap().chain.push(id);
+        Ok(())
     }
 
     fn node_decl(
@@ -539,7 +659,7 @@ fn looks_like_attrs(inner: &str) -> bool {
                     Shape::parse(item).is_some()
                         || Line::parse(item).is_some()
                         || valid_color(&item.to_ascii_lowercase())
-                        || matches!(item, "resolved" | "open" | "done")
+                        || matches!(item, "resolved" | "open" | "done" | "collapsed" | "folded")
                 }
             }
         })
@@ -572,6 +692,11 @@ fn split_items(inner: &str) -> Vec<String> {
     out.into_iter().filter(|s| !s.trim().is_empty()).collect()
 }
 
+/// The items of an attribute block (`shape: box, red`) as key / value pairs.
+pub fn parse_attr_list(inner: &str) -> Result<Attrs, String> {
+    parse_attrs(inner)
+}
+
 fn parse_attrs(inner: &str) -> Result<Attrs, String> {
     let mut out = Vec::new();
     for item in split_items(inner) {
@@ -602,11 +727,19 @@ pub fn apply_node_attrs(n: &mut Node, attrs: &Attrs) -> Result<(), String> {
             ("y", Some(v)) => n.y = Some(num("y", v)?),
             ("w" | "width", Some(v)) => n.w = Some(num("w", v)?),
             ("h" | "height", Some(v)) => n.h = Some(num("h", v)?),
+            ("collapsed" | "folded", None) => n.collapsed = true,
+            ("collapsed" | "folded", Some(v)) => n.collapsed = !matches!(v.as_str(), "false" | "no" | "0"),
+            ("layout", Some(v)) => {
+                n.mindmap = Some(MapLayout::parse(v).ok_or_else(|| {
+                    format!("unknown mindmap layout `{v}` (use {})", MapLayout::names())
+                })?)
+            }
+            ("parent", Some(v)) => n.parent = Some(v.clone()).filter(|s| !s.is_empty()),
             (k, None) if Shape::parse(k).is_some() => n.shape = Shape::parse(k).unwrap(),
             (k, None) if valid_color(k) => n.color = Some(k.to_string()),
             (k, _) => {
                 return Err(format!(
-                    "unknown node attribute `{k}` (shape, color, detail, link, tags, x, y, w, h)"
+                    "unknown node attribute `{k}` (shape, color, detail, link, tags, x, y, w, h, collapsed, layout, parent)"
                 ))
             }
         }
@@ -807,7 +940,7 @@ fn id_text(id: &str) -> String {
     }
 }
 
-fn quote(s: &str) -> String {
+pub fn quote(s: &str) -> String {
     let mut out = String::from("\"");
     for c in s.chars() {
         match c {
@@ -822,7 +955,7 @@ fn quote(s: &str) -> String {
     out
 }
 
-fn label_text(s: &str) -> String {
+pub fn label_text(s: &str) -> String {
     let needs_quotes =
         s.starts_with('"') || s.trim() != s || s.trim_end().ends_with(']') || s.is_empty();
     if needs_quotes {
@@ -865,6 +998,67 @@ fn node_line(n: &Node) -> String {
         s.push_str(": ");
         s.push_str(&label_text(&n.label));
     }
+    let mut a = node_attrs(n);
+    if let Some(l) = n.mindmap {
+        a.push(format!("layout: {}", l.as_str()));
+    }
+    if let Some(p) = &n.parent {
+        a.push(format!("parent: {}", attr_value(p)));
+    }
+    s + &attrs_text(&a)
+}
+
+/// `mindmap id: Topic [attrs] {` + the indented outline + `}`.
+fn map_block(doc: &Document, root: &Node, pad: &str, out: &mut String) {
+    let mut head = id_text(&root.id);
+    if !root.label.is_empty() && root.label != root.id {
+        head.push_str(": ");
+        head.push_str(&label_text(&root.label));
+    }
+    let mut a = node_attrs(root);
+    if let Some(l) = root.mindmap.filter(|l| *l != MapLayout::default()) {
+        a.push(format!("layout: {}", l.as_str()));
+    }
+    head.push_str(&attrs_text(&a));
+    let kids = doc.children(&root.id);
+    if kids.is_empty() {
+        out.push_str(&format!("{pad}mindmap {head} {{}}\n"));
+        return;
+    }
+    out.push_str(&format!("{pad}mindmap {head} {{\n"));
+    fn walk(
+        doc: &Document,
+        id: &str,
+        depth: usize,
+        pad: &str,
+        out: &mut String,
+        seen: &mut Vec<String>,
+    ) {
+        for c in doc.children(id) {
+            if seen.contains(&c.id) {
+                continue;
+            }
+            seen.push(c.id.clone());
+            let label = c.display();
+            let mut a = node_attrs(c);
+            if slug(label) != c.id {
+                a.insert(0, format!("id: {}", attr_value(&c.id)));
+            }
+            out.push_str(&format!(
+                "{pad}{}{}{}\n",
+                "  ".repeat(depth),
+                crate::mindmap::outline_label(label),
+                attrs_text(&a)
+            ));
+            walk(doc, &c.id, depth + 1, pad, out, seen);
+        }
+    }
+    let mut seen = vec![root.id.clone()];
+    walk(doc, &root.id, 1, pad, out, &mut seen);
+    out.push_str(&format!("{pad}}}\n"));
+}
+
+fn node_attrs(n: &Node) -> Vec<String> {
     let mut a = Vec::new();
     if n.shape != Shape::default() {
         a.push(n.shape.as_str().to_string());
@@ -890,7 +1084,10 @@ fn node_line(n: &Node) -> String {
             a.push(format!("{k}: {}", fmt_num(v)));
         }
     }
-    s + &attrs_text(&a)
+    if n.collapsed {
+        a.push("collapsed".into());
+    }
+    a
 }
 
 fn edge_line(e: &Edge) -> String {
@@ -1008,7 +1205,21 @@ pub fn print(doc: &Document) -> String {
         sections.push(head.join("\n") + "\n");
     }
 
-    fn group_block(doc: &Document, g: &Group, depth: usize, out: &mut String) {
+    let forest = crate::mindmap::Forest::new(doc);
+    let in_map = |n: &Node| {
+        doc.nodes
+            .iter()
+            .position(|x| x.id == n.id)
+            .is_some_and(|i| forest.in_map(i))
+    };
+    let is_root = |n: &Node| in_map(n) && n.parent.is_none();
+    fn group_block(
+        doc: &Document,
+        g: &Group,
+        depth: usize,
+        out: &mut String,
+        in_map: &dyn Fn(&Node) -> bool,
+    ) {
         let pad = "  ".repeat(depth);
         let mut line = format!("{pad}group {}", id_text(&g.id));
         if !g.label.is_empty() && g.label != g.id {
@@ -1025,11 +1236,14 @@ pub fn print(doc: &Document) -> String {
         out.push_str(&line);
         out.push_str(" {\n");
         let (nodes, groups) = doc.members(Some(&g.id));
-        for n in nodes {
+        for n in nodes.iter().filter(|n| !in_map(n)) {
             out.push_str(&format!("{pad}  {}\n", node_line(n)));
         }
+        for n in nodes.iter().filter(|n| in_map(n) && n.parent.is_none()) {
+            map_block(doc, n, &format!("{pad}  "), out);
+        }
         for child in groups {
-            group_block(doc, child, depth + 1, out);
+            group_block(doc, child, depth + 1, out, in_map);
         }
         out.push_str(&format!("{pad}}}\n"));
     }
@@ -1042,13 +1256,25 @@ pub fn print(doc: &Document) -> String {
         .collect();
     let mut groups = String::new();
     for g in top_groups.into_iter().chain(orphans) {
-        group_block(doc, g, 0, &mut groups);
+        group_block(doc, g, 0, &mut groups, &in_map);
+    }
+    let mut maps = String::new();
+    for n in doc
+        .nodes
+        .iter()
+        .filter(|n| is_root(n) && n.group.as_ref().is_none_or(|g| doc.group(g).is_none()))
+    {
+        if !maps.is_empty() {
+            maps.push('\n');
+        }
+        map_block(doc, n, "", &mut maps);
     }
     let mut nodes = String::new();
-    for n in top_nodes.into_iter().chain(
+    for n in top_nodes.into_iter().filter(|n| !in_map(n)).chain(
         doc.nodes
             .iter()
-            .filter(|n| n.group.as_ref().is_some_and(|g| doc.group(g).is_none())),
+            .filter(|n| n.group.as_ref().is_some_and(|g| doc.group(g).is_none()))
+            .filter(|n| !in_map(n)),
     ) {
         // an undecorated node that an edge mentions needs no line of its own
         let bare = n.label.is_empty()
@@ -1069,7 +1295,7 @@ pub fn print(doc: &Document) -> String {
     for c in &doc.comments {
         comment_lines(c, &mut comments);
     }
-    for part in [nodes, groups, edges, comments] {
+    for part in [nodes, maps, groups, edges, comments] {
         if !part.is_empty() {
             sections.push(part);
         }
@@ -1171,5 +1397,57 @@ comment review at 10,20: Overall looks good [resolved, resolution: "ok"]
         let (_, errs) = parse_lenient("a [shape: blob]\n}\ngroup g {\n");
         let lines: Vec<usize> = errs.iter().map(|e| e.line).collect();
         assert_eq!(lines, vec![1, 2, 3], "{errs:?}");
+    }
+
+    const MAP: &str = r##"title: Trip
+a -> food
+
+mindmap trip: Lisbon trip [layout: both] {
+  Food
+    Pastéis de nata
+    - Seafood
+    Food [collapsed]
+      Snacks
+  "# not a heading"
+  Days [red, id: plan]
+    Belém [link: https://example.com]
+}
+group g {
+  mindmap inner {}
+}
+"##;
+
+    #[test]
+    fn mindmaps_parse_and_round_trip() {
+        let d = parse(MAP).unwrap_or_else(|e| panic!("{e:?}"));
+        let trip = d.node("trip").unwrap();
+        assert_eq!(trip.mindmap, Some(MapLayout::Both));
+        // the edge's implicit `food` is adopted by the topic
+        assert_eq!(d.node("food").unwrap().parent.as_deref(), Some("trip"));
+        assert_eq!(d.node("seafood").unwrap().parent.as_deref(), Some("food"));
+        let food2 = d.node("food-2").unwrap();
+        assert!(food2.collapsed);
+        assert_eq!(d.node("snacks").unwrap().parent.as_deref(), Some("food-2"));
+        assert_eq!(d.node("plan").unwrap().color.as_deref(), Some("red"));
+        assert_eq!(d.node("not-a-heading").unwrap().label, "# not a heading");
+        assert_eq!(d.node("inner").unwrap().group.as_deref(), Some("g"));
+        let kids: Vec<&str> = d.children("trip").iter().map(|n| n.id.as_str()).collect();
+        assert_eq!(kids, vec!["food", "not-a-heading", "plan"]);
+        let text = print(&d);
+        let again = parse(&text).unwrap_or_else(|e| panic!("{e:?}\n{text}"));
+        assert_eq!(print(&again), text);
+        let mut a = d.clone();
+        let mut b = again.clone();
+        a.nodes.sort_by(|x, y| x.id.cmp(&y.id));
+        b.nodes.sort_by(|x, y| x.id.cmp(&y.id));
+        assert_eq!(a, b, "\n{text}");
+    }
+
+    #[test]
+    fn mindmap_errors() {
+        let (_, errs) = parse_lenient("mindmap m {\n  a\n");
+        assert!(errs[0].message.contains("never closed"), "{errs:?}");
+        let (_, errs) = parse_lenient("x\nmindmap m {\n  A [id: x]\n}");
+        assert!(errs[0].message.contains("already used"), "{errs:?}");
     }
 }

@@ -10,6 +10,7 @@ use std::collections::HashMap;
 
 use serde::Serialize;
 
+use crate::mindmap::{self, Forest};
 use crate::model::*;
 use crate::text;
 
@@ -81,6 +82,32 @@ pub struct NodeBox {
     pub detail: Vec<String>,
     #[serde(skip)]
     pub shape: Shape,
+    /// Label font size.
+    #[serde(skip)]
+    pub font: f64,
+    /// Mindmap topics: the map's centre, depth, branch colour and the side
+    /// of its parent it grows on.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub map: Option<MapInfo>,
+}
+
+#[derive(Debug, Clone, Serialize)]
+pub struct MapInfo {
+    pub root: String,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub parent: Option<String>,
+    pub depth: usize,
+    /// "right", "left" or "down": where this topic sits relative to its parent.
+    pub side: &'static str,
+    /// The map's layout.
+    pub layout: MapLayout,
+    /// Topics folded away under this one.
+    pub folded: usize,
+    pub children: usize,
+    #[serde(skip)]
+    pub style: Option<crate::mindmap::Style>,
+    #[serde(skip)]
+    pub color: Option<String>,
 }
 
 #[derive(Debug, Clone, Serialize)]
@@ -169,6 +196,9 @@ enum Item {
 
 struct Ctx<'a> {
     doc: &'a Document,
+    /// Mindmap topics other than a centre don't take part in block layout:
+    /// their map's centre stands in for the whole map.
+    forest: &'a Forest,
     sizes: Vec<(f64, f64)>,
     group_sizes: Vec<(f64, f64)>,
     /// Position of each node / group relative to its parent block.
@@ -179,15 +209,40 @@ struct Ctx<'a> {
 }
 
 pub fn layout(doc: &Document) -> Layout {
+    let forest = Forest::new(doc);
     let mut sizes = Vec::new();
     let mut texts = Vec::new();
-    for n in &doc.nodes {
-        let (lines, detail, w, h) = measure(n);
+    let mut styles = Vec::new();
+    for (i, n) in doc.nodes.iter().enumerate() {
+        let st = forest
+            .in_map(i)
+            .then(|| mindmap::style(n, forest.depth[i], forest.layout[i]))
+            .flatten();
+        let (lines, detail, w, h) = if forest.in_map(i) {
+            mindmap::measure(n, st)
+        } else {
+            measure(n)
+        };
         sizes.push((w, h));
         texts.push((lines, detail));
+        styles.push(st);
+    }
+    // each mindmap is laid out on its own; its centre then stands for the
+    // whole map (sized to it) in the layout of the rest
+    let own_sizes = sizes.clone();
+    let mut map_rel: Vec<Option<Rect>> = vec![None; doc.nodes.len()];
+    for r in 0..doc.nodes.len() {
+        if forest.root[r] == Some(r) {
+            let (rects, bbox) = mindmap::layout_tree(&forest, r, &own_sizes);
+            for (i, rect) in rects {
+                map_rel[i] = Some(rect);
+            }
+            sizes[r] = (bbox.w, bbox.h);
+        }
     }
     let mut ctx = Ctx {
         doc,
+        forest: &forest,
         sizes,
         group_sizes: vec![(0.0, 0.0); doc.groups.len()],
         node_pos: vec![(0.0, 0.0); doc.nodes.len()],
@@ -210,7 +265,9 @@ pub fn layout(doc: &Document) -> Layout {
     let parent_of_node: Vec<Option<usize>> = doc
         .nodes
         .iter()
-        .map(|n| {
+        .enumerate()
+        .map(|(i, n)| {
+            let n = forest.root[i].map(|r| &doc.nodes[r]).unwrap_or(n);
             n.group
                 .as_deref()
                 .and_then(|g| ctx.group_index.get(g).copied())
@@ -265,6 +322,8 @@ pub fn layout(doc: &Document) -> Layout {
         abs_of_group(i, &ctx, &parent_of_group, &mut abs_group);
     }
     let mut nodes: Vec<NodeBox> = Vec::new();
+    // top-left of every map's bounding box
+    let mut map_origin: Vec<(f64, f64)> = vec![(0.0, 0.0); doc.nodes.len()];
     for (i, n) in doc.nodes.iter().enumerate() {
         let (ox, oy) = match parent_of_node[i] {
             Some(g) => {
@@ -273,18 +332,80 @@ pub fn layout(doc: &Document) -> Layout {
             }
             None => (0.0, 0.0),
         };
-        let (w, h) = ctx.sizes[i];
         let (mut x, mut y) = (ox + ctx.node_pos[i].0, oy + ctx.node_pos[i].1);
-        if let (Some(px), Some(py)) = (n.x, n.y) {
-            (x, y) = (px, py);
+        if forest.root[i] == Some(i) {
+            // a pinned centre pins its map
+            let rel = map_rel[i].unwrap_or_default();
+            if let (Some(px), Some(py)) = (n.x, n.y) {
+                (x, y) = (px - rel.x, py - rel.y);
+            }
+            map_origin[i] = (x, y);
         }
+    }
+    for (i, n) in doc.nodes.iter().enumerate() {
         let (lines, detail) = std::mem::take(&mut texts[i]);
+        let mut map = None;
+        let rect = if let Some(r) = forest.root[i] {
+            let Some(rel) = map_rel[i] else {
+                continue; // folded away
+            };
+            let side = match (forest.layout[i], forest.parent[i]) {
+                (MapLayout::Down, _) => "down",
+                (_, Some(p)) => {
+                    if map_rel[p].is_some_and(|pr| rel.cx() < pr.cx()) {
+                        "left"
+                    } else {
+                        "right"
+                    }
+                }
+                (MapLayout::Left, None) => "left",
+                _ => "right",
+            };
+            map = Some(MapInfo {
+                root: doc.nodes[r].id.clone(),
+                parent: forest.parent[i].map(|p| doc.nodes[p].id.clone()),
+                depth: forest.depth[i],
+                side,
+                layout: forest.layout[i],
+                folded: if n.collapsed {
+                    forest.folded_count(i)
+                } else {
+                    0
+                },
+                children: forest.kids[i].len(),
+                style: styles[i],
+                color: forest.color[i].clone(),
+            });
+            let (mx, my) = map_origin[r];
+            Rect {
+                x: mx + rel.x,
+                y: my + rel.y,
+                w: rel.w,
+                h: rel.h,
+            }
+        } else {
+            let (ox, oy) = match parent_of_node[i] {
+                Some(g) => {
+                    let r = abs_group[g].unwrap();
+                    (r.x + GROUP_PAD, r.y + GROUP_HEAD)
+                }
+                None => (0.0, 0.0),
+            };
+            let (w, h) = ctx.sizes[i];
+            let (mut x, mut y) = (ox + ctx.node_pos[i].0, oy + ctx.node_pos[i].1);
+            if let (Some(px), Some(py)) = (n.x, n.y) {
+                (x, y) = (px, py);
+            }
+            Rect { x, y, w, h }
+        };
         nodes.push(NodeBox {
             id: n.id.clone(),
-            rect: Rect { x, y, w, h },
+            rect,
             lines,
             detail,
             shape: n.shape,
+            font: mindmap::font_size(styles[i]),
+            map,
         });
     }
 
@@ -301,10 +422,11 @@ pub fn layout(doc: &Document) -> Layout {
     let mut order: Vec<usize> = (0..doc.groups.len()).collect();
     order.sort_by_key(|&i| std::cmp::Reverse(depth(i)));
     let mut rects: Vec<Rect> = abs_group.iter().map(|r| r.unwrap()).collect();
-    if doc.nodes.iter().any(|n| n.pinned()) {
+    if doc.nodes.iter().any(|n| n.pinned() && n.parent.is_none()) {
         for &g in &order {
             let mut bb: Option<Rect> = None;
-            for (i, nb) in nodes.iter().enumerate() {
+            for nb in &nodes {
+                let i = ctx.node_index[nb.id.as_str()];
                 if parent_of_node[i] == Some(g) {
                     bb = Some(bb.map_or(nb.rect, |b| b.union(&nb.rect)));
                 }
@@ -358,7 +480,7 @@ fn block(
 ) -> (f64, f64) {
     let mut items: Vec<Item> = Vec::new();
     for (i, p) in pn.iter().enumerate() {
-        if *p == group {
+        if *p == group && ctx.forest.root[i].is_none_or(|r| r == i) {
             items.push(Item::Node(i));
         }
     }
@@ -388,6 +510,7 @@ fn block(
     // which item of this block contains a node or group id
     let item_of = |ctx: &Ctx, id: &str| -> Option<usize> {
         let mut cur = if let Some(&n) = ctx.node_index.get(id) {
+            let n = ctx.forest.root[n].unwrap_or(n);
             if pn[n] == group {
                 return items.iter().position(|it| *it == Item::Node(n));
             }

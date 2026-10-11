@@ -46,21 +46,23 @@ pub struct PromptOptions {
 }
 
 pub const OPS_REFERENCE: &str = r#"Operations (fields in [] are optional; ids are letters, digits, `_`, `-`, `.`):
-- {"op":"add_node","id":"cache","label":"Redis","shape":"cylinder",["color","detail","group","link","tags","x","y","w","h"]}
-- {"op":"update_node","id":"api",["label","shape","color","detail","group","link","tags","w","h"]}   ("" clears a field)
+- {"op":"add_node","id":"cache","label":"Redis","shape":"cylinder",["color","detail","group","link","tags","x","y","w","h","parent","index","mindmap"]}
+- {"op":"update_node","id":"api",["label","shape","color","detail","group","link","tags","w","h","parent","index","mindmap","collapsed"]}   ("" clears a field)
+- {"op":"add_outline","parent":"risks","outline":"Fraud\n  Card testing\nBank delays"}   (mindmap topics, two spaces per level; without parent: a new mindmap)
 - {"op":"add_edge","from":"api","to":"cache",["id","label","arrow":"end|start|both|none","line":"solid|dashed|dotted|thick","color"]}
 - {"op":"update_edge","id":"api->cache",["from","to","label","arrow","line","color"]}
 - {"op":"add_group","id":"backend","label":"Backend",["color","parent","members":["api","db"]]}
 - {"op":"update_group","id":"backend",["label","color","parent"]}
 - {"op":"rename","id":"api","to":"orders-api"}            (updates edges and comments)
-- {"op":"remove","id":"cache"}                            (node, group, edge or comment; a node's edges go too)
+- {"op":"remove","id":"cache"}                            (node, group, edge or comment; a node's edges go too; a mindmap topic takes its branch)
 - {"op":"move","id":"api","x":120,"y":40}  {"op":"unpin"[, "id":"api"]}
 - {"op":"add_comment","text":"…",["on":"api","author"]}  {"op":"reply","id":"c1","text":"…",["author"]}
 - {"op":"resolve_comment","id":"c1",["resolution":"what was done"]}  {"op":"reopen_comment","id":"c1"}
 - {"op":"set","key":"title|description|direction|layout|routing|theme","value":"…"}
 Shapes: box, rounded, pill, circle, diamond, hexagon, cylinder, parallelogram, document, person, cloud, sticky, text.
 Colours: gray, blue, green, yellow, orange, red, purple, pink, teal or #rrggbb.
-Edge ids default to `from->to` (`from->to#2` for a second edge between the same nodes)."#;
+Edge ids default to `from->to` (`from->to#2` for a second edge between the same nodes).
+Mindmaps: a topic's `parent` is the topic it branches from (`index` = position among siblings); a centre has `mindmap`: right|left|both|down. Prefer add_outline for new topics: it costs the fewest tokens."#;
 
 fn quote_block(text: &str) -> String {
     text.lines().map(|l| format!("   > {l}\n")).collect()
@@ -165,8 +167,26 @@ pub fn brief(doc: &Document) -> String {
         }
         s.push('\n');
     }
+    let forest = crate::mindmap::Forest::new(doc);
+    let roots: Vec<&Node> = doc
+        .nodes
+        .iter()
+        .enumerate()
+        .filter(|(i, n)| forest.root[*i] == Some(*i) && n.parent.is_none())
+        .map(|(_, n)| n)
+        .collect();
+    for r in &roots {
+        s.push_str(&format!(
+            "## Mindmap `{}`\n\n```\n{}```\n\n",
+            r.id,
+            crate::mindmap::outline(doc, &r.id, true)
+        ));
+    }
     s.push_str("## Nodes\n\n");
-    for n in &doc.nodes {
+    for (i, n) in doc.nodes.iter().enumerate() {
+        if forest.in_map(i) && n.detail.is_none() && n.tags.is_empty() && n.link.is_none() {
+            continue; // already in its mindmap's outline
+        }
         let mut bits = vec![n.shape.as_str().to_string()];
         if let Some(d) = &n.detail {
             bits.push(d.replace('\n', " "));

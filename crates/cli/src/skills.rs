@@ -19,6 +19,7 @@ pub const SKILLS: &[(&str, &str)] = &[
     skill!("diagram-draw"),
     skill!("diagram-review"),
     skill!("diagram-edit"),
+    skill!("diagram-mindmap"),
     skill!("diagram-embed"),
 ];
 

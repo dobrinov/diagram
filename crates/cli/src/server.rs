@@ -89,11 +89,22 @@ pub fn open_browser(url: &str) {
         .spawn();
 }
 
-pub fn serve(file: PathBuf, port: Option<u16>, open: bool) -> Result<(), String> {
+pub fn serve(
+    file: PathBuf,
+    port: Option<u16>,
+    open: bool,
+    ai: Option<String>,
+) -> Result<(), String> {
     let (server, port) = bind(port)?;
     let url = format!("http://127.0.0.1:{port}/");
     let display = file.display().to_string();
     eprintln!("diagram: editing {display} at {url}  (Ctrl-C to stop)");
+    match &ai {
+        Some(c) => eprintln!("diagram: ✦ AI via `{c}`"),
+        None => eprintln!(
+            "diagram: no AI harness (use --ai CMD); ✦ actions will show the prompt to copy"
+        ),
+    }
     if open {
         open_browser(&url);
     }
@@ -120,6 +131,28 @@ pub fn serve(file: PathBuf, port: Option<u16>, open: bool) -> Result<(), String>
                     200,
                     json!({ "path": display, "name": name, "source": source, "mtime": mtime(&file).to_string(), "author": author, "format": crate::format_for(&display), "version": env!("CARGO_PKG_VERSION") }),
                 );
+            }
+            (Method::Get, "/api/ai") => respond_json(
+                req,
+                200,
+                json!({ "available": ai.is_some(), "command": ai }),
+            ),
+            (Method::Post, "/api/ai") => {
+                let mut prompt = String::new();
+                let _ = req.as_reader().read_to_string(&mut prompt);
+                let Some(cmd) = ai.clone() else {
+                    respond_json(
+                        req,
+                        200,
+                        json!({ "ok": false, "error": "no AI harness: start with --ai CMD or set DIAGRAM_AI" }),
+                    );
+                    continue;
+                };
+                // models take seconds; keep serving saves and polls meanwhile
+                std::thread::spawn(move || match crate::ai::run(&cmd, &prompt) {
+                    Ok(text) => respond_json(req, 200, json!({ "ok": true, "text": text })),
+                    Err(e) => respond_json(req, 200, json!({ "ok": false, "error": e })),
+                });
             }
             (Method::Get, "/api/version") => {
                 respond_json(req, 200, json!({ "mtime": mtime(&file).to_string() }))

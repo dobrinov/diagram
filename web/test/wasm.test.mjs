@@ -48,3 +48,20 @@ test("one-shot helpers", () => {
   assert.equal(JSON.parse(w.json_schema()).title, "diagram document");
   assert.match(w.spec(), /# The diagram language/);
 });
+
+test("mindmaps: outline in, outline and markdown out, prompts", () => {
+  const d = new w.Diagram();
+  const ok = JSON.parse(d.set_source("mindmap m: Trip {\n  Food\n    Nata\n}"));
+  assert.equal(ok.ok, true);
+  const r = JSON.parse(d.render("{}"));
+  const food = r.nodes.find((n) => n.id === "food");
+  assert.equal(food.map.parent, "m");
+  assert.equal(food.map.depth, 1);
+  const res = JSON.parse(d.apply(JSON.stringify({ ops: [{ op: "add_outline", parent: "food", outline: w.reply_outline("```\n- Pasta\n  - Carbonara\n```") }] })));
+  assert.deepEqual(res.created, ["pasta", "carbonara"]);
+  assert.equal(d.outline("m"), "Trip\n  Food\n    Nata\n    Pasta\n      Carbonara\n");
+  assert.match(d.markdown("m"), /^# Trip\n\n## Food\n/);
+  assert.match(JSON.parse(d.expand_prompt("food", "{}")).prompt, /Topic to grow: Trip > Food/);
+  assert.match(w.mindmap_prompt("Lisbon", "{}"), /Make a mindmap about: Lisbon/);
+  d.free();
+});

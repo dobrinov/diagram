@@ -79,7 +79,9 @@ pub fn render(doc: &Document, opts: &RenderOptions) -> Rendered {
     // edge labels and pins may stick out of the boxes
     let mut bounds = lay.bounds;
     let mut labels: Vec<(String, Rect, Vec<String>)> = Vec::new();
-    for (e, path) in doc.edges.iter().zip(&edges) {
+    let path_of = |id: &str| edges.iter().find(|p| p.id == id);
+    for e in &doc.edges {
+        let Some(path) = path_of(&e.id) else { continue };
         if let Some(l) = e.label.as_deref().filter(|l| !l.is_empty()) {
             let lines = text::wrap(l, 12.0, 160.0);
             let w = lines
@@ -151,8 +153,7 @@ pub fn render(doc: &Document, opts: &RenderOptions) -> Rendered {
     let _ = write!(
         s,
         r##"<defs><filter id="dg-shadow" x="-20%" y="-20%" width="140%" height="150%"><feDropShadow dx="0" dy="3" stdDeviation="4" flood-color="#000000" flood-opacity="{}"/></filter><pattern id="dg-dots" width="20" height="20" patternUnits="userSpaceOnUse"><circle cx="1" cy="1" r="1" fill="{}"/></pattern></defs>"##,
-        p.shadow_opacity,
-        p.dot
+        p.shadow_opacity, p.dot
     );
     if !opts.transparent {
         let _ = write!(
@@ -234,11 +235,22 @@ pub fn render(doc: &Document, opts: &RenderOptions) -> Rendered {
     }
     s.push_str("</g>");
 
+    // mindmap branches, under everything else
+    let maps: Vec<&layout::NodeBox> = lay.nodes.iter().filter(|nb| nb.map.is_some()).collect();
+    if !maps.is_empty() {
+        s.push_str(r#"<g class="dg-branches">"#);
+        for nb in &maps {
+            branch_svg(&mut s, nb, &lay, p, t, opts.changes.get(&nb.id).copied());
+        }
+        s.push_str("</g>");
+    }
+
     // edges
     s.push_str(r#"<g class="dg-edges">"#);
     // labels go above every line, so no edge is drawn across another's label
     let mut label_svg = String::new();
-    for (e, path) in doc.edges.iter().zip(&edges) {
+    for e in &doc.edges {
+        let Some(path) = path_of(&e.id) else { continue };
         let mut color = e
             .color
             .as_deref()
@@ -285,7 +297,11 @@ pub fn render(doc: &Document, opts: &RenderOptions) -> Rendered {
         s.push_str("</g>");
         if let Some((_, r, lines)) = labels.iter().find(|(id, ..)| *id == e.id) {
             let s = &mut label_svg;
-            let _ = write!(s, r#"<g class="dg-edge dg-edge-label" data-id="{}">"#, esc(&e.id));
+            let _ = write!(
+                s,
+                r#"<g class="dg-edge dg-edge-label" data-id="{}">"#,
+                esc(&e.id)
+            );
             let _ = write!(
                 s,
                 r#"<rect class="dg-label-bg" x="{}" y="{}" width="{}" height="{}" rx="6" fill="{}" stroke="{}"/>"#,
@@ -325,9 +341,40 @@ pub fn render(doc: &Document, opts: &RenderOptions) -> Rendered {
     s.push_str(r#"<g class="dg-nodes">"#);
     for nb in &lay.nodes {
         let node = doc.node(&nb.id).unwrap();
-        node_svg(&mut s, node, nb, p, t, opts.changes.get(&node.id).copied());
+        let change = opts.changes.get(&node.id).copied();
+        match nb.map.as_ref().and_then(|m| m.style) {
+            Some(st) => map_node_svg(&mut s, node, nb, st, p, t, change),
+            None => node_svg(&mut s, node, nb, p, t, change),
+        }
     }
     s.push_str("</g>");
+    // folded branches show how much is tucked away
+    let folds: Vec<&&layout::NodeBox> = maps
+        .iter()
+        .filter(|nb| nb.map.as_ref().is_some_and(|m| m.folded > 0))
+        .collect();
+    if !folds.is_empty() {
+        s.push_str(r#"<g class="dg-folds">"#);
+        for nb in folds {
+            let m = nb.map.as_ref().unwrap();
+            let (x, y) = fold_point(nb);
+            let accent = branch_color(m, p, t);
+            let _ = write!(
+                s,
+                r#"<g class="dg-fold" data-fold="{}"><circle cx="{}" cy="{}" r="10" fill="{}" stroke="{}" stroke-width="1.5"/><text x="{}" y="{}" font-size="10" font-weight="700" text-anchor="middle" fill="{}">{}</text></g>"#,
+                esc(&nb.id),
+                n(x),
+                n(y),
+                p.node_fill,
+                accent,
+                n(x),
+                n(y + 3.5),
+                accent,
+                m.folded
+            );
+        }
+        s.push_str("</g>");
+    }
 
     if !pins.is_empty() {
         s.push_str(r#"<g class="dg-pins">"#);
@@ -357,6 +404,282 @@ pub fn render(doc: &Document, opts: &RenderOptions) -> Rendered {
         edges,
         pins,
     }
+}
+
+/// The colour a mindmap topic's branch is drawn in.
+fn branch_color(m: &layout::MapInfo, p: &Palette, t: Theme) -> String {
+    m.color
+        .as_deref()
+        .and_then(|c| theme::tint(c, t))
+        .map(|k| k.accent)
+        .unwrap_or_else(|| p.group_accent.to_string())
+}
+
+/// Where a branch leaves a topic (towards `side`) or arrives at it.
+fn anchor(nb: &layout::NodeBox, side: &str, outgoing: bool) -> (f64, f64) {
+    let r = nb.rect;
+    let topic = nb.map.as_ref().and_then(|m| m.style) == Some(crate::mindmap::Style::Topic);
+    let y = if topic { r.bottom() } else { r.cy() };
+    match (side, outgoing) {
+        ("down", true) => (r.cx(), r.bottom()),
+        ("down", false) => (r.cx(), r.y),
+        ("left", true) | ("right", false) => (r.x, y),
+        _ => (r.right(), y),
+    }
+}
+
+fn fold_point(nb: &layout::NodeBox) -> (f64, f64) {
+    let m = nb.map.as_ref().unwrap();
+    let side = if m.depth == 0 {
+        match m.layout {
+            MapLayout::Down => "down",
+            MapLayout::Left => "left",
+            _ => "right",
+        }
+    } else {
+        m.side
+    };
+    let (x, y) = anchor(nb, side, true);
+    match side {
+        "down" => (x, y + 12.0),
+        "left" => (x - 12.0, y),
+        _ => (x + 12.0, y),
+    }
+}
+
+fn branch_svg(
+    s: &mut String,
+    nb: &layout::NodeBox,
+    lay: &Layout,
+    p: &Palette,
+    t: Theme,
+    change: Option<Change>,
+) {
+    let m = nb.map.as_ref().unwrap();
+    let Some(parent) = m.parent.as_deref().and_then(|id| lay.node(id)) else {
+        return;
+    };
+    let a = anchor(parent, m.side, true);
+    let b = anchor(nb, m.side, false);
+    let d = if m.side == "down" {
+        let dy = (b.1 - a.1) / 2.0;
+        format!(
+            "M{},{} C{},{} {},{} {},{}",
+            n(a.0),
+            n(a.1),
+            n(a.0),
+            n(a.1 + dy),
+            n(b.0),
+            n(b.1 - dy),
+            n(b.0),
+            n(b.1)
+        )
+    } else {
+        let dx = (b.0 - a.0) / 2.0;
+        format!(
+            "M{},{} C{},{} {},{} {},{}",
+            n(a.0),
+            n(a.1),
+            n(a.0 + dx),
+            n(a.1),
+            n(b.0 - dx),
+            n(b.1),
+            n(b.0),
+            n(b.1)
+        )
+    };
+    let width = match m.depth {
+        1 => 3.0,
+        2 => 2.2,
+        _ => 1.6,
+    };
+    let (color, dash) = match change {
+        Some(Change::Added) => (p.add.to_string(), ""),
+        Some(Change::Removed) => (p.del.to_string(), r#" stroke-dasharray="6 4""#),
+        Some(Change::Changed) => (p.chg.to_string(), ""),
+        None => (branch_color(m, p, t), ""),
+    };
+    let _ = write!(
+        s,
+        r#"<path class="dg-branch" data-id="{}" d="{}" fill="none" stroke="{}" stroke-width="{}" stroke-linecap="round"{}/>"#,
+        esc(&nb.id),
+        d,
+        color,
+        width,
+        dash
+    );
+}
+
+fn map_node_svg(
+    s: &mut String,
+    node: &Node,
+    nb: &layout::NodeBox,
+    st: crate::mindmap::Style,
+    p: &Palette,
+    t: Theme,
+    change: Option<Change>,
+) {
+    use crate::mindmap::Style;
+    let m = nb.map.as_ref().unwrap();
+    let r = nb.rect;
+    let mut accent = branch_color(m, p, t);
+    let mut fill = p.node_fill.to_string();
+    let mut dash = "";
+    if let Some(c) = change {
+        let (f, stroke, attrs) = change_colors(c, p);
+        accent = stroke;
+        fill = f;
+        if attrs.contains("dasharray") {
+            dash = r#" stroke-dasharray="6 4""#;
+        }
+    }
+    let _ = write!(
+        s,
+        r#"<g class="dg-node dg-topic" data-id="{}" data-depth="{}"{}>"#,
+        esc(&node.id),
+        m.depth,
+        if change == Some(Change::Removed) {
+            r#" opacity="0.75""#
+        } else {
+            ""
+        }
+    );
+    if let Some(link) = &node.link {
+        let _ = write!(s, r#"<a href="{}" target="_blank">"#, esc(link));
+    }
+    let lifted = r#" filter="url(#dg-shadow)""#;
+    let (fg, weight, anchor_kind) = match st {
+        Style::Centre => {
+            let (bg, ink) = if change.is_some() {
+                (fill.clone(), p.fg.to_string())
+            } else if node.color.is_some() {
+                (accent.clone(), p.on_accent.to_string())
+            } else {
+                (p.group_accent.to_string(), p.bg.to_string())
+            };
+            let _ = write!(
+                s,
+                r#"<rect class="dg-shape" x="{}" y="{}" width="{}" height="{}" rx="{}" fill="{}" stroke="{}" stroke-width="{}"{dash}{lifted}/>"#,
+                n(r.x),
+                n(r.y),
+                n(r.w),
+                n(r.h),
+                n((r.h / 2.0).min(18.0)),
+                bg,
+                if change.is_some() {
+                    accent.as_str()
+                } else {
+                    "none"
+                },
+                if change.is_some() { 2.0 } else { 0.0 }
+            );
+            (ink, "700", "middle")
+        }
+        Style::Branch | Style::Card => {
+            let (rx, sw) = if st == Style::Branch {
+                (12.0, 2.0)
+            } else {
+                (8.0, 1.5)
+            };
+            let _ = write!(
+                s,
+                r#"<rect class="dg-shape" x="{}" y="{}" width="{}" height="{}" rx="{}" fill="{}" stroke="{}" stroke-width="{}"{dash}{lifted}/>"#,
+                n(r.x),
+                n(r.y),
+                n(r.w),
+                n(r.h),
+                n(rx),
+                fill,
+                accent,
+                sw
+            );
+            (
+                p.fg.to_string(),
+                if st == Style::Branch { "600" } else { "500" },
+                "middle",
+            )
+        }
+        Style::Topic => {
+            let _ = write!(
+                s,
+                r#"<rect class="dg-shape" x="{}" y="{}" width="{}" height="{}" rx="4" fill="{}" stroke="none"/><path d="M{},{} L{},{}" stroke="{}" stroke-width="{}" stroke-linecap="round"{dash}/>"#,
+                n(r.x),
+                n(r.y),
+                n(r.w),
+                n(r.h),
+                if change.is_some() {
+                    fill.as_str()
+                } else {
+                    "transparent"
+                },
+                n(r.x),
+                n(r.bottom()),
+                n(r.right()),
+                n(r.bottom()),
+                accent,
+                if m.depth == 2 { 2.2 } else { 1.6 }
+            );
+            (
+                p.fg.to_string(),
+                "500",
+                if m.side == "left" { "end" } else { "start" },
+            )
+        }
+    };
+    let size = nb.font;
+    let label_h = nb.lines.len() as f64 * size * LINE_H;
+    let detail_h = if nb.detail.is_empty() {
+        0.0
+    } else {
+        2.0 + nb.detail.len() as f64 * DETAIL_SIZE * LINE_H
+    };
+    let pad = if st == Style::Topic { 6.0 } else { 0.0 };
+    let tx = match anchor_kind {
+        "start" => r.x + pad,
+        "end" => r.right() - pad,
+        _ => r.cx(),
+    };
+    let top = if st == Style::Topic {
+        r.y + pad
+    } else {
+        r.cy() - (label_h + detail_h) / 2.0
+    };
+    let deco = if change == Some(Change::Removed) {
+        r#" text-decoration="line-through""#
+    } else {
+        ""
+    };
+    text_lines(
+        s,
+        &nb.lines,
+        tx,
+        top + size * 0.95,
+        size,
+        &fg,
+        anchor_kind,
+        &format!(r#" font-weight="{weight}"{deco}"#),
+    );
+    if !nb.detail.is_empty() {
+        let muted = if st == Style::Centre && change.is_none() {
+            fg.as_str()
+        } else {
+            p.muted
+        };
+        text_lines(
+            s,
+            &nb.detail,
+            tx,
+            top + label_h + 2.0 + DETAIL_SIZE * 0.95,
+            DETAIL_SIZE,
+            muted,
+            anchor_kind,
+            r#" opacity="0.85""#,
+        );
+    }
+    if node.link.is_some() {
+        s.push_str("</a>");
+    }
+    s.push_str("</g>");
 }
 
 fn change_colors(c: Change, p: &Palette) -> (String, String, &'static str) {
@@ -436,7 +759,11 @@ fn node_svg(
     let card = matches!(node.shape, Shape::Box | Shape::Rounded);
     // cards stay white with a coloured strip; other shapes take a soft fill
     let (mut fill, mut stroke, mut width) = match (&tint, node.shape) {
-        (_, Shape::Sticky) => (theme::sticky(node.color.as_deref()), "none".to_string(), 0.0),
+        (_, Shape::Sticky) => (
+            theme::sticky(node.color.as_deref()),
+            "none".to_string(),
+            0.0,
+        ),
         (Some(k), _) if card => (k.frame.clone(), p.node_stroke.to_string(), 1.0),
         (Some(k), _) => (k.soft.clone(), k.accent.clone(), 1.5),
         (None, _) => (p.node_fill.to_string(), p.node_stroke.to_string(), 1.0),
@@ -468,9 +795,14 @@ fn node_svg(
         let _ = write!(s, r#"<a href="{}" target="_blank">"#, esc(link));
     }
     let lifted = r#" filter="url(#dg-shadow)""#;
-    let shape_attr =
-        format!(r#"fill="{fill}" stroke="{stroke}" stroke-width="{}"{dash}{lifted}"#, n(width));
-    let line_attr = format!(r#"fill="none" stroke="{stroke}" stroke-width="{}"{dash}"#, n(width));
+    let shape_attr = format!(
+        r#"fill="{fill}" stroke="{stroke}" stroke-width="{}"{dash}{lifted}"#,
+        n(width)
+    );
+    let line_attr = format!(
+        r#"fill="none" stroke="{stroke}" stroke-width="{}"{dash}"#,
+        n(width)
+    );
     let rect = |s: &mut String, rx: f64| {
         let _ = write!(
             s,
@@ -484,7 +816,11 @@ fn node_svg(
     };
     match node.shape {
         Shape::Box | Shape::Rounded => {
-            let rx = if node.shape == Shape::Box { 8.0 } else { (h / 2.0).min(14.0) };
+            let rx = if node.shape == Shape::Box {
+                8.0
+            } else {
+                (h / 2.0).min(14.0)
+            };
             rect(s, rx);
             if tint.is_some() && change.is_none() {
                 // status strip along the top edge, clipped to the corners
@@ -740,9 +1076,16 @@ fn node_svg(
 fn initials(name: &str) -> String {
     let words: Vec<&str> = name.split_whitespace().collect();
     let s: String = if words.len() >= 2 {
-        words.iter().take(2).filter_map(|w| w.chars().next()).collect()
+        words
+            .iter()
+            .take(2)
+            .filter_map(|w| w.chars().next())
+            .collect()
     } else {
-        name.chars().filter(|c| c.is_alphanumeric()).take(2).collect()
+        name.chars()
+            .filter(|c| c.is_alphanumeric())
+            .take(2)
+            .collect()
     };
     s.to_uppercase()
 }

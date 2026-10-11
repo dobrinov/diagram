@@ -47,6 +47,7 @@ There is one statement per line. A line that starts with `#` or `//` is a commen
 | `a -> b -> c` | a chain of edges (the label applies to each) |
 | `a -> b, c` | fan-out: one edge to each node in the list |
 | `group id: Label [attrs] {` … `}` | a group. Nodes declared or listed inside belong to it. Groups nest. |
+| `mindmap id: Topic [attrs] {` … `}` | a mindmap: the line is its central topic and the body is an indented outline (see *Mindmaps*) |
 | `comment [id] [on target] [at x,y] [by author]: text [attrs]` | a review comment. Ids default to `c1`, `c2`, … |
 | `reply id [by author]: text` | a reply to a comment |
 | `title:` `description:` `direction:` `layout:` `routing:` `theme:` | settings (top level only) |
@@ -73,7 +74,7 @@ Attributes go in square brackets at the end of the line as `key: value` pairs se
 
 | On | Keys |
 |---|---|
-| nodes | `shape`, `color`, `detail` (smaller second line), `link`, `tags` (space separated), `x`, `y` (pinned position), `w`, `h` |
+| nodes | `shape`, `color`, `detail` (smaller second line), `link`, `tags` (space separated), `x`, `y` (pinned position), `w`, `h`; mindmap topics also `collapsed`, `id`, and a centre `layout` |
 | edges | `label`, `arrow` (`end`, `start`, `both`, `none`), `line` (`solid`, `dashed`, `dotted`, `thick`), `color`, `id` |
 | groups | `color`, `label` |
 | comments | `resolved` / `open`, `resolution`, `author`, `x`, `y` |
@@ -83,6 +84,30 @@ Attributes go in square brackets at the end of the line as `key: value` pairs se
 - **Settings:** `layout: layered | grid`, `routing: orthogonal | curved | straight`, `theme: light | dark`
 
 Nodes without `x`/`y` are placed automatically. Dragging a node in the editor pins it there. `diagram apply FILE` with `{"op":"unpin"}` releases every pinned node.
+
+### Mindmaps
+
+```diagram
+mindmap pf: Payments France [layout: both, x: 0, y: 0] {
+  Discovery
+    Who pays today?
+    Card vs SEPA share
+  Regulations [red]
+    PSD2 / SCA
+  Customer collections [collapsed]
+    Direct debit
+  Card [id: card-scheme]
+}
+pf-note: Ask ops about volumes [sticky]
+pf-note ..> who-pays-today
+```
+
+- The header line is the **central topic** (same syntax as a node). Its `layout` is `right` (default), `left`, `both` (balanced) or `down` (org chart). `x`/`y` pin the centre; the whole map moves with it.
+- Each body line is a **topic**: its label, then optional `[attrs]`. Indentation makes the tree (any consistent indent; Markdown bullets `- ` / `* ` are allowed, so a pasted list works).
+- Topic ids come from their labels (`Who pays today?` → `who-pays-today`); a clash gets `-2`. Write `[id: x]` to choose one. Edges and comments use these ids, so mindmap topics can be linked to anything on the board.
+- `[collapsed]` folds the branches under a topic. A colour on a topic colours its whole branch; main branches get distinct colours automatically.
+- In JSON a topic is a node with `parent` (the topic it branches from); the centre has `mindmap` (its layout). Siblings keep document order.
+- `diagram outline FILE` prints a map as an outline and `--md` as Markdown (the centre is the title, main branches are sections): that is how a mindmap becomes a prompt. `diagram expand FILE ID` grows a topic with your AI harness.
 
 ## JSON
 

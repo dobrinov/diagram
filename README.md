@@ -32,6 +32,26 @@ diagram apply docs/checkout.diagram reply.md       # apply the LLM's reply (ops 
 diagram png docs/checkout.diagram --base main      # PNG of what this branch changed
 ```
 
+## Mindmaps
+
+Press **T** and click, type the central topic, then keep typing: **Tab** adds a branch, **Enter** a sibling, **⇧Tab** outdents, arrows walk the map, **⌥↑/↓** reorders, **.** folds. Drag a topic onto another to move its branch. Paste a Markdown list to get a map. Maps sit on the same board as boxes, stickies and arrows, and topics can be linked and commented on like anything else.
+
+```diagram
+mindmap pf: Payments France [layout: both] {
+  Discovery
+    Who pays today?
+  Regulations [red]
+    PSD2 / SCA
+  Prompt: build checkout
+    Context
+    Constraints
+}
+```
+
+**✦ AI that costs few tokens.** *Grow this topic* sends a model only the map as an outline plus the path to the topic, and gets indented lines back, about 5–15 tokens per topic. Any harness works: the editor takes an `ai(prompt) → Promise<string>` function, and `diagram FILE --ai "claude -p --model haiku"` (or `codex exec -`, `llm`, `ollama run …`) wires the local editor and `diagram expand` to a CLI. Without one, the editor shows the prompt to copy and takes the reply back.
+
+**Mindmaps as prompts.** *Copy as prompt* (or `diagram outline FILE --md`) turns a map into Markdown: the centre is the title, main branches are sections, deeper topics are bullets.
+
 ## Why
 
 Whiteboard tools are great for talking. Their output, though, ends up in a format that neither git nor an LLM can work with. diagram keeps the friendly parts (drag boxes, drop sticky notes, comment on anything) and stores the result as **text you can diff, review and feed to an agent**.
@@ -74,7 +94,8 @@ A plain `cargo install --path crates/cli` also works. Its `build.rs` runs wasm-p
 ## Usage
 
 ```
-diagram [FILE]                     open FILE in the editor (created if missing)
+diagram [FILE]                     open FILE in the editor (created if missing;
+                                   no FILE starts a new untitled.diagram)
 diagram new FILE [--template flow|architecture|board]
 
 diagram svg  FILE [-o out.svg]     static SVG       ┐ --dark --transparent --no-title
@@ -90,6 +111,7 @@ diagram resolve  FILE COMMENT_ID [--note TEXT]
 diagram prompt   FILE [--target diagram|code|discuss] [--reply ops|dsl] [--comment c1,c2] [--all]
 diagram apply    FILE [PATCH|-] [--dry-run]
 
+diagram outline FILE [ID] [--md]   diagram expand FILE ID [--ask TEXT] | --new TOPIC   (--ai CMD)
 diagram check FILE...   diagram fmt FILE... [--check]   diagram diff OLD NEW|GIT_REF
 diagram spec [--json-schema]   diagram embed [-o diagram.embed.js]   diagram skills install [--global]
 ```
@@ -100,7 +122,8 @@ diagram spec [--json-schema]   diagram embed [-o diagram.embed.js]   diagram ski
 
 | | |
 |---|---|
-| `V` `N` `S` `C` `M` | select · box · sticky · connect · comment |
+| `V` `T` `N` `S` `C` `M` | select · mindmap · box · sticky · connect · comment |
+| `Tab` · `Enter` · `⇧Tab` · `F2` · `.` | mindmap: branch · sibling · outdent · rename · fold |
 | double-click | add a box / edit a label |
 | drag a node's dot | connect, or drop on empty space to create a connected node |
 | `⌘G` · `⌘D` · `⌘A` | group · duplicate · select all |
@@ -207,6 +230,7 @@ diagram skills install --global   # into ~/.claude/skills
 | `diagram-review` | Act on open comments: change the code or the diagram, then resolve or reply to each thread |
 | `diagram-edit` | Make precise structural edits with ops (renames, regrouping, removals) |
 | `diagram-embed` | Use the JS bundle or the Rust crate in another project |
+| `diagram-mindmap` | Create and grow mindmaps with outlines and `add_outline`, and turn them into prompts |
 
 ## Repository layout
 

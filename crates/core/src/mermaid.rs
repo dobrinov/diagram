@@ -26,7 +26,44 @@ fn mermaid_text(s: &str) -> String {
     format!("\"{}\"", s.replace('"', "#quot;").replace('\n', "<br/>"))
 }
 
+/// A document that is just one mindmap exports as Mermaid's `mindmap`.
+fn export_mindmap(doc: &Document) -> Option<String> {
+    let f = crate::mindmap::Forest::new(doc);
+    let roots: Vec<usize> = (0..doc.nodes.len())
+        .filter(|&i| f.root[i] == Some(i))
+        .collect();
+    if roots.len() != 1
+        || !doc.edges.is_empty()
+        || !doc.groups.is_empty()
+        || (0..doc.nodes.len()).any(|i| !f.in_map(i))
+    {
+        return None;
+    }
+    let root = &doc.nodes[roots[0]];
+    let clean = |s: &str| {
+        s.replace('\n', " ")
+            .replace(['(', ')', '[', ']', '{', '}'], " ")
+    };
+    let mut out = String::new();
+    if let Some(t) = &doc.title {
+        out.push_str(&format!("---\ntitle: {}\n---\n", t.replace('\n', " ")));
+    }
+    out.push_str(&format!(
+        "mindmap\n  {}(({}))\n",
+        mermaid_id(&root.id),
+        clean(root.display()).trim()
+    ));
+    for line in crate::mindmap::outline(doc, &root.id, false).lines() {
+        let (w, t) = crate::mindmap::indent_of(line);
+        out.push_str(&format!("    {}{}\n", " ".repeat(w), clean(t).trim()));
+    }
+    Some(out)
+}
+
 pub fn export(doc: &Document) -> String {
+    if let Some(m) = export_mindmap(doc) {
+        return m;
+    }
     let dir = match doc.settings.direction {
         Direction::Right => "LR",
         Direction::Down => "TB",
@@ -79,6 +116,11 @@ pub fn export(doc: &Document) -> String {
     }
     for g in groups {
         group(doc, g, 0, &mut out);
+    }
+    for n in &doc.nodes {
+        if let Some(p) = n.parent.as_deref().filter(|p| doc.node(p).is_some()) {
+            out.push_str(&format!("  {} --- {}\n", mermaid_id(p), mermaid_id(&n.id)));
+        }
     }
     for e in &doc.edges {
         let core = match (e.line, e.arrow) {
@@ -136,7 +178,7 @@ pub fn looks_like(src: &str) -> bool {
         .find(|l| !l.is_empty() && !l.starts_with("%%") && *l != "---" && !l.starts_with("title:"))
         .is_some_and(|l| {
             let w = l.split_whitespace().next().unwrap_or("");
-            w == "flowchart" || w == "graph"
+            w == "flowchart" || w == "graph" || l == "mindmap"
         })
 }
 
@@ -200,7 +242,78 @@ const SHAPES: &[(&str, &str, Shape)] = &[
     (">", "]", Shape::Box),
 ];
 
+/// Mermaid `mindmap`: indentation is the tree; node shapes are dropped.
+fn import_mindmap(src: &str) -> Result<Document, Vec<Diagnostic>> {
+    let mut doc = Document::default();
+    let mut body = String::new();
+    let mut started = false;
+    let mut in_front = false;
+    for raw in src.lines() {
+        let t = raw.trim();
+        if t == "---" && !started {
+            in_front = !in_front;
+            continue;
+        }
+        if in_front {
+            if let Some(v) = t.strip_prefix("title:") {
+                doc.title = Some(v.trim().to_string());
+            }
+            continue;
+        }
+        if !started {
+            started = t == "mindmap";
+            continue;
+        }
+        if t.is_empty() || t.starts_with("%%") || t.starts_with("::icon") {
+            continue;
+        }
+        let (w, _) = crate::mindmap::indent_of(raw);
+        body.push_str(&" ".repeat(w));
+        body.push_str(&mindmap_text(t));
+        body.push('\n');
+    }
+    let lines = crate::mindmap::parse_outline(&body, false);
+    if lines.is_empty() {
+        return Err(vec![Diagnostic::new(0, "the mindmap is empty")]);
+    }
+    crate::mindmap::insert_outline(&mut doc, None, &lines, None, None)
+        .map_err(|e| vec![Diagnostic::new(0, e)])?;
+    doc.normalize();
+    Ok(doc)
+}
+
+/// `id((Text))`, `id[Text]`, `id)Text(`, `Text:::class` → `Text`.
+fn mindmap_text(t: &str) -> String {
+    let t = t.split(":::").next().unwrap_or(t).trim();
+    let opens = ["((", "))", "{{", "[", "(", ")"];
+    for o in opens {
+        if let Some(pos) = t.find(o) {
+            let id = &t[..pos];
+            if id
+                .chars()
+                .all(|c| c.is_alphanumeric() || c == '_' || c == '-')
+            {
+                let inner = t[pos + o.len()..]
+                    .trim_end_matches([')', ']', '}', '('])
+                    .trim();
+                let inner = inner.trim_matches('"');
+                if !inner.is_empty() {
+                    return inner.to_string();
+                }
+            }
+        }
+    }
+    t.trim_matches('"').to_string()
+}
+
 pub fn import(src: &str) -> Result<Document, Vec<Diagnostic>> {
+    let header = src
+        .lines()
+        .map(str::trim)
+        .find(|l| !l.is_empty() && !l.starts_with("%%") && *l != "---" && !l.starts_with("title:"));
+    if header == Some("mindmap") {
+        return import_mindmap(src);
+    }
     let mut doc = Document::default();
     let mut errors = Vec::new();
     let mut stack: Vec<String> = Vec::new();
@@ -481,5 +594,19 @@ flowchart TD
         assert_eq!(back.node("a").unwrap().group.as_deref(), Some("g"));
         assert_eq!(back.edge("c->a").unwrap().arrow, Arrow::Both);
         assert_eq!(back.edge("b->c").unwrap().arrow, Arrow::None);
+    }
+
+    #[test]
+    fn mindmaps_in_and_out() {
+        let src = "mindmap\n  root((Trip))\n    Food\n      id1[Nata]\n    Days:::urgent\n";
+        let d = import(src).unwrap();
+        assert_eq!(d.node("trip").unwrap().mindmap, Some(MapLayout::Right));
+        assert_eq!(d.node("nata").unwrap().parent.as_deref(), Some("food"));
+        let out = export(&d);
+        assert!(
+            out.starts_with("mindmap\n  trip((Trip))\n    Food\n      Nata\n"),
+            "{out}"
+        );
+        assert_eq!(import(&out).unwrap().nodes.len(), 4);
     }
 }

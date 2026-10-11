@@ -43,6 +43,15 @@ pub enum Op {
         w: Option<f64>,
         #[serde(default, skip_serializing_if = "Option::is_none")]
         h: Option<f64>,
+        /// Mindmap: the topic to branch from.
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        parent: Option<String>,
+        /// Position among the parent's branches (0 = first; default last).
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        index: Option<usize>,
+        /// Start a mindmap here: right, left, both or down.
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        mindmap: Option<String>,
     },
     UpdateNode {
         id: String,
@@ -64,6 +73,32 @@ pub enum Op {
         w: Option<f64>,
         #[serde(default, skip_serializing_if = "Option::is_none")]
         h: Option<f64>,
+        /// Mindmap: move the topic (with its branch) under another one;
+        /// "" detaches it into a mindmap of its own.
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        parent: Option<String>,
+        /// Position among its siblings (with or without a new parent).
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        index: Option<usize>,
+        /// Mindmap layout of a centre (right, left, both, down); "" ends the map.
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        mindmap: Option<String>,
+        /// Fold or unfold the branches under a topic.
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        collapsed: Option<bool>,
+    },
+    /// Add topics from an indented outline (or a Markdown list) under
+    /// `parent`; without `parent` the first line becomes a new mindmap.
+    AddOutline {
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        parent: Option<String>,
+        outline: String,
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        index: Option<usize>,
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        x: Option<f64>,
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        y: Option<f64>,
     },
     /// Rename an id everywhere it is referenced (edges, comments, members).
     Rename {
@@ -71,9 +106,11 @@ pub enum Op {
         to: String,
     },
     /// Remove a node or group (with its edges) or an edge or a comment.
+    /// A mindmap topic goes with its whole branch.
     Remove {
         id: String,
         /// For groups: keep the members (moved to the parent group). Default true.
+        /// For mindmap topics: keep the branches (moved up a level). Default false.
         #[serde(default, skip_serializing_if = "Option::is_none")]
         keep_members: Option<bool>,
     },
@@ -234,6 +271,11 @@ fn color(c: &str) -> Result<String, String> {
     }
 }
 
+fn map_layout(s: &str) -> Result<MapLayout, String> {
+    MapLayout::parse(s)
+        .ok_or_else(|| format!("unknown mindmap layout `{s}` (use {})", MapLayout::names()))
+}
+
 fn shape(s: &str) -> Result<Shape, String> {
     Shape::parse(s).ok_or_else(|| format!("unknown shape `{s}` (use {})", Shape::names()))
 }
@@ -278,8 +320,17 @@ fn apply_one(doc: &mut Document, op: &Op, created: &mut Vec<String>) -> Result<(
             y,
             w,
             h,
+            parent,
+            index,
+            mindmap,
         } => {
             let id = new_id(doc, id.as_deref(), label)?;
+            let parent = parent.as_deref().filter(|p| !p.is_empty());
+            if let Some(p) = parent {
+                if doc.node(p).is_none() {
+                    return Err(format!("no node `{p}` to branch from"));
+                }
+            }
             if let Some(g) = group.as_deref().filter(|g| !g.is_empty()) {
                 need_container(doc, g)?;
             }
@@ -300,7 +351,13 @@ fn apply_one(doc: &mut Document, op: &Op, created: &mut Vec<String>) -> Result<(
             n.link = link.clone().filter(|l| !l.is_empty());
             n.tags = tags.clone();
             (n.x, n.y, n.w, n.h) = (*x, *y, *w, *h);
+            if let Some(m) = mindmap.as_deref().filter(|m| !m.is_empty()) {
+                n.mindmap = Some(map_layout(m)?);
+            }
             doc.nodes.push(n);
+            if let Some(p) = parent {
+                doc.set_parent(&id, Some(p), *index)?;
+            }
             created.push(id);
         }
         Op::UpdateNode {
@@ -314,9 +371,33 @@ fn apply_one(doc: &mut Document, op: &Op, created: &mut Vec<String>) -> Result<(
             tags,
             w,
             h,
+            parent,
+            index,
+            mindmap,
+            collapsed,
         } => {
             if let Some(Some(g)) = opt(group) {
                 need_container(doc, &g)?;
+            }
+            match (opt(parent), index) {
+                (Some(p), _) => doc.set_parent(id, p.as_deref(), *index)?,
+                (None, Some(i)) => {
+                    if doc.node(id).is_none() {
+                        return Err(format!("no node `{id}`"));
+                    }
+                    doc.move_among_siblings(id, Some(*i))
+                }
+                (None, None) => {}
+            }
+            if let Some(m) = opt(mindmap) {
+                let m = m.map(|m| map_layout(&m)).transpose()?;
+                let n = doc.node_mut(id).ok_or_else(|| format!("no node `{id}`"))?;
+                if n.parent.is_some() && m.is_some() {
+                    return Err(format!(
+                        "`{id}` is a branch; only a map's centre has a layout"
+                    ));
+                }
+                n.mindmap = m;
             }
             let n = doc.node_mut(id).ok_or_else(|| format!("no node `{id}`"))?;
             if let Some(l) = label {
@@ -346,6 +427,30 @@ fn apply_one(doc: &mut Document, op: &Op, created: &mut Vec<String>) -> Result<(
             if let Some(h) = h {
                 n.h = Some(*h).filter(|v| *v > 0.0);
             }
+            if let Some(c) = collapsed {
+                n.collapsed = *c;
+            }
+        }
+        Op::AddOutline {
+            parent,
+            outline,
+            index,
+            x,
+            y,
+        } => {
+            let lines = crate::mindmap::parse_reply(outline);
+            let at = match (x, y) {
+                (Some(x), Some(y)) => Some((*x, *y)),
+                _ => None,
+            };
+            let ids = crate::mindmap::insert_outline(
+                doc,
+                parent.as_deref().filter(|p| !p.is_empty()),
+                &lines,
+                *index,
+                at,
+            )?;
+            created.extend(ids);
         }
         Op::Rename { id, to } => {
             if id == to {
@@ -361,6 +466,11 @@ fn apply_one(doc: &mut Document, op: &Op, created: &mut Vec<String>) -> Result<(
             }
             if let Some(n) = doc.node_mut(id) {
                 n.id = to.clone();
+                for n in &mut doc.nodes {
+                    if n.parent.as_deref() == Some(id) {
+                        n.parent = Some(to.clone());
+                    }
+                }
             } else if let Some(g) = doc.group_mut(id) {
                 g.id = to.clone();
                 for n in &mut doc.nodes {
@@ -418,7 +528,52 @@ fn apply_one(doc: &mut Document, op: &Op, created: &mut Vec<String>) -> Result<(
             }
         }
         Op::Remove { id, keep_members } => {
-            if doc.node(id).is_some() {
+            if doc
+                .node(id)
+                .is_some_and(|n| n.parent.is_some() || !doc.children(&n.id).is_empty())
+            {
+                let branch = doc.subtree(id);
+                if keep_members.unwrap_or(false) {
+                    let (up, at) = {
+                        let n = doc.node(id).unwrap();
+                        let at = n
+                            .parent
+                            .as_ref()
+                            .and_then(|p| doc.children(p).iter().position(|c| c.id == *id));
+                        (n.parent.clone(), at)
+                    };
+                    let kids: Vec<String> = doc.children(id).iter().map(|c| c.id.clone()).collect();
+                    let (x, y) = doc.node(id).map(|n| (n.x, n.y)).unwrap();
+                    for (k, kid) in kids.iter().enumerate() {
+                        doc.set_parent(kid, up.as_deref(), at.map(|a| a + k))?;
+                        if up.is_none() && k == 0 {
+                            let n = doc.node_mut(kid).unwrap();
+                            (n.x, n.y) = (x, y);
+                        }
+                    }
+                    apply_one(
+                        doc,
+                        &Op::Remove {
+                            id: id.clone(),
+                            keep_members: None,
+                        },
+                        created,
+                    )?;
+                    return Ok(());
+                }
+                for nid in branch.iter().rev() {
+                    doc.node_mut(nid).unwrap().parent = None;
+                    doc.nodes.retain(|n| n.id != *nid);
+                    let gone: Vec<String> = doc
+                        .edges
+                        .iter()
+                        .filter(|e| e.from == *nid || e.to == *nid)
+                        .map(|e| e.id.clone())
+                        .collect();
+                    doc.edges.retain(|e| e.from != *nid && e.to != *nid);
+                    detach_comments(doc, nid, &gone);
+                }
+            } else if doc.node(id).is_some() {
                 doc.nodes.retain(|n| n.id != *id);
                 let gone: Vec<String> = doc
                     .edges
@@ -494,6 +649,11 @@ fn apply_one(doc: &mut Document, op: &Op, created: &mut Vec<String>) -> Result<(
         }
         Op::Move { id, x, y } => {
             let n = doc.node_mut(id).ok_or_else(|| format!("no node `{id}`"))?;
+            if n.parent.is_some() {
+                return Err(format!(
+                    "`{id}` is a mindmap branch: move its map's centre, or give it another parent"
+                ));
+            }
             n.x = Some(x.round());
             n.y = Some(y.round());
         }
@@ -914,5 +1074,65 @@ mod tests {
     #[test]
     fn rejects_unknown_fields() {
         assert!(parse_ops(r#"{"op":"add_node","colour":"red"}"#).is_err());
+    }
+
+    #[test]
+    fn mindmap_ops() {
+        let mut d =
+            dsl::parse("mindmap m: Map {\n  A\n    a1\n  B\n}\ncomment on a1: why?").unwrap();
+        let ops = parse_ops(
+            r#"[
+          {"op":"add_node","label":"First","parent":"m","index":0},
+          {"op":"add_outline","parent":"b","outline":"- B\n  - b1\n    - deep\n  - b2"},
+          {"op":"update_node","id":"a","collapsed":true},
+          {"op":"rename","id":"b","to":"bee"}
+        ]"#,
+        )
+        .unwrap();
+        let r = apply(&mut d, &ops).unwrap();
+        assert_eq!(r.created, vec!["first", "b1", "deep", "b2"]);
+        let kids: Vec<&str> = d.children("m").iter().map(|n| n.id.as_str()).collect();
+        assert_eq!(kids, vec!["first", "a", "bee"]);
+        assert_eq!(d.node("b1").unwrap().parent.as_deref(), Some("bee"));
+        // reparent with position; cycles are refused
+        apply(
+            &mut d,
+            &parse_ops(r#"{"op":"update_node","id":"bee","parent":"first","index":0}"#).unwrap(),
+        )
+        .unwrap();
+        assert_eq!(d.node("bee").unwrap().parent.as_deref(), Some("first"));
+        assert!(apply(
+            &mut d,
+            &parse_ops(r#"{"op":"update_node","id":"first","parent":"deep"}"#).unwrap()
+        )
+        .is_err());
+        assert!(apply(
+            &mut d,
+            &parse_ops(r#"{"op":"move","id":"a1","x":1,"y":2}"#).unwrap()
+        )
+        .is_err());
+        // removing a topic takes its branch; feedback stays
+        apply(&mut d, &parse_ops(r#"{"op":"remove","id":"a"}"#).unwrap()).unwrap();
+        assert!(d.node("a1").is_none());
+        assert!(d.comments[0].on.is_none());
+        // keep_members lifts the branches up a level, in place
+        apply(
+            &mut d,
+            &parse_ops(r#"{"op":"remove","id":"bee","keep_members":true}"#).unwrap(),
+        )
+        .unwrap();
+        let kids: Vec<&str> = d.children("first").iter().map(|n| n.id.as_str()).collect();
+        assert_eq!(kids, vec!["b1", "b2"]);
+        assert!(d.check().is_empty(), "{:?}", d.check());
+        // a new map from an outline
+        let r = apply(
+            &mut d,
+            &parse_ops(r#"{"op":"add_outline","outline":"Ideas\n  One\n  Two","x":500,"y":0}"#)
+                .unwrap(),
+        )
+        .unwrap();
+        assert_eq!(r.created[0], "ideas");
+        assert_eq!(d.node("ideas").unwrap().mindmap, Some(MapLayout::Right));
+        assert_eq!(d.node("ideas").unwrap().x, Some(500.0));
     }
 }

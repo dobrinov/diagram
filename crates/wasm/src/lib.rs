@@ -100,6 +100,45 @@ impl Diagram {
     pub fn brief(&self) -> String {
         diagram_core::prompt::brief(&self.inner.doc)
     }
+
+    /// The mindmap under `id` as an indented outline (with `id` as the first line).
+    pub fn outline(&self, id: &str) -> String {
+        diagram_core::mindmap::outline(&self.inner.doc, id, true)
+    }
+
+    /// The mindmap under `id` as Markdown (title, sections, bullets): a prompt.
+    pub fn markdown(&self, id: &str) -> String {
+        diagram_core::mindmap::to_markdown(&self.inner.doc, id)
+    }
+
+    /// A small prompt asking a model to grow the topic `id`.
+    /// Options: `{instructions, count, levels}`. Returns `{prompt}` or `{error}`.
+    pub fn expand_prompt(&self, id: &str, options: &str) -> String {
+        let o: diagram_core::mindmap::ExpandOptions = match opts(options) {
+            Ok(o) => o,
+            Err(e) => return err(e),
+        };
+        match diagram_core::mindmap::expand_prompt(&self.inner.doc, id, &o) {
+            Ok(p) => json!({ "prompt": p }).to_string(),
+            Err(e) => err(e),
+        }
+    }
+}
+
+/// A prompt asking a model for a new mindmap about `topic`.
+#[wasm_bindgen]
+pub fn mindmap_prompt(topic: &str, options: &str) -> String {
+    let o: diagram_core::mindmap::ExpandOptions = opts(options).unwrap_or_default();
+    diagram_core::mindmap::generate_prompt(topic, &o)
+}
+
+/// A model's reply as an outline (two spaces per level), ready for `add_outline`.
+#[wasm_bindgen]
+pub fn reply_outline(reply: &str) -> String {
+    diagram_core::mindmap::parse_reply(reply)
+        .iter()
+        .map(|l| format!("{}{}\n", "  ".repeat(l.depth), l.text))
+        .collect()
 }
 
 impl Default for Diagram {

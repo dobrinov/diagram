@@ -10,6 +10,7 @@
 //! - [`model`]: the document (also the JSON format)
 //! - [`dsl`]: the human-friendly text format
 //! - [`mermaid`]: Mermaid flowchart import/export
+//! - [`mindmap`]: mindmaps (outlines, tree layout, Markdown and AI prompts)
 //! - [`ops`]: edit operations (the API for editors, tools and LLMs)
 //! - [`layout`], [`route`], [`render`]: placement, edges and SVG
 //! - [`diff`]: comparing two versions
@@ -19,6 +20,7 @@ pub mod diff;
 pub mod dsl;
 pub mod layout;
 pub mod mermaid;
+pub mod mindmap;
 pub mod model;
 pub mod ops;
 pub mod prompt;
@@ -162,7 +164,10 @@ pub fn json_schema() -> Value {
                 "group": {"type": "string", "description": "id of the enclosing group"},
                 "link": {"type": "string"},
                 "tags": {"type": "array", "items": {"type": "string"}},
-                "x": {"type": "number"}, "y": {"type": "number"}, "w": {"type": "number"}, "h": {"type": "number"}
+                "x": {"type": "number"}, "y": {"type": "number"}, "w": {"type": "number"}, "h": {"type": "number"},
+                "parent": {"type": "string", "description": "mindmap: id of the topic this one branches from"},
+                "mindmap": e(&["right", "left", "both", "down"]),
+                "collapsed": {"type": "boolean", "description": "mindmap: branches under this topic are folded"}
             }}},
             "edges": {"type": "array", "items": {"type": "object", "required": ["from", "to"], "additionalProperties": false, "properties": {
                 "id": {"type": "string", "description": "defaults to from->to"},
@@ -308,7 +313,10 @@ mod tests {
         assert_eq!(r["ok"], true, "{r}");
         s.set_base(Some("a -> b"));
         let out = s.render(&RenderOptions::default());
-        assert!(out.svg.contains(theme::LIGHT.add), "added elements are green");
+        assert!(
+            out.svg.contains(theme::LIGHT.add),
+            "added elements are green"
+        );
         assert!(s.diff_markdown().contains("+ edge `b` → `c`"));
     }
 
@@ -318,7 +326,10 @@ mod tests {
         let new = parse("a -> b\ngroup g: G {\n c\n}").unwrap();
         let svg = render_diff(&old, &new, &RenderOptions::default()).svg;
         for tag in svg.split('<') {
-            assert!(tag.matches(" stroke-width=").count() <= 1, "duplicate attribute in <{tag}");
+            assert!(
+                tag.matches(" stroke-width=").count() <= 1,
+                "duplicate attribute in <{tag}"
+            );
         }
     }
 }

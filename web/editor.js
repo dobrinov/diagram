@@ -9,6 +9,8 @@
  *     code: true,         // show the code pane (edit mode)
  *     panel: true,        // show the inspector / comments panel
  *     shareUrl: null,     // playground URL, enables "Copy share link"
+ *     ai: null,           // function (prompt) → Promise<string>: your model / harness.
+ *                         // Without it, ✦ actions show the prompt to copy and take the reply.
  *     onChange: function (source, ed) {},
  *     onSave: function (source, ed) {}   // Cmd/Ctrl+S
  *   });
@@ -33,6 +35,7 @@
     select: '<path d="M5 3l14 8-6 1.5L10 19z"/>',
     node: '<rect x="4" y="6" width="16" height="12" rx="2"/>',
     sticky: '<path d="M5 4h14v10l-5 6H5z"/><path d="M14 20v-6h5"/>',
+    mindmap: '<rect x="2" y="9" width="8" height="6" rx="3"/><path d="M10 12c3 0 3-6 7-6M10 12c3 0 3 6 7 6M17 6h4M17 18h4"/>',
     connect: '<path d="M5 19L19 5"/><path d="M11 5h8v8"/>',
     comment: '<path d="M4 5h16v11H9l-5 4z"/>',
     undo: '<path d="M9 7L4 12l5 5"/><path d="M4 12h11a5 5 0 010 10h-3"/>',
@@ -120,7 +123,7 @@
       session: new wasm.Diagram(),
       r: null, doc: null, text: "", errors: [],
       zoom: 1, panX: 0, panY: 0, fitted: false,
-      tool: "select", sel: [], hover: null, comment: null, composer: null,
+      tool: "select", sel: [], hover: null, comment: null, composer: null, thinking: {},
       undo: [], redo: [], codeFormat: "dsl",
       dark: opts.theme ? opts.theme === "dark" : !!(root.matchMedia && root.matchMedia("(prefers-color-scheme: dark)").matches),
       showResolved: false, base: null, space: false,
@@ -192,7 +195,7 @@
       toolbar.innerHTML = "";
       if (!view) {
         var tools = h("div", { class: "dge-group" });
-        [["select", "Select & move (V)"], ["node", "Add a box (N)"], ["sticky", "Add a sticky note (S)"], ["connect", "Connect (C) — or drag a node's handle"], ["comment", "Comment (M)"]].forEach(function (t) {
+        [["select", "Select & move (V)"], ["mindmap", "Add a mindmap (T) — then Tab adds a branch, Enter a sibling"], ["node", "Add a box (N)"], ["sticky", "Add a sticky note (S)"], ["connect", "Connect (C) — or drag a node's handle"], ["comment", "Comment (M)"]].forEach(function (t) {
           tools.appendChild(btn({ "data-tool": t[0], title: t[1], onclick: function () { setTool(t[0]); } }, icon(t[0])));
         });
         toolbar.appendChild(tools);
@@ -406,7 +409,7 @@
         toolbar.routing.value = s.routing || "orthogonal";
       }
       var nodes = st.doc ? st.doc.nodes.length : 0;
-      hint.textContent = nodes ? "" : view ? "Empty diagram" : "Double-click to add a box, or type in the code pane";
+      hint.textContent = nodes ? "" : view ? "Empty diagram" : "Press T and click to start a mindmap · double-click to add a box · or paste a list";
       hint.hidden = !!nodes;
     }
 
@@ -445,12 +448,203 @@
       return st.r.nodes.find(function (n) { return n.id === id; }) || st.r.groups.find(function (g) { return g.id === id; });
     }
 
+    // ------------------------------------------------------------ mindmaps
+    function mapInfo(id) { var g = st.r && st.r.nodes.find(function (n) { return n.id === id; }); return g && g.map ? g.map : null; }
+    function isBranch(id) { var m = mapInfo(id); return !!(m && m.parent); }
+    function kidsOf(id) { return st.doc.nodes.filter(function (n) { return n.parent === id; }).map(function (n) { return n.id; }); }
+    function subtreeOf(id) {
+      var out = [id];
+      for (var i = 0; i < out.length; i++) kidsOf(out[i]).forEach(function (k) { if (out.indexOf(k) < 0) out.push(k); });
+      return out;
+    }
+    /* The side a topic's own branches grow towards. */
+    function outerSide(id) {
+      var m = mapInfo(id);
+      if (!m) return "right";
+      if (m.depth === 0) return m.layout === "down" ? "down" : m.layout === "left" ? "left" : "right";
+      return m.side;
+    }
+    /* Where a topic's branches leave it (screen of the map's own geometry). */
+    function outerPoint(id, out) {
+      var g = geom(id), m = mapInfo(id), side = outerSide(id);
+      var underline = m && m.depth >= 2 && m.layout !== "down" && (node(id).shape || "box") === "box";
+      var y = underline ? g.y + g.h : g.y + g.h / 2;
+      if (side === "down") return { x: g.x + g.w / 2, y: g.y + g.h + out, side: side };
+      if (side === "left") return { x: g.x - out, y: y, side: side };
+      return { x: g.x + g.w + out, y: y, side: side };
+    }
+
+    /* Pan just enough to bring a node into view. */
+    function reveal(id) {
+      var g = geom(id);
+      if (!g) return;
+      var a = toScreen(g.x, g.y), b = toScreen(g.x + g.w, g.y + g.h), m = 48;
+      var dx = 0, dy = 0, cw = canvas.clientWidth, ch = canvas.clientHeight;
+      if (b.x > cw - m) dx = cw - m - b.x;
+      if (a.x + dx < m) dx = m - a.x;
+      if (b.y > ch - m) dy = ch - m - b.y;
+      if (a.y + dy < m) dy = m - a.y;
+      if (dx || dy) { st.panX += dx; st.panY += dy; transform(); }
+    }
+
+    function addTopic(parent, index, flow) {
+      var id = freshId("topic");
+      var ops = [];
+      if (node(parent) && node(parent).collapsed) ops.push({ op: "update_node", id: parent, collapsed: false });
+      var op = { op: "add_node", id: id, label: "", parent: parent };
+      if (index != null) op.index = index;
+      ops.push(op);
+      var res = applyOps(ops);
+      if (res.ok) {
+        select([id]);
+        editLabel(id, true, flow !== false);
+      }
+      return res.ok ? id : null;
+    }
+    function addSibling(id, after) {
+      var n = node(id);
+      if (!n || !n.parent) return addTopic(id);
+      var i = kidsOf(n.parent).indexOf(id);
+      return addTopic(n.parent, i + (after ? 1 : 0));
+    }
+    function outdent(id) {
+      var n = node(id), p = n && n.parent && node(n.parent);
+      if (!p || !p.parent) return;
+      applyOps([{ op: "update_node", id: id, parent: p.parent, index: kidsOf(p.parent).indexOf(p.id) + 1 }]);
+    }
+    function moveSibling(id, delta) {
+      var n = node(id);
+      if (!n || !n.parent) return;
+      var sibs = kidsOf(n.parent), j = sibs.indexOf(id) + delta;
+      if (j < 0 || j >= sibs.length) return;
+      applyOps([{ op: "update_node", id: id, index: j }]);
+    }
+    function toggleFold(id) {
+      var n = node(id);
+      if (!n || !kidsOf(id).length) return;
+      applyOps([{ op: "update_node", id: id, collapsed: !n.collapsed }]);
+    }
+    /* Arrow keys walk the map the way it is drawn. */
+    function navigate(key) {
+      var id = st.sel[0], m = mapInfo(id), n = node(id);
+      if (!m) return false;
+      var side = outerSide(id), down = side === "down";
+      var vis = function (pid, sd) {
+        return st.r.nodes.filter(function (b) { return b.map && b.map.parent === pid && (!sd || b.map.side === sd); })
+          .sort(function (a, b) { return down ? a.x - b.x : a.y - b.y; });
+      };
+      if (m.depth === 0 && !down && (key === "ArrowLeft" || key === "ArrowRight")) {
+        var k0 = vis(id, key === "ArrowLeft" ? "left" : "right");
+        if (k0.length) select([k0[Math.floor((k0.length - 1) / 2)].id]);
+        return true;
+      }
+      var toParent = down ? "ArrowUp" : side === "right" ? "ArrowLeft" : "ArrowRight";
+      var toChild = down ? "ArrowDown" : side === "right" ? "ArrowRight" : "ArrowLeft";
+      if (key === toParent) { if (n.parent) select([n.parent]); return true; }
+      if (key === toChild) {
+        var kids = vis(id);
+        if (kids.length) select([kids[0].id]);
+        else if (n.collapsed) toggleFold(id);
+        return true;
+      }
+      if (!n.parent) return true;
+      var sibs = vis(n.parent, m.layout === "both" && m.depth === 1 ? m.side : null);
+      var i = sibs.findIndex(function (b) { return b.id === id; });
+      var prev = down ? "ArrowLeft" : "ArrowUp";
+      var j = key === prev ? i - 1 : i + 1;
+      if (sibs[j]) select([sibs[j].id]);
+      return true;
+    }
+
+    /* Ask the model. With no `ai` option the prompt is shown to copy into any
+       chat or harness, and the reply is pasted back. */
+    function ask(prompt, title) {
+      if (opts.ai) return Promise.resolve(opts.ai(prompt));
+      return new Promise(function (resolve, reject) {
+        var pre = h("textarea", { class: "dge-preview", readonly: true, rows: 10 });
+        pre.value = prompt;
+        var reply = h("textarea", { class: "dge-preview", rows: 8, placeholder: "Paste the model's reply here" });
+        var settled = false;
+        showModal(title || "✦ Ask a model", h("div", { class: "dge-prompt" }, [
+          h("p", { class: "dge-muted" }, ["No model is connected here. Copy the prompt into any chat or agent, then paste its reply."]),
+          pre, reply
+        ]), [
+          h("button", { onclick: function () { copyText(prompt).then(function () { flash("Prompt copied"); }); } }, ["Copy prompt"]),
+          h("button", { class: "dge-primary", onclick: function () { settled = true; var t = reply.value; closeModal(); resolve(t); } }, ["Add the reply"])
+        ]);
+        var obs = new MutationObserver(function () { if (modal.hidden && !settled) { obs.disconnect(); reject(new Error("cancelled")); } });
+        obs.observe(modal, { attributes: true, attributeFilter: ["hidden"] });
+      });
+    }
+    function thinking(id, on) {
+      if (on) st.thinking[id] = true; else delete st.thinking[id];
+      markSelection();
+    }
+    function expandTopic(id, instructions) {
+      var r = JSON.parse(st.session.expand_prompt(id, JSON.stringify({ instructions: instructions || null })));
+      if (r.error) return flash(r.error, true);
+      thinking(id, true);
+      if (opts.ai) flash("✦ Thinking…", false, 60000);
+      ask(r.prompt, "✦ Grow “" + labelOf(id) + "”").then(function (text) {
+        var outline = wasm.reply_outline(String(text || ""));
+        if (!outline.trim()) throw new Error("The reply had no topics");
+        var ops = [];
+        if (node(id) && node(id).collapsed) ops.push({ op: "update_node", id: id, collapsed: false });
+        ops.push({ op: "add_outline", parent: id, outline: outline });
+        var res = applyOps(ops);
+        if (res.ok) flash("✦ Added " + res.created.length + " topics");
+      }).catch(function (e) { if (e && e.message !== "cancelled") flash(e.message || String(e), true); else flash(""); })
+        .then(function () { thinking(id, false); });
+    }
+    /* Free space for a new map: below everything that is there. */
+    function freeSpot() {
+      if (!st.r || !st.r.nodes.length) return toDiagram(canvas.getBoundingClientRect().left + canvas.clientWidth / 2, canvas.getBoundingClientRect().top + canvas.clientHeight / 2);
+      var x = Infinity, y = -Infinity;
+      st.r.nodes.forEach(function (n) { x = Math.min(x, n.x); y = Math.max(y, n.y + n.h); });
+      (st.r.groups || []).forEach(function (g) { x = Math.min(x, g.x); y = Math.max(y, g.y + g.h); });
+      return { x: x + 80, y: y + 96 };
+    }
+    function newMap(topic, at) {
+      topic = (topic || "").trim();
+      if (!topic) return;
+      if (!at) at = freeSpot();
+      if (opts.ai) flash("✦ Thinking…", false, 60000);
+      ask(wasm.mindmap_prompt(topic, "{}"), "✦ Mindmap about “" + topic + "”").then(function (text) {
+        var outline = wasm.reply_outline(String(text || ""));
+        if (!outline.trim()) throw new Error("The reply had no topics");
+        var res = applyOps([{ op: "add_outline", outline: outline, x: Math.round(at.x - 80), y: Math.round(at.y - 24) }]);
+        if (res.ok) { select([res.created[0]]); reveal(res.created[0]); flash("✦ Added a mindmap with " + res.created.length + " topics"); }
+      }).catch(function (e) { if (e && e.message !== "cancelled") flash(e.message || String(e), true); else flash(""); });
+    }
+    function pasteOutline(text) {
+      var lines = text.split(/\r?\n/).filter(function (l) { return l.trim(); });
+      if (!lines.length) return false;
+      var target = st.sel.length === 1 && mapInfo(st.sel[0]) ? st.sel[0] : null;
+      if (!target && lines.length < 2) return false;
+      var outline = wasm.reply_outline(text);
+      var op = { op: "add_outline", outline: outline };
+      if (target) op.parent = target;
+      else {
+        var c = freeSpot();
+        op.x = Math.round(c.x - 80); op.y = Math.round(c.y - 24);
+      }
+      var res = applyOps([op]);
+      if (res.ok) {
+        if (!target) { select([res.created[0]]); reveal(res.created[0]); }
+        flash("Added " + res.created.length + " topics");
+      }
+      return res.ok;
+    }
+
     function markSelection() {
       stage.querySelectorAll(".sel").forEach(function (e) { e.classList.remove("sel"); });
       st.sel.forEach(function (id) {
         stage.querySelectorAll('[data-id="' + cssEsc(id) + '"]').forEach(function (e) { e.classList.add("sel"); });
       });
       if (st.comment) stage.querySelectorAll('[data-comment="' + cssEsc(st.comment) + '"]').forEach(function (e) { e.classList.add("sel"); });
+      Object.keys(st.thinking).forEach(function (id) {
+        stage.querySelectorAll('[data-id="' + cssEsc(id) + '"]').forEach(function (e) { e.classList.add("thinking"); });
+      });
       if (st.comment) {
         var c = comment(st.comment);
         if (c && c.on) stage.querySelectorAll('[data-id="' + cssEsc(c.on) + '"]').forEach(function (e) { e.classList.add("cmt"); });
@@ -464,6 +658,14 @@
       Object.keys(attrs).forEach(function (k) { e.setAttribute(k, attrs[k]); });
       return e;
     }
+    function control(cls, p, r, label, id) {
+      var gEl = svgEl("g", { class: "dge-ctl " + cls, "data-node": id });
+      gEl.appendChild(svgEl("circle", { cx: p.x, cy: p.y, r: r }));
+      var t = svgEl("text", { x: p.x, y: p.y + r * 0.42, "font-size": r * 1.4, "text-anchor": "middle" });
+      t.textContent = label;
+      gEl.appendChild(t);
+      overlay.appendChild(gEl);
+    }
     function drawOverlay() {
       while (overlay.firstChild) overlay.removeChild(overlay.firstChild);
       if (view || !st.r) return;
@@ -473,6 +675,19 @@
       targets.forEach(function (id) {
         var g = geom(id);
         if (!g) return;
+        if (mapInfo(id) && st.tool !== "connect") {
+          // mindmap topics: + adds a branch, − / + folds
+          if (d && d.type === "branch") return;
+          var rr = 9 / Math.max(st.zoom, 0.5);
+          var hasKids = kidsOf(id).length > 0, folded = node(id).collapsed;
+          var pp = outerPoint(id, 14 / Math.max(st.zoom, 0.5) + 2);
+          if (hasKids && !folded) {
+            control("dge-foldbtn", pp, rr, "−", id);
+            pp = pp.side === "down" ? { x: pp.x + 2.4 * rr, y: pp.y } : { x: pp.x, y: pp.y - 2.4 * rr };
+          }
+          if (!folded) control("dge-plus", pp, rr, "+", id);
+          return;
+        }
         var r = 5 / Math.max(st.zoom, 0.4);
         [[g.x + g.w / 2, g.y], [g.x + g.w, g.y + g.h / 2], [g.x + g.w / 2, g.y + g.h], [g.x, g.y + g.h / 2]].forEach(function (p) {
           var c = svgEl("circle", { cx: p[0], cy: p[1], r: r, class: "dge-handle", "data-node": id });
@@ -488,6 +703,17 @@
           overlay.appendChild(svgEl("rect", { class: "dge-target", x: gt.x - 4, y: gt.y - 4, width: gt.w + 8, height: gt.h + 8, rx: 8 }));
         }
       }
+      if (d && d.type === "branch" && d.target) {
+        var tg = geom(d.target.id), mode = d.target.mode;
+        if (mode === "child") overlay.appendChild(svgEl("rect", { class: "dge-target", x: tg.x - 5, y: tg.y - 5, width: tg.w + 10, height: tg.h + 10, rx: 8 }));
+        else if (outerSide(d.target.id) === "down" || (mapInfo(d.target.id) || {}).layout === "down") {
+          var lx = mode === "before" ? tg.x - 8 : tg.x + tg.w + 8;
+          overlay.appendChild(svgEl("path", { class: "dge-drop", d: "M" + lx + "," + (tg.y - 4) + " L" + lx + "," + (tg.y + tg.h + 4) }));
+        } else {
+          var ly = mode === "before" ? tg.y - 5 : tg.y + tg.h + 5;
+          overlay.appendChild(svgEl("path", { class: "dge-drop", d: "M" + (tg.x - 4) + "," + ly + " L" + (tg.x + tg.w + 4) + "," + ly }));
+        }
+      }
       if (d && d.type === "marquee" && d.rect) {
         overlay.appendChild(svgEl("rect", { class: "dge-marquee", x: d.rect.x, y: d.rect.y, width: d.rect.w, height: d.rect.h }));
       }
@@ -500,7 +726,7 @@
       st.drag = null;
       applyChrome();
       drawOverlay();
-      var tips = { node: "Click to place a box", sticky: "Click to place a sticky note", connect: "Drag from one node to another (or to empty space)", comment: "Click a node, edge, group or the canvas to comment" };
+      var tips = { mindmap: "Click to start a mindmap", node: "Click to place a box", sticky: "Click to place a sticky note", connect: "Drag from one node to another (or to empty space)", comment: "Click a node, edge, group or the canvas to comment" };
       if (tips[t]) flash(tips[t]);
     }
 
@@ -523,6 +749,10 @@
       if (!target || !target.closest) return null;
       var h1 = target.closest(".dge-handle");
       if (h1) return { type: "handle", id: h1.getAttribute("data-node") };
+      var ctl = target.closest(".dge-ctl");
+      if (ctl) return { type: ctl.classList.contains("dge-plus") ? "plus" : "fold", id: ctl.getAttribute("data-node") };
+      var fold = target.closest(".dg-fold");
+      if (fold) return { type: "fold", id: fold.getAttribute("data-fold") };
       var pin = target.closest(".dg-pin");
       if (pin) return { type: "pin", id: pin.getAttribute("data-comment") };
       var n = target.closest(".dg-node");
@@ -609,7 +839,18 @@
         if (ta) ta.focus();
         return;
       }
+      if (t && t.type === "plus") { e.preventDefault(); addTopic(t.id); return; }
+      if (t && t.type === "fold") { toggleFold(t.id); select([t.id]); return; }
+      if (st.tool === "mindmap") {
+        setTool("select");
+        var mid = freshId("map");
+        e.preventDefault(); // keep the focus in the label editor
+        var mres = applyOps([{ op: "add_node", id: mid, label: "", mindmap: "right", x: Math.round(p.x - 60), y: Math.round(p.y - 24) }]);
+        if (mres.ok) { select([mid]); editLabel(mid, true, true); }
+        return;
+      }
       if (st.tool === "node" || st.tool === "sticky") {
+        e.preventDefault();
         var gid = t && t.type === "group" ? t.id : t && t.type === "node" ? (node(t.id) || {}).group : null;
         addNodeAt(p, st.tool === "sticky" ? "sticky" : "box", gid, true);
         setTool("select");
@@ -625,9 +866,16 @@
         if (e.shiftKey || e.metaKey) select([t.id], true);
         else if (st.sel.indexOf(t.id) < 0) select([t.id]);
         if (t.type === "edge") return;
+        if (isBranch(t.id) && !e.shiftKey && !e.metaKey) {
+          // dragging a branch gives it a new place in the map
+          st.drag = { type: "branch", id: t.id, sx: p.x, sy: p.y, items: subtreeOf(t.id), moved: false };
+          canvas.setPointerCapture(e.pointerId);
+          return;
+        }
         // everything selected moves; groups carry their members
         var ids = [];
         st.sel.forEach(function (id) {
+          if (isBranch(id)) return;
           if (node(id)) ids.push(id);
           else if (group(id)) ids = ids.concat(membersOf(id));
         });
@@ -670,6 +918,30 @@
         if (!d.moved && Math.abs(d.dx) + Math.abs(d.dy) < 3) return;
         d.moved = true;
         liveMove();
+      } else if (d.type === "branch") {
+        var bx = p.x - d.sx, by = p.y - d.sy;
+        if (!d.moved && Math.abs(bx) + Math.abs(by) < 4) return;
+        d.moved = true;
+        d.items.forEach(function (id) {
+          stage.querySelectorAll('[data-id="' + cssEsc(id) + '"],[data-fold="' + cssEsc(id) + '"]').forEach(function (el2) {
+            el2.setAttribute("transform", "translate(" + bx + "," + by + ")");
+            el2.classList.add("dragging");
+          });
+        });
+        var hits = document.elementsFromPoint(e.clientX, e.clientY);
+        d.target = null;
+        for (var hi = 0; hi < hits.length; hi++) {
+          var th = hit(hits[hi]);
+          if (!th || th.type !== "node" || d.items.indexOf(th.id) >= 0 || !mapInfo(th.id)) continue;
+          var tg = geom(th.id), tm = mapInfo(th.id), mode = "child";
+          if (tm.parent) {
+            var rel = tm.layout === "down" ? (p.x - tg.x) / tg.w : (p.y - tg.y) / tg.h;
+            mode = rel < 0.28 ? "before" : rel > 0.72 ? "after" : "child";
+          }
+          d.target = { id: th.id, mode: mode };
+          break;
+        }
+        drawOverlay();
       } else if (d.type === "connect") {
         d.to = p;
         var under = document.elementFromPoint(e.clientX, e.clientY);
@@ -687,6 +959,23 @@
       st.drag = null;
       canvas.classList.remove("panning");
       if (!d) return;
+      if (d.type === "branch") {
+        if (d.moved && d.target) {
+          var tid = d.target.id, op;
+          if (d.target.mode === "child") op = { op: "update_node", id: d.id, parent: tid };
+          else {
+            var par = node(tid).parent;
+            var sibs = kidsOf(par).filter(function (x) { return x !== d.id; });
+            op = { op: "update_node", id: d.id, parent: par, index: sibs.indexOf(tid) + (d.target.mode === "after" ? 1 : 0) };
+          }
+          var ops2 = [];
+          if (d.target.mode === "child" && node(tid).collapsed) ops2.push({ op: "update_node", id: tid, collapsed: false });
+          ops2.push(op);
+          if (!applyOps(ops2).ok) render();
+        } else if (d.moved) render();
+        drawOverlay();
+        return;
+      }
       if (d.type === "move" && d.moved) {
         if (raf) { cancelAnimationFrame(raf); raf = 0; }
         var ops = d.items.map(function (m) { return { op: "move", id: m.id, x: m.x + d.dx, y: m.y + d.dy }; });
@@ -736,6 +1025,16 @@
       if (!t) addNodeAt(toDiagram(e.clientX, e.clientY), "box", null, true);
     });
 
+    // a pasted list becomes topics: under the selected topic, or a new map
+    document.addEventListener("paste", onPaste);
+    function onPaste(e) {
+      if (view || !modal.hidden) return;
+      var a = document.activeElement, tag = (a && a.tagName) || "";
+      if (tag === "INPUT" || tag === "TEXTAREA" || !(a === canvas || canvas.contains(a))) return;
+      var text = e.clipboardData && e.clipboardData.getData("text/plain");
+      if (text && pasteOutline(text)) e.preventDefault();
+    }
+
     canvas.addEventListener("wheel", function (e) {
       e.preventDefault();
       var rect = canvas.getBoundingClientRect();
@@ -749,8 +1048,9 @@
     }, { passive: false });
 
     /* Inline label editor over a node, edge label or group title. */
-    function editLabel(id, isNew) {
+    function editLabel(id, isNew, flow) {
       var kind = kindOf(id);
+      var topic = kind === "node" && !!mapInfo(id);
       if (!kind || !st.r) return;
       var box, current;
       if (kind === "edge") {
@@ -765,8 +1065,10 @@
         box = geom(id);
         current = node(id).label || id;
       }
+      if (kind === "node") reveal(id);
       var tl = toScreen(box.x, box.y);
-      var ta = h("textarea", { class: "dge-inline", spellcheck: "false" });
+      var ta = h("textarea", { class: "dge-inline" + (topic ? " dge-inline-topic" : ""), spellcheck: "false" });
+      if (topic && isNew) current = "";
       ta.value = current;
       ta.style.left = tl.x + "px";
       ta.style.top = tl.y + "px";
@@ -777,37 +1079,67 @@
       ta.focus();
       ta.select();
       var done = false;
+      /* Returns the node's id afterwards (it may be renamed), or null if it went away. */
       function finish(save) {
-        if (done) return;
+        if (done) return id;
         done = true;
         var v = ta.value.trim();
         ta.remove();
         canvas.focus({ preventScroll: true });
-        if (!save || v === current) return;
+        if (topic && isNew && (!save || !v)) {
+          // an empty new topic is dropped; its parent stays selected
+          var par = node(id) && node(id).parent;
+          applyOps([{ op: "remove", id: id }]);
+          select(par ? [par] : []);
+          return null;
+        }
+        if (!save || v === current) return id;
         var ops;
         if (kind === "node") {
           ops = [{ op: "update_node", id: id, label: v }];
           var nice = slug(v);
           // a box that was just added gets an id from its label
           if (isNew && v && nice !== id && !idTaken(nice)) ops.push({ op: "rename", id: id, to: nice });
-          else if (isNew && v && nice !== id && !/^(node|note)(-\d+)?$/.test(nice)) ops.push({ op: "rename", id: id, to: freshId(nice) });
+          else if (isNew && v && nice !== id && !/^(node|note|topic|map)(-\d+)?$/.test(nice)) ops.push({ op: "rename", id: id, to: freshId(nice) });
         } else if (kind === "edge") ops = [{ op: "update_edge", id: id, label: v }];
         else ops = [{ op: "update_group", id: id, label: v }];
         var res = applyOps(ops);
-        if (res.ok && ops.length > 1) select([ops[1].to]);
+        if (res.ok && ops.length > 1) { select([ops[1].to]); return ops[1].to; }
+        return id;
       }
       ta.addEventListener("keydown", function (e) {
         e.stopPropagation();
-        if (e.key === "Enter" && !e.shiftKey) { e.preventDefault(); finish(true); }
-        if (e.key === "Escape") { e.preventDefault(); finish(false); }
+        if (topic && e.key === "Tab") {
+          // keep typing the outline: Tab goes a level deeper
+          e.preventDefault();
+          var nid = finish(true);
+          if (nid) addTopic(nid);
+          return;
+        }
+        if (e.key === "Enter" && !e.shiftKey) {
+          e.preventDefault();
+          var was = finish(true);
+          // Enter on a topic just typed starts the next sibling
+          if (topic && isNew && flow && was && node(was) && node(was).parent) addSibling(was, true);
+          return;
+        }
+        if (e.key === "Escape") { e.preventDefault(); finish(isNew && topic && ta.value.trim() !== ""); }
       });
       ta.addEventListener("blur", function () { finish(true); });
     }
 
     function deleteSelection() {
       if (!st.sel.length) return;
-      applyOps(st.sel.filter(kindOf).map(function (id) { return { op: "remove", id: id }; }));
-      select([]);
+      var first = node(st.sel[0]);
+      var up = first && first.parent && st.sel.indexOf(first.parent) < 0 ? first.parent : null;
+      // a topic inside a selected branch goes with it
+      var ids = st.sel.filter(kindOf).filter(function (id) {
+        var n = node(id);
+        while (n && n.parent) { if (st.sel.indexOf(n.parent) >= 0) return false; n = node(n.parent); }
+        return true;
+      });
+      applyOps(ids.map(function (id) { return { op: "remove", id: id }; }));
+      select(up && node(up) ? [up] : []);
     }
 
     function groupSelection() {
@@ -825,7 +1157,7 @@
       var ops = [], ids = [];
       st.sel.forEach(function (id) {
         var n = node(id), g = geom(id);
-        if (!n || !g) return;
+        if (!n || !g || mapInfo(id)) return;
         var nid = freshId(n.id + "-copy");
         while (ids.indexOf(nid) >= 0) nid = nid + "-x";
         ids.push(nid);
@@ -838,7 +1170,7 @@
       var ops = [];
       st.sel.forEach(function (id) {
         var g = geom(id);
-        if (node(id) && g) ops.push({ op: "move", id: id, x: g.x + dx, y: g.y + dy });
+        if (node(id) && g && !isBranch(id)) ops.push({ op: "move", id: id, x: g.x + dx, y: g.y + dy });
       });
       if (ops.length) applyOps(ops);
     }
@@ -864,12 +1196,27 @@
         if (e.key === "f") fit();
         return;
       }
+      var one = st.sel.length === 1 && mapInfo(st.sel[0]) ? st.sel[0] : null;
+      if (one && mod && e.key.toLowerCase() === "c" && !String(root.getSelection ? root.getSelection() : "")) {
+        e.preventDefault();
+        copyText(st.session.outline(one)).then(function () { flash("Outline copied"); });
+        return;
+      }
+      if (one && !mod) {
+        if (e.key === "Tab") { e.preventDefault(); if (e.shiftKey) outdent(one); else addTopic(one); return; }
+        if (e.key === "Enter") { e.preventDefault(); if (node(one).parent) addSibling(one, !e.shiftKey); else addTopic(one); return; }
+        if (e.key === "F2") { e.preventDefault(); editLabel(one); return; }
+        if (e.key === ".") { toggleFold(one); return; }
+        if (e.altKey && (e.key === "ArrowUp" || e.key === "ArrowDown")) { e.preventDefault(); moveSibling(one, e.key === "ArrowUp" ? -1 : 1); return; }
+        if (/^Arrow/.test(e.key)) { e.preventDefault(); if (navigate(e.key)) { reveal(st.sel[0]); return; } }
+      }
       if (mod && e.key.toLowerCase() === "a") { e.preventDefault(); select(st.doc.nodes.map(function (n) { return n.id; })); return; }
       if (mod && e.key.toLowerCase() === "d") { e.preventDefault(); duplicateSelection(); return; }
       if (mod && e.key.toLowerCase() === "g") { e.preventDefault(); groupSelection(); return; }
       if (mod) return;
       switch (e.key) {
         case "v": case "V": setTool("select"); break;
+        case "t": case "T": setTool("mindmap"); break;
         case "n": case "N": case "r": setTool("node"); break;
         case "s": case "S": setTool("sticky"); break;
         case "c": case "C": setTool("connect"); break;
@@ -885,7 +1232,7 @@
         case "ArrowRight": e.preventDefault(); nudge(e.shiftKey ? 40 : 8, 0); break;
         case "ArrowUp": e.preventDefault(); nudge(0, e.shiftKey ? -40 : -8); break;
         case "ArrowDown": e.preventDefault(); nudge(0, e.shiftKey ? 40 : 8); break;
-        case "?": flash("V select · N box · S sticky · C connect · M comment · double-click to add/edit · " + MOD + "G group · " + MOD + "D duplicate · F fit · space+drag pan", false, 6000); break;
+        case "?": flash("V select · T mindmap · N box · S sticky · C connect · M comment · double-click to add/edit · " + MOD + "G group · " + MOD + "D duplicate · F fit · space+drag pan. Mindmaps: Tab branch · Enter sibling · ⇧Tab outdent · F2 rename · . fold · arrows move · ⌥↑↓ reorder · paste a list", false, 9000); break;
         default: return;
       }
     }
@@ -942,7 +1289,9 @@
         inspector.appendChild(field("Description", textInput(d.description, function (v) { applyOps([{ op: "set", key: "description", value: v }]); })));
         inspector.appendChild(field("Layout", selectInput([["layered", "Flow (layered)"], ["grid", "Grid"]], s.layout || "layered", function (v) { applyOps([{ op: "set", key: "layout", value: v }]); })));
         inspector.appendChild(h("p", { class: "dge-muted" }, [d.nodes.length + " nodes · " + (d.edges || []).length + " edges · " + (d.groups || []).length + " groups"]));
-        inspector.appendChild(h("p", { class: "dge-tip" }, ["Double-click the canvas to add a box. Drag a box's dot onto another box to connect them, or onto empty space to make a new one. Press ? for shortcuts."]));
+        var about = textInput("", function (v) { if (v.trim()) { newMap(v); } }, { placeholder: "e.g. Payments in France" });
+        inspector.appendChild(field("✦ Mindmap about…", about));
+        inspector.appendChild(h("p", { class: "dge-tip" }, ["Press T and click to start a mindmap, or paste a list. Double-click the canvas to add a box. Drag a box's dot onto another box to connect them. Press ? for shortcuts."]));
         return;
       }
       if (sel.length > 1) {
@@ -960,6 +1309,7 @@
         return;
       }
       var id = sel[0], kind = kindOf(id);
+      if (kind === "node" && mapInfo(id)) return renderTopicInspector(id);
       var commentBtn = h("button", { onclick: function () { st.composer = { on: id }; renderPanel(); var ta = commentsEl.querySelector(".dge-composer textarea"); if (ta) ta.focus(); } }, ["Comment"]);
       if (kind === "node") {
         var n = node(id);
@@ -1000,6 +1350,39 @@
           h("button", { class: "danger", onclick: function () { applyOps([{ op: "remove", id: id, keep_members: false }]); select([]); } }, ["Delete with contents"])
         ]));
       }
+    }
+
+    function renderTopicInspector(id) {
+      var n = node(id), m = mapInfo(id), centre = !n.parent;
+      inspector.appendChild(h("h3", {}, [centre ? "Mindmap " : "Topic ", h("code", {}, [id])]));
+      inspector.appendChild(field("Label", textInput(n.label || n.id, function (v) { applyOps([{ op: "update_node", id: id, label: v }]); })));
+      inspector.appendChild(field("Note", textInput(n.detail, function (v) { applyOps([{ op: "update_node", id: id, detail: v }]); }, { placeholder: "a line under the topic" })));
+      if (centre) inspector.appendChild(field("Grows", selectInput([["right", "→ To the right"], ["both", "↔ Both sides"], ["left", "← To the left"], ["down", "↓ Down (org chart)"]], n.mindmap || "right", function (v) { applyOps([{ op: "update_node", id: id, mindmap: v }]); })));
+      inspector.appendChild(field(centre ? "Colour" : "Branch colour", swatches(n.color, function (c) { applyOps([{ op: "update_node", id: id, color: c }]); })));
+      inspector.appendChild(field("Link", textInput(n.link, function (v) { applyOps([{ op: "update_node", id: id, link: v }]); }, { placeholder: "https://…" })));
+      inspector.appendChild(field("Tags", textInput((n.tags || []).join(" "), function (v) { applyOps([{ op: "update_node", id: id, tags: v.split(/\s+/).filter(Boolean) }]); })));
+      inspector.appendChild(h("div", { class: "dge-actions" }, [
+        h("button", { title: "Tab", onclick: function () { addTopic(id); } }, ["+ Branch"]),
+        n.parent ? h("button", { title: "Enter", onclick: function () { addSibling(id, true); } }, ["+ Sibling"]) : null,
+        m.children ? h("button", { title: ".", onclick: function () { toggleFold(id); } }, [n.collapsed ? "Unfold (" + m.folded + ")" : "Fold"]) : null
+      ]));
+      var askIn = h("textarea", { rows: 2, placeholder: "Optional: what should it add? e.g. “risks”, “questions for legal”" });
+      askIn.addEventListener("keydown", function (e) { e.stopPropagation(); if (e.key === "Enter" && (e.metaKey || e.ctrlKey)) expandTopic(id, askIn.value); });
+      inspector.appendChild(h("div", { class: "dge-ai" }, [
+        askIn,
+        h("button", { class: "dge-primary", title: "Ask the model for subtopics (" + MOD + "↵)", onclick: function () { expandTopic(id, askIn.value); } }, [st.thinking[id] ? "✦ Thinking…" : "✦ Grow this topic"])
+      ]));
+      var root = m.root;
+      inspector.appendChild(h("div", { class: "dge-actions" }, [
+        h("button", { title: "The branch as an indented outline (" + MOD + "C)", onclick: function () { copyText(st.session.outline(id)).then(function () { flash("Outline copied"); }); } }, ["Copy outline"]),
+        h("button", { title: "The whole map as Markdown: the centre is the title, branches are sections. Paste it as a prompt.", onclick: function () { copyText(st.session.markdown(root)).then(function () { flash("Markdown copied — use it as a prompt"); }); } }, ["Copy as prompt"])
+      ]));
+      inspector.appendChild(h("div", { class: "dge-actions" }, [
+        h("button", { onclick: function () { st.composer = { on: id }; renderPanel(); var ta = commentsEl.querySelector(".dge-composer textarea"); if (ta) ta.focus(); } }, ["Comment"]),
+        n.parent ? h("button", { title: "Make this branch a mindmap of its own", onclick: function () { var g = geom(id); applyOps([{ op: "update_node", id: id, parent: "" }, { op: "move", id: id, x: Math.round(g.x + 40), y: Math.round(g.y + 80) }]); } }, ["Detach"]) : null,
+        h("button", { class: "danger", onclick: deleteSelection }, [centre ? "Delete map" : "Delete branch"])
+      ]));
+      inspector.appendChild(h("p", { class: "dge-tip" }, ["Tab: branch · Enter: sibling · ⇧Tab: outdent · F2: rename · arrows: move around · ⌥↑↓: reorder · drag a topic onto another to move it."]));
     }
 
     function renderComments() {
@@ -1325,6 +1708,7 @@
       destroy: function () {
         document.removeEventListener("keydown", onKey);
         document.removeEventListener("keyup", onKeyUp);
+        document.removeEventListener("paste", onPaste);
         if (resizeObs) resizeObs.disconnect();
         st.session.free();
         el.innerHTML = "";

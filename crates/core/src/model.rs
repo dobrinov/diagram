@@ -87,6 +87,10 @@ keyword_enum!(
         Text = "text" | "label",
     } default Box
 );
+keyword_enum!(
+    /// Which way a mindmap grows from its central topic.
+    MapLayout { Right = "right", Left = "left", Both = "both" | "balanced", Down = "down" | "org" } default Right
+);
 keyword_enum!(Arrow { End = "end", Start = "start", Both = "both", None = "none" } default End);
 keyword_enum!(Line { Solid = "solid", Dashed = "dashed", Dotted = "dotted", Thick = "thick" | "bold" } default Solid);
 keyword_enum!(Status { Open = "open", Resolved = "resolved" | "done" | "closed" } default Open);
@@ -125,6 +129,16 @@ pub struct Node {
     pub w: Option<f64>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub h: Option<f64>,
+    /// Mindmap branch: the topic this node hangs under. Siblings keep
+    /// document order.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub parent: Option<String>,
+    /// Set on a mindmap's central topic: which way the map grows.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub mindmap: Option<MapLayout>,
+    /// The branches under this topic are folded away.
+    #[serde(skip_serializing_if = "std::ops::Not::not")]
+    pub collapsed: bool,
 }
 
 impl Node {
@@ -341,6 +355,119 @@ impl Document {
         out
     }
 
+    /// Mindmap branches under `id`, in order.
+    pub fn children(&self, id: &str) -> Vec<&Node> {
+        self.nodes
+            .iter()
+            .filter(|n| n.parent.as_deref() == Some(id))
+            .collect()
+    }
+
+    /// The central topic of the mindmap `id` belongs to (itself for a root),
+    /// or None when `id` is not part of a mindmap.
+    pub fn map_root(&self, id: &str) -> Option<&Node> {
+        let n = self.node(id)?;
+        let top = self.ancestors(id).last().copied().unwrap_or(n);
+        let is_map = top.mindmap.is_some() || top.id != n.id || !self.children(&top.id).is_empty();
+        is_map.then_some(top)
+    }
+
+    /// Ancestors of a mindmap topic, nearest first.
+    pub fn ancestors(&self, id: &str) -> Vec<&Node> {
+        let mut out: Vec<&Node> = Vec::new();
+        let mut cur = self.node(id).and_then(|n| n.parent.as_deref());
+        while let Some(p) = cur {
+            match self.node(p) {
+                Some(n) if !out.iter().any(|o| o.id == n.id) && n.id != id => {
+                    out.push(n);
+                    cur = n.parent.as_deref();
+                }
+                _ => break,
+            }
+        }
+        out
+    }
+
+    /// `id` and everything under it, depth first.
+    pub fn subtree(&self, id: &str) -> Vec<String> {
+        fn walk(doc: &Document, id: &str, out: &mut Vec<String>) {
+            if out.iter().any(|o| o == id) {
+                return;
+            }
+            out.push(id.to_string());
+            for c in doc.children(id) {
+                walk(doc, &c.id, out);
+            }
+        }
+        let mut out = Vec::new();
+        walk(self, id, &mut out);
+        out
+    }
+
+    /// Move `id` to sibling position `index` among its parent's branches
+    /// (last when None). Order only matters between siblings.
+    pub fn move_among_siblings(&mut self, id: &str, index: Option<usize>) {
+        let Some(pos) = self.nodes.iter().position(|n| n.id == id) else {
+            return;
+        };
+        let node = self.nodes.remove(pos);
+        let sibs: Vec<usize> = match &node.parent {
+            Some(p) => self
+                .nodes
+                .iter()
+                .enumerate()
+                .filter(|(_, n)| n.parent.as_ref() == Some(p))
+                .map(|(i, _)| i)
+                .collect(),
+            None => Vec::new(),
+        };
+        let at = match (index, sibs.last()) {
+            (Some(i), _) if i < sibs.len() => sibs[i],
+            (_, Some(&last)) => last + 1,
+            (_, None) => pos.min(self.nodes.len()),
+        };
+        self.nodes.insert(at, node);
+    }
+
+    /// Hang `id` under `parent` at sibling position `index` (None: last), or
+    /// detach it into a mindmap of its own (`parent` None).
+    pub fn set_parent(
+        &mut self,
+        id: &str,
+        parent: Option<&str>,
+        index: Option<usize>,
+    ) -> Result<(), String> {
+        if self.node(id).is_none() {
+            return Err(format!("no node `{id}`"));
+        }
+        if let Some(p) = parent {
+            if self.node(p).is_none() {
+                return Err(format!("no node `{p}` to branch from"));
+            }
+            if self.subtree(id).iter().any(|s| s == p) {
+                return Err(format!("`{p}` is inside `{id}`'s branch"));
+            }
+        }
+        let n = self.node_mut(id).unwrap();
+        match parent {
+            Some(p) => {
+                n.parent = Some(p.to_string());
+                n.mindmap = None;
+                n.x = None;
+                n.y = None;
+                n.group = None;
+            }
+            None => {
+                n.parent = None;
+                if n.mindmap.is_none() {
+                    n.mindmap = Some(MapLayout::default());
+                }
+            }
+        }
+        self.move_among_siblings(id, index);
+        Ok(())
+    }
+
     /// Fill in what the formats allow to be implicit: ids of edges and
     /// comments, and nodes that are only mentioned by edges.
     pub fn normalize(&mut self) {
@@ -363,6 +490,23 @@ impl Document {
             if self.edges[i].id.is_empty() {
                 let id = self.fresh_edge_id(&self.edges[i].from.clone(), &self.edges[i].to.clone());
                 self.edges[i].id = id;
+            }
+        }
+        // a topic with branches and no parent is a mindmap's centre; branches
+        // live in their map, not in a group of their own
+        for i in 0..self.nodes.len() {
+            if self.nodes[i].parent.is_some() {
+                self.nodes[i].group = None;
+                self.nodes[i].mindmap = None;
+            }
+            if self.nodes[i].parent.is_none()
+                && self.nodes[i].mindmap.is_none()
+                && self
+                    .nodes
+                    .iter()
+                    .any(|n| n.parent.as_deref() == Some(&self.nodes[i].id))
+            {
+                self.nodes[i].mindmap = Some(MapLayout::default());
             }
         }
         for i in 0..self.comments.len() {
@@ -418,6 +562,19 @@ impl Document {
             }
         }
         for n in &self.nodes {
+            if let Some(p) = &n.parent {
+                if self.node(p).is_none() {
+                    out.push(Diagnostic::new(
+                        0,
+                        format!("node `{}` branches from `{p}`, which is not a node", n.id),
+                    ));
+                } else if self.ancestors(&n.id).len() < self.ancestors(p).len() + 1 {
+                    out.push(Diagnostic::new(
+                        0,
+                        format!("node `{}` is its own ancestor", n.id),
+                    ));
+                }
+            }
             if let Some(g) = &n.group {
                 if self.group(g).is_none() {
                     out.push(Diagnostic::new(
