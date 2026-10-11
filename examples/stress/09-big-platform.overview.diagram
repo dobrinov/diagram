@@ -1,0 +1,29 @@
+title: Platform map · overview (auto-collapsed groups)
+direction: right
+
+clients: Clients [rounded, gray, detail: 4 components]
+edge: Edge [rounded, gray, detail: 3 components]
+ingest: Ingestion [rounded, blue, detail: 4 components]
+ml: Extraction [rounded, purple, detail: 5 components]
+review: Review [rounded, orange, detail: 2 components]
+core: Core [rounded, teal, detail: 7 components]
+out: Integrations [rounded, green, detail: 4 components]
+plat: Platform [rounded, gray, detail: 5 components]
+user: Customer [person]
+acct: Accountant [person]
+plaid: Plaid [cloud]
+stripe: Stripe [cloud]
+user -> clients: ×4
+acct -> clients
+clients -> edge: ×3
+edge -> ingest
+edge -> core: ×2
+clients -> ingest
+ingest -> ml
+ml -> core
+ml -> review
+review -> core
+plaid -> core
+core -> plat: ×2
+plat -> out
+plat -> stripe

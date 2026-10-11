@@ -1,0 +1,19 @@
+title: Onboarding tour — Step 2 · How documents get in
+direction: right
+
+user: Customer [person]
+acct: Accountant [person]
+group clients: Clients [gray] {
+  web: Web app [rounded]
+  ios: Mobile apps
+  email_in: E-mail inbox [document]
+}
+user -> web, ios, email_in
+acct -> web
+group ingest: Ingestion [blue] {
+  upload: Upload svc
+  s3: Object store [cylinder]
+}
+web, ios -> upload: photo / PDF
+email_in -> upload: attachment
+upload -> s3

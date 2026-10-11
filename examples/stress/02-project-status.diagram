@@ -1,0 +1,28 @@
+title: Project Atlas: status, week 41
+description: One glance: what's done, in flight, blocked.
+direction: right
+
+group done: Done ✓ [green] {
+  d1: Auth & SSO [rounded, detail: shipped 2 Oct]
+  d2: Data model v2 [rounded, detail: shipped 28 Sep]
+}
+group doing: In progress [blue] {
+  p1: Billing integration [rounded, detail: 70% · Ana]
+  p2: Onboarding flow [rounded, detail: 40% · Ivo]
+  p3: Reports API [rounded, detail: 20% · Mia]
+}
+group blocked: Blocked [red] {
+  b1: Bank feeds [rounded, detail: waiting on Plaid contract]
+}
+group next: Next [gray] {
+  n1: Mobile beta [rounded]
+  n2: Public launch [pill, detail: 15 Nov]
+}
+d2 -> p1
+d1 -> p2
+b1 ..> p3: blocks [red]
+p1 -> n2
+p2 -> n1 -> n2
+p3 -> n2
+
+health: Overall: AMBER\nscope ok · timeline at risk [sticky, yellow]

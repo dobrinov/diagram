@@ -1,0 +1,22 @@
+title: Incident handoff (swimlanes via groups)
+direction: right
+
+group oncall: On-call [red] {
+  page: Paged [pill]
+  triage: Triage
+  sev: SEV ≥ 2? [diamond]
+}
+group ic: Incident commander [orange] {
+  war: Open war room
+  comms: Status page update
+}
+group eng: Owning team [blue] {
+  fix: Mitigate
+  pm: Post-mortem [document]
+}
+page -> triage -> sev
+sev -> fix: no
+sev -> war: yes
+war -> comms
+war -> fix
+fix -> pm

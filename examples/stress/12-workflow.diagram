@@ -1,0 +1,16 @@
+title: Workflow
+direction: right
+
+group wf: Workflow [blue] {
+  s1: 01 Constitution [rounded, green, detail: Done · 0/2 actions]
+  s2: 02 Specify [rounded, blue, detail: To do · 0/2 actions · ● CC]
+  s3: 03 Clarify [rounded, detail: To do · 0/2 actions]
+  s4: 04 Plan [rounded, detail: To do · 0/2 actions]
+  s5: 05 Tasks [rounded, detail: To do · 0/2 actions]
+  s6: 06 Analyze [rounded, detail: To do · 0/2 actions]
+  s7: 07 Implement [rounded, detail: To do · 0/2 actions]
+  s8: 08 Converge [rounded, detail: To do · 0/1 actions]
+}
+s1 -> s2 -> s3 -> s4 -> s5 -> s6 -> s7 -> s8
+blk: Blocker: Spec Kit format drift [sticky, red]
+blk ..> s3: blocks [red]

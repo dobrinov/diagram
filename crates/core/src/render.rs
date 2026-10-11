@@ -86,8 +86,8 @@ pub fn render(doc: &Document, opts: &RenderOptions) -> Rendered {
                 .iter()
                 .map(|s| text::width(s, 12.0))
                 .fold(0.0, f64::max)
-                + 10.0;
-            let h = lines.len() as f64 * 12.0 * LINE_H + 4.0;
+                + 14.0;
+            let h = lines.len() as f64 * 12.0 * LINE_H + 8.0;
             let r = Rect {
                 x: path.mid.0 - w / 2.0,
                 y: path.mid.1 - h / 2.0,
@@ -148,10 +148,16 @@ pub fn render(doc: &Document, opts: &RenderOptions) -> Rendered {
     if let Some(title) = &doc.title {
         let _ = write!(s, "<title>{}</title>", esc(title));
     }
+    let _ = write!(
+        s,
+        r##"<defs><filter id="dg-shadow" x="-20%" y="-20%" width="140%" height="150%"><feDropShadow dx="0" dy="3" stdDeviation="4" flood-color="#000000" flood-opacity="{}"/></filter><pattern id="dg-dots" width="20" height="20" patternUnits="userSpaceOnUse"><circle cx="1" cy="1" r="1" fill="{}"/></pattern></defs>"##,
+        p.shadow_opacity,
+        p.dot
+    );
     if !opts.transparent {
         let _ = write!(
             s,
-            r#"<rect class="dg-bg" x="{}" y="{}" width="{}" height="{}" fill="{}"/>"#,
+            r#"<g class="dg-bg"><rect x="{0}" y="{1}" width="{2}" height="{3}" fill="{4}"/><rect x="{0}" y="{1}" width="{2}" height="{3}" fill="url(#dg-dots)"/></g>"#,
             n(view.x),
             n(view.y),
             n(view.w),
@@ -162,7 +168,7 @@ pub fn render(doc: &Document, opts: &RenderOptions) -> Rendered {
     if show_title {
         let _ = write!(
             s,
-            r#"<text class="dg-title" x="{}" y="{}" font-size="18" font-weight="600" fill="{}">{}</text>"#,
+            r#"<text class="dg-title" x="{}" y="{}" font-size="20" font-weight="700" fill="{}">{}</text>"#,
             n(view.x + pad),
             n(view.y + pad + 12.0),
             p.fg,
@@ -176,18 +182,38 @@ pub fn render(doc: &Document, opts: &RenderOptions) -> Rendered {
     groups.sort_by_key(|g| g.depth);
     for gb in groups {
         let g = doc.group(&gb.id).unwrap();
-        let (mut fill, mut stroke) = match &g.color {
-            Some(c) => theme::tint(c, t),
-            None => (p.group_fill.to_string(), p.group_stroke.to_string()),
+        let tint = g.color.as_deref().and_then(|c| theme::tint(c, t));
+        let (mut fill, mut stroke, mut accent) = match &tint {
+            Some(k) => (k.frame.clone(), k.border.clone(), k.accent.clone()),
+            None => (
+                p.group_fill.to_string(),
+                p.node_stroke.to_string(),
+                p.group_accent.to_string(),
+            ),
         };
-        let mut dash = "";
+        let mut attrs = String::from(r#" stroke-width="1""#);
         if let Some(c) = opts.changes.get(&g.id) {
-            (fill, stroke, dash) = change_colors(*c, p);
+            let extra;
+            (fill, stroke, extra) = change_colors(*c, p);
+            accent = stroke.clone();
+            // the change style may bring its own stroke-width; never emit two
+            if extra.contains("stroke-width") {
+                attrs = extra.to_string();
+            } else {
+                attrs.push_str(extra);
+            }
         }
         let r = gb.rect;
+        let label = g.display();
+        let pill_w = layout::group_label_w(label) - 2.0 * layout::GROUP_PILL_X;
+        let on_accent = if tint.is_none() && t == Theme::Dark {
+            p.bg
+        } else {
+            p.on_accent
+        };
         let _ = write!(
             s,
-            r#"<g class="dg-group" data-id="{}"><rect class="dg-shape" x="{}" y="{}" width="{}" height="{}" rx="12" fill="{}" stroke="{}" stroke-width="1.2"{}/><text x="{}" y="{}" font-size="13" font-weight="600" fill="{}">{}</text></g>"#,
+            r#"<g class="dg-group" data-id="{}"><rect class="dg-shape" x="{}" y="{}" width="{}" height="{}" rx="18" fill="{}" stroke="{}"{}/><rect x="{}" y="{}" width="{}" height="28" rx="8" fill="{}"/><text x="{}" y="{}" font-size="14" font-weight="700" fill="{}">{}</text></g>"#,
             esc(&g.id),
             n(r.x),
             n(r.y),
@@ -195,29 +221,32 @@ pub fn render(doc: &Document, opts: &RenderOptions) -> Rendered {
             n(r.h),
             fill,
             stroke,
-            dash,
-            n(r.x + 14.0),
-            n(r.y + 21.0),
-            if g.color.is_some() {
-                stroke.as_str()
-            } else {
-                p.muted
-            },
-            esc(g.display())
+            attrs,
+            n(r.x + layout::GROUP_PILL_X),
+            n(r.y + 12.0),
+            n(pill_w),
+            accent,
+            n(r.x + layout::GROUP_PILL_X + 14.0),
+            n(r.y + 31.0),
+            on_accent,
+            esc(label)
         );
     }
     s.push_str("</g>");
 
     // edges
     s.push_str(r#"<g class="dg-edges">"#);
+    // labels go above every line, so no edge is drawn across another's label
+    let mut label_svg = String::new();
     for (e, path) in doc.edges.iter().zip(&edges) {
         let mut color = e
             .color
             .as_deref()
-            .map(|c| theme::tint(c, t).1)
+            .and_then(|c| theme::tint(c, t))
+            .map(|k| k.accent)
             .unwrap_or_else(|| p.edge.to_string());
         let change = opts.changes.get(&e.id).copied();
-        let mut width: f64 = if e.line == Line::Thick { 3.0 } else { 1.5 };
+        let mut width: f64 = if e.line == Line::Thick { 3.5 } else { 2.0 };
         let mut dash = match e.line {
             Line::Dashed => r#" stroke-dasharray="6 5""#,
             Line::Dotted => r#" stroke-dasharray="1.5 4" stroke-linecap="round""#,
@@ -230,7 +259,7 @@ pub fn render(doc: &Document, opts: &RenderOptions) -> Rendered {
                 Change::Changed => p.chg,
             }
             .to_string();
-            width = width.max(2.0);
+            width = width.max(2.5);
             if c == Change::Removed {
                 dash = r#" stroke-dasharray="6 5""#;
             }
@@ -246,22 +275,26 @@ pub fn render(doc: &Document, opts: &RenderOptions) -> Rendered {
             r#"<path class="dg-line" d="{}" fill="none" stroke="{}" stroke-width="{}"{}/>"#,
             path.d, color, width, dash
         );
-        let head = 7.0 + width * 1.5;
+        let head = 6.0 + width * 1.5;
         if matches!(e.arrow, Arrow::End | Arrow::Both) {
             arrowhead(&mut s, path.end, head, &color);
         }
         if matches!(e.arrow, Arrow::Start | Arrow::Both) {
             arrowhead(&mut s, path.start, head, &color);
         }
+        s.push_str("</g>");
         if let Some((_, r, lines)) = labels.iter().find(|(id, ..)| *id == e.id) {
+            let s = &mut label_svg;
+            let _ = write!(s, r#"<g class="dg-edge dg-edge-label" data-id="{}">"#, esc(&e.id));
             let _ = write!(
                 s,
-                r#"<rect class="dg-label-bg" x="{}" y="{}" width="{}" height="{}" rx="4" fill="{}" opacity="0.92"/>"#,
+                r#"<rect class="dg-label-bg" x="{}" y="{}" width="{}" height="{}" rx="6" fill="{}" stroke="{}"/>"#,
                 n(r.x),
                 n(r.y),
                 n(r.w),
                 n(r.h),
-                p.bg
+                p.node_fill,
+                p.node_stroke
             );
             let fill = if change.is_some() {
                 color.as_str()
@@ -269,19 +302,24 @@ pub fn render(doc: &Document, opts: &RenderOptions) -> Rendered {
                 p.muted
             };
             text_lines(
-                &mut s,
+                s,
                 lines,
                 r.cx(),
-                r.y + 2.0 + 12.0 * 0.95,
+                r.y + 4.0 + 12.0 * 0.95,
                 12.0,
                 fill,
                 "middle",
-                "",
+                r#" font-weight="500""#,
             );
+            s.push_str("</g>");
         }
-        s.push_str("</g>");
     }
     s.push_str("</g>");
+    if !label_svg.is_empty() {
+        s.push_str(r#"<g class="dg-edge-labels">"#);
+        s.push_str(&label_svg);
+        s.push_str("</g>");
+    }
 
     // nodes
     s.push_str(r#"<g class="dg-nodes">"#);
@@ -297,12 +335,12 @@ pub fn render(doc: &Document, opts: &RenderOptions) -> Rendered {
             let fill = if pin.resolved { p.pin_resolved } else { p.pin };
             let _ = write!(
                 s,
-                r##"<g class="dg-pin" data-comment="{}"><circle cx="{}" cy="{}" r="10" fill="{}" stroke="{}" stroke-width="2"/><text x="{}" y="{}" font-size="11" font-weight="700" text-anchor="middle" fill="#ffffff">{}</text></g>"##,
+                r##"<g class="dg-pin" data-comment="{}"><circle cx="{}" cy="{}" r="11" fill="{}" stroke="{}" stroke-width="2.5" filter="url(#dg-shadow)"/><text x="{}" y="{}" font-size="11" font-weight="700" text-anchor="middle" fill="#ffffff">{}</text></g>"##,
                 esc(&pin.id),
                 n(pin.x),
                 n(pin.y),
                 fill,
-                p.bg,
+                p.node_fill,
                 n(pin.x),
                 n(pin.y + 4.0),
                 pin.number
@@ -394,24 +432,27 @@ fn node_svg(
     let r = nb.rect;
     let (x, y, w, h) = (r.x, r.y, r.w, r.h);
     let (cx, cy) = (r.cx(), r.cy());
-    let sticky = node.shape == Shape::Sticky;
-    let (mut fill, mut stroke) = if sticky {
-        theme::sticky(node.color.as_deref(), t)
-    } else {
-        match &node.color {
-            Some(c) => theme::tint(c, t),
-            None => (p.node_fill.to_string(), p.node_stroke.to_string()),
-        }
+    let tint = node.color.as_deref().and_then(|c| theme::tint(c, t));
+    let card = matches!(node.shape, Shape::Box | Shape::Rounded);
+    // cards stay white with a coloured strip; other shapes take a soft fill
+    let (mut fill, mut stroke, mut width) = match (&tint, node.shape) {
+        (_, Shape::Sticky) => (theme::sticky(node.color.as_deref()), "none".to_string(), 0.0),
+        (Some(k), _) if card => (k.frame.clone(), p.node_stroke.to_string(), 1.0),
+        (Some(k), _) => (k.soft.clone(), k.accent.clone(), 1.5),
+        (None, _) => (p.node_fill.to_string(), p.node_stroke.to_string(), 1.0),
     };
-    let mut extra = String::from(r#" stroke-width="1.5""#);
+    let mut accent = tint
+        .as_ref()
+        .map(|k| k.accent.clone())
+        .unwrap_or_else(|| theme::avatar(&node.id).to_string());
+    let mut dash = "";
     if let Some(c) = change {
         let (f, st, attrs) = change_colors(c, p);
-        (fill, stroke) = (f, st);
-        extra = if attrs.contains("stroke-width") {
-            attrs.to_string()
-        } else {
-            format!(r#" stroke-width="2"{attrs}"#)
-        };
+        accent = st.clone();
+        (fill, stroke, width) = (f, st, 2.0);
+        if attrs.contains("dasharray") {
+            dash = r#" stroke-dasharray="6 4""#;
+        }
     }
     let _ = write!(
         s,
@@ -426,40 +467,50 @@ fn node_svg(
     if let Some(link) = &node.link {
         let _ = write!(s, r#"<a href="{}" target="_blank">"#, esc(link));
     }
-    let shape_attr = format!(r#"fill="{fill}" stroke="{stroke}"{extra}"#);
+    let lifted = r#" filter="url(#dg-shadow)""#;
+    let shape_attr =
+        format!(r#"fill="{fill}" stroke="{stroke}" stroke-width="{}"{dash}{lifted}"#, n(width));
+    let line_attr = format!(r#"fill="none" stroke="{stroke}" stroke-width="{}"{dash}"#, n(width));
+    let rect = |s: &mut String, rx: f64| {
+        let _ = write!(
+            s,
+            r#"<rect class="dg-shape" x="{}" y="{}" width="{}" height="{}" rx="{}" {shape_attr}/>"#,
+            n(x),
+            n(y),
+            n(w),
+            n(h),
+            n(rx)
+        );
+    };
     match node.shape {
-        Shape::Box => {
-            let _ = write!(
-                s,
-                r#"<rect class="dg-shape" x="{}" y="{}" width="{}" height="{}" rx="6" {shape_attr}/>"#,
-                n(x),
-                n(y),
-                n(w),
-                n(h)
-            );
+        Shape::Box | Shape::Rounded => {
+            let rx = if node.shape == Shape::Box { 8.0 } else { (h / 2.0).min(14.0) };
+            rect(s, rx);
+            if tint.is_some() && change.is_none() {
+                // status strip along the top edge, clipped to the corners
+                let strip = 6.0;
+                let dx = (rx * rx - (rx - strip) * (rx - strip)).sqrt();
+                let _ = write!(
+                    s,
+                    r#"<path d="M{},{} A{},{} 0 0 1 {},{} L{},{} A{},{} 0 0 1 {},{} Z" fill="{}"/>"#,
+                    n(x + rx - dx),
+                    n(y + strip),
+                    n(rx),
+                    n(rx),
+                    n(x + rx),
+                    n(y),
+                    n(x + w - rx),
+                    n(y),
+                    n(rx),
+                    n(rx),
+                    n(x + w - rx + dx),
+                    n(y + strip),
+                    accent
+                );
+            }
         }
-        Shape::Rounded => {
-            let _ = write!(
-                s,
-                r#"<rect class="dg-shape" x="{}" y="{}" width="{}" height="{}" rx="{}" {shape_attr}/>"#,
-                n(x),
-                n(y),
-                n(w),
-                n(h),
-                n((h / 2.0).min(16.0))
-            );
-        }
-        Shape::Pill => {
-            let _ = write!(
-                s,
-                r#"<rect class="dg-shape" x="{}" y="{}" width="{}" height="{}" rx="{}" {shape_attr}/>"#,
-                n(x),
-                n(y),
-                n(w),
-                n(h),
-                n(h / 2.0)
-            );
-        }
+        Shape::Pill => rect(s, h / 2.0),
+        Shape::Sticky => rect(s, 3.0),
         Shape::Circle => {
             let _ = write!(
                 s,
@@ -523,7 +574,7 @@ fn node_svg(
             let rx = w / 2.0;
             let _ = write!(
                 s,
-                r#"<path class="dg-shape" d="M{},{} A{},{} 0 0 1 {},{} L{},{} A{},{} 0 0 1 {},{} Z" {shape_attr}/><path d="M{},{} A{},{} 0 0 0 {},{}" fill="none" stroke="{stroke}"{extra}/>"#,
+                r#"<path class="dg-shape" d="M{},{} A{},{} 0 0 1 {},{} L{},{} A{},{} 0 0 1 {},{} Z" {shape_attr}/><path d="M{},{} A{},{} 0 0 0 {},{}" {line_attr}/>"#,
                 n(x),
                 n(y + ry),
                 n(rx),
@@ -587,9 +638,10 @@ fn node_svg(
             );
         }
         Shape::Person => {
+            // an initials avatar, like a FigJam / SpecDeck person card
             let _ = write!(
                 s,
-                r#"<rect class="dg-shape" x="{}" y="{}" width="{}" height="{}" fill="transparent" stroke="none"/>"#,
+                r#"<rect class="dg-shape" x="{}" y="{}" width="{}" height="{}" rx="8" fill="transparent" stroke="none"/>"#,
                 n(x),
                 n(y),
                 n(w),
@@ -597,47 +649,15 @@ fn node_svg(
             );
             let _ = write!(
                 s,
-                r#"<circle cx="{}" cy="{}" r="10" {shape_attr}/>"#,
+                r#"<circle cx="{}" cy="{}" r="20" fill="{}" stroke="{}" stroke-width="2"{lifted}/><text x="{}" y="{}" font-size="13" font-weight="700" text-anchor="middle" fill="{}">{}</text>"#,
                 n(cx),
-                n(y + 12.0)
-            );
-            let _ = write!(
-                s,
-                r#"<path d="M{},{} C{},{} {},{} {},{} C{},{} {},{} {},{} Z" {shape_attr}/>"#,
-                n(cx - 18.0),
-                n(y + 46.0),
-                n(cx - 18.0),
-                n(y + 26.0),
-                n(cx + 18.0),
-                n(y + 26.0),
-                n(cx + 18.0),
-                n(y + 46.0),
-                n(cx + 10.0),
-                n(y + 48.0),
-                n(cx - 10.0),
-                n(y + 48.0),
-                n(cx - 18.0),
-                n(y + 46.0)
-            );
-        }
-        Shape::Sticky => {
-            let _ = write!(
-                s,
-                r#"<rect x="{}" y="{}" width="{}" height="{}" rx="3" fill="{}"/>"#,
-                n(x + 2.0),
-                n(y + 4.0),
-                n(w),
-                n(h),
-                p.shadow
-            );
-            let _ = write!(
-                s,
-                r#"<rect class="dg-shape" x="{}" y="{}" width="{}" height="{}" rx="3" fill="{fill}" stroke="{stroke}" stroke-width="{}"/>"#,
-                n(x),
-                n(y),
-                n(w),
-                n(h),
-                if change.is_some() { "2" } else { "0.8" }
+                n(y + 22.0),
+                accent,
+                p.node_fill,
+                n(cx),
+                n(y + 26.5),
+                p.on_accent,
+                esc(&initials(node.display()))
             );
         }
         Shape::Text => {
@@ -664,7 +684,12 @@ fn node_svg(
         4.0 + nb.detail.len() as f64 * DETAIL_SIZE * LINE_H
     };
     let block = label_h + detail_h;
-    let fg = p.fg;
+    let sticky = node.shape == Shape::Sticky;
+    let (fg, detail_fg) = if sticky {
+        (p.sticky_fg, "#1e1e1e99")
+    } else {
+        (p.fg, p.muted)
+    };
     let (anchor, tx, top) = match node.shape {
         Shape::Sticky => ("start", x + 14.0, y + 14.0),
         Shape::Person => ("middle", cx, y + 52.0),
@@ -672,10 +697,10 @@ fn node_svg(
         Shape::Document => ("middle", cx, cy - block / 2.0 - 4.0),
         _ => ("middle", cx, cy - block / 2.0),
     };
-    let weight = if matches!(node.shape, Shape::Sticky | Shape::Text) {
-        ""
-    } else {
-        r#" font-weight="500""#
+    let weight = match node.shape {
+        Shape::Text => "",
+        Shape::Sticky => r#" font-weight="500""#,
+        _ => r#" font-weight="600""#,
     };
     let deco = if change == Some(Change::Removed) {
         r#" text-decoration="line-through""#
@@ -700,7 +725,7 @@ fn node_svg(
             tx,
             top + label_h + 4.0 + DETAIL_SIZE * 0.95,
             DETAIL_SIZE,
-            p.muted,
+            detail_fg,
             anchor,
             "",
         );
@@ -709,6 +734,17 @@ fn node_svg(
         s.push_str("</a>");
     }
     s.push_str("</g>");
+}
+
+/// "Ana Petrova" → "AP", "Postgres" → "PO".
+fn initials(name: &str) -> String {
+    let words: Vec<&str> = name.split_whitespace().collect();
+    let s: String = if words.len() >= 2 {
+        words.iter().take(2).filter_map(|w| w.chars().next()).collect()
+    } else {
+        name.chars().filter(|c| c.is_alphanumeric()).take(2).collect()
+    };
+    s.to_uppercase()
 }
 
 /// Comment pins: on the top-right corner of their element, at an edge's

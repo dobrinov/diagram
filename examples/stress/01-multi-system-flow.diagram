@@ -1,0 +1,50 @@
+title: Receipt ingestion: upload to ledger
+description: How a receipt photo travels across 6 systems before it lands as a booked transaction.
+direction: right
+
+user: Bookkeeper [person]
+mobile: Mobile app [rounded, detail: iOS / Android]
+
+group edge: Edge [gray] {
+  cdn: CloudFront [cloud]
+  gw: API gateway [hexagon, detail: auth · rate limit]
+}
+group ingest: Ingestion [blue] {
+  upload: Upload service [detail: Go]
+  s3: Raw images [cylinder, detail: S3]
+  q1: ingest.received [pill]
+}
+group ml: Extraction [purple] {
+  ocr: OCR worker [detail: GPU pool]
+  extract: Field extractor [detail: LLM]
+  conf: Confidence ≥ 0.9? [diamond]
+}
+group review: Human review [orange] {
+  hq: Review queue [pill]
+  ops: Ops reviewer [person]
+}
+group ledger: Accounting [green] {
+  match: Bank matcher
+  pub: Publisher [detail: Xero / QBO]
+  db: Ledger DB [cylinder, detail: Postgres]
+}
+xero: Xero / QuickBooks [cloud]
+
+user -> mobile: snaps photo
+mobile -> cdn -> gw
+gw -> upload: PUT /receipts
+upload -> s3: store
+upload ..> q1: event
+q1 ..> ocr
+ocr -> extract: text blocks
+extract -> conf
+conf -> match: yes
+conf -> hq: no
+hq ..> ops
+ops -> match: corrected
+match -> db
+match -> pub
+pub => xero: publish [red]
+
+comment on conf by deyan: Where does the 0.9 threshold come from? Per-client?
+comment on pub->xero by ana: Retries? Xero rate limits at 60/min.

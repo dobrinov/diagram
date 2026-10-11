@@ -308,7 +308,17 @@ mod tests {
         assert_eq!(r["ok"], true, "{r}");
         s.set_base(Some("a -> b"));
         let out = s.render(&RenderOptions::default());
-        assert!(out.svg.contains("#1a7f37"), "added elements are green");
+        assert!(out.svg.contains(theme::LIGHT.add), "added elements are green");
         assert!(s.diff_markdown().contains("+ edge `b` → `c`"));
+    }
+
+    #[test]
+    fn diffed_groups_are_valid_svg() {
+        let old = parse("a -> b").unwrap();
+        let new = parse("a -> b\ngroup g: G {\n c\n}").unwrap();
+        let svg = render_diff(&old, &new, &RenderOptions::default()).svg;
+        for tag in svg.split('<') {
+            assert!(tag.matches(" stroke-width=").count() <= 1, "duplicate attribute in <{tag}");
+        }
     }
 }

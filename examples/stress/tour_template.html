@@ -1,0 +1,73 @@
+<!doctype html><html><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Diagram tour</title>
+<style>
+:root{--bg:#f6f7f9;--panel:#fff;--ink:#1f2328;--muted:#656d76;--line:#d0d7de;--accent:#0969da}
+@media (prefers-color-scheme:dark){:root{--bg:#0d1117;--panel:#161b22;--ink:#e6edf3;--muted:#8d96a0;--line:#30363d;--accent:#4493f8}}
+*{box-sizing:border-box}body{margin:0;font:14px/1.5 Inter,-apple-system,system-ui,sans-serif;background:var(--bg);color:var(--ink);height:100vh;display:grid;grid-template-rows:auto 1fr auto}
+header{display:flex;gap:12px;align-items:center;padding:10px 16px;border-bottom:1px solid var(--line);background:var(--panel)}
+header h1{font-size:15px;margin:0;flex:1}
+input{font:inherit;padding:6px 10px;border:1px solid var(--line);border-radius:8px;background:var(--bg);color:var(--ink);width:220px}
+button{font:inherit;padding:6px 12px;border:1px solid var(--line);border-radius:8px;background:var(--panel);color:var(--ink);cursor:pointer}
+button.primary{background:var(--accent);border-color:var(--accent);color:#fff}
+#stage{overflow:hidden;position:relative}#stage svg{width:100%;height:100%;display:block}
+#stage svg .dg-bg{fill:transparent}
+.dg-node,.dg-edge,.dg-group{transition:opacity .35s}
+.dim .dg-node:not(.lit),.dim .dg-edge:not(.lit){opacity:.1}
+.dim .dg-group:not(.lit){opacity:.25}
+.dg-node{cursor:pointer}
+.hit .dg-shape{stroke:var(--accent)!important;stroke-width:3!important}
+footer{display:flex;gap:16px;align-items:center;padding:12px 16px;border-top:1px solid var(--line);background:var(--panel)}
+#card{flex:1;min-width:0}#card b{display:block;font-size:15px}#card span{color:var(--muted)}
+#dots{display:flex;gap:6px}#dots i{width:8px;height:8px;border-radius:50%;background:var(--line);cursor:pointer}#dots i.on{background:var(--accent)}
+.hint{color:var(--muted);font-size:12px}
+@media (max-width:640px){header h1{font-size:13px}input{width:110px}footer{flex-wrap:wrap}#card{flex-basis:100%}#dots{flex:1}}
+</style></head><body>
+<header><h1 id="t"></h1><input id="q" placeholder="Search… ( / )"><button id="all">Show all</button></header>
+<div id="stage">/*SVG*/</div>
+<footer><div id="card"></div><div id="dots"></div><button id="prev">←</button><button class="primary" id="next">Next →</button></footer>
+<script>
+const TOUR=/*TOUR*/;
+const svg=document.querySelector("#stage svg"), root=svg;
+const full=svg.viewBox.baseVal; const FULL=[full.x,full.y,full.width,full.height];
+svg.removeAttribute("width");svg.removeAttribute("height");
+const els={}; svg.querySelectorAll("[data-id]").forEach(e=>els[e.dataset.id]=e);
+const groups=[...svg.querySelectorAll(".dg-group")].map(g=>g.dataset.id);
+const edges=[...svg.querySelectorAll(".dg-edge")].map(e=>{const [a,b]=e.dataset.id.split("#")[0].split("->");return {el:e,a,b}});
+const nodes=[...svg.querySelectorAll(".dg-node")];
+// membership: a node is in a group if its box lies inside the group's rect
+function bb(e){return e.getBBox()}
+const members={};groups.forEach(g=>{const r=bb(els[g]);members[g]=nodes.filter(n=>{const b=bb(n);return b.x>=r.x&&b.y>=r.y&&b.x+b.width<=r.x+r.width&&b.y+b.height<=r.y+r.height}).map(n=>n.dataset.id)});
+function expand(ids){const s=new Set();ids.forEach(i=>{s.add(i);(members[i]||[]).forEach(m=>s.add(m))});return s}
+let anim;function zoomTo(box){const from=svg.viewBox.baseVal,f=[from.x,from.y,from.width,from.height];
+ const st=document.getElementById("stage"),ar=st.clientWidth/st.clientHeight;let [x,y,w,h]=box;const p=Math.max(w,h)*.08+30;x-=p;y-=p;w+=2*p;h+=2*p;
+ if(w/h<ar){const nw=h*ar;x-=(nw-w)/2;w=nw}else{const nh=w/ar;y-=(nh-h)/2;h=nh}
+ const to=[x,y,w,h],t0=performance.now();cancelAnimationFrame(anim);
+ (function step(t){const k=Math.min(1,(t-t0)/450),e=k<.5?2*k*k:1-Math.pow(-2*k+2,2)/2;svg.setAttribute("viewBox",f.map((v,i)=>v+(to[i]-v)*e).join(" "));if(k<1)anim=requestAnimationFrame(step)})(t0)}
+function light(set,zoom=true){svg.querySelectorAll(".lit").forEach(e=>e.classList.remove("lit"));
+ if(!set){svg.classList.remove("dim");zoomTo(FULL);return}
+ svg.classList.add("dim");set.forEach(i=>els[i]&&els[i].classList.add("lit"));
+ groups.forEach(g=>{if(members[g].some(m=>set.has(m)))els[g].classList.add("lit")});
+ edges.forEach(e=>{if(set.has(e.a)&&set.has(e.b))e.el.classList.add("lit")});
+ if(zoom){let b=null;set.forEach(i=>{if(!els[i])return;const r=bb(els[i]);b=b?[Math.min(b[0],r.x),Math.min(b[1],r.y),Math.max(b[2],r.x+r.width),Math.max(b[3],r.y+r.height)]:[r.x,r.y,r.x+r.width,r.y+r.height]});if(b)zoomTo([b[0],b[1],b[2]-b[0],b[3]-b[1]])}}
+let cur=0;const card=document.getElementById("card"),dots=document.getElementById("dots");
+document.getElementById("t").textContent=TOUR.title;
+TOUR.steps.forEach((s,i)=>{const d=document.createElement("i");d.title=s.title;d.onclick=()=>go(i);dots.appendChild(d)});
+function go(i){cur=Math.max(0,Math.min(TOUR.steps.length-1,i));const s=TOUR.steps[cur];
+ card.innerHTML="";const b=document.createElement("b");b.textContent=s.title;const sp=document.createElement("span");sp.textContent=s.text;card.append(b,sp);
+ [...dots.children].forEach((d,k)=>d.classList.toggle("on",k===cur));light(expand(s.focus));
+ document.getElementById("next").textContent=cur===TOUR.steps.length-1?"Done":"Next →"}
+document.getElementById("next").onclick=()=>cur===TOUR.steps.length-1?explore():go(cur+1);
+document.getElementById("prev").onclick=()=>go(cur-1);
+function explore(){light(null);card.innerHTML='<b>Explore freely</b><span class="hint">Click any box to see what it talks to. Click the background to reset. Press / to search.</span>';[...dots.children].forEach(d=>d.classList.remove("on"))}
+document.getElementById("all").onclick=explore;
+nodes.forEach(n=>n.addEventListener("click",ev=>{ev.stopPropagation();const id=n.dataset.id,s=new Set([id]);edges.forEach(e=>{if(e.a===id)s.add(e.b);if(e.b===id)s.add(e.a)});light(s);
+ const lab=n.querySelector("text")?.textContent.trim()||id;card.innerHTML="";const b=document.createElement("b");b.textContent=lab;const sp=document.createElement("span");
+ const ins=edges.filter(e=>e.b===id).map(e=>els[e.a]?.querySelector("text")?.textContent),outs=edges.filter(e=>e.a===id).map(e=>els[e.b]?.querySelector("text")?.textContent);
+ sp.textContent=(ins.length?"Receives from: "+ins.join(", ")+". ":"")+(outs.length?"Sends to: "+outs.join(", ")+".":"");card.append(b,sp)}));
+svg.addEventListener("click",()=>{if(svg.classList.contains("dim")&&!document.activeElement.matches("input"))explore()});
+const q=document.getElementById("q");q.oninput=()=>{svg.querySelectorAll(".hit").forEach(e=>e.classList.remove("hit"));const v=q.value.trim().toLowerCase();if(!v){explore();return}
+ const s=new Set(nodes.filter(n=>n.textContent.toLowerCase().includes(v)).map(n=>n.dataset.id));s.forEach(i=>els[i].classList.add("hit"));light(s.size?s:null)};
+addEventListener("keydown",e=>{if(e.target===q){if(e.key==="Escape"){q.value="";q.oninput();q.blur()}return}
+ if(e.key==="ArrowRight")go(cur+1);if(e.key==="ArrowLeft")go(cur-1);if(e.key==="/"){e.preventDefault();q.focus()}if(e.key==="Escape")explore()});
+go(0);
+</script></body></html>

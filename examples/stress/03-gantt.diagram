@@ -1,0 +1,28 @@
+title: Atlas launch plan (Gantt, faked with pinned boxes)
+layout: grid
+routing: orthogonal
+
+lane0: Backend [text, x: 20, y: 64, w: 160]
+lane1: Frontend [text, x: 20, y: 114, w: 160]
+lane2: Integrations [text, x: 20, y: 164, w: 160]
+lane3: QA [text, x: 20, y: 214, w: 160]
+wk0: W41 [text, x: 200, y: 20, w: 154]
+wk1: W42 [text, x: 354, y: 20, w: 154]
+wk2: W43 [text, x: 508, y: 20, w: 154]
+wk3: W44 [text, x: 662, y: 20, w: 154]
+wk4: W45 [text, x: 816, y: 20, w: 154]
+t1: Data model v2 [rounded, green, detail: 100%, x: 200, y: 60, w: 132, h: 40]
+t2: Billing API [rounded, blue, detail: 70%, x: 332, y: 60, w: 220, h: 40]
+t3: Onboarding UI [rounded, blue, detail: 40%, x: 266, y: 110, w: 264, h: 40]
+t4: Bank feeds [rounded, red, detail: 0%, x: 376, y: 160, w: 176, h: 40]
+t5: Reports API [rounded, blue, detail: 20%, x: 552, y: 160, w: 176, h: 40]
+t6: QA hardening [rounded, gray, detail: 0%, x: 596, y: 210, w: 176, h: 40]
+m1: Beta [diamond, orange, x: 640, y: 260, w: 60, h: 40]
+m2: Launch [diamond, red, x: 816, y: 260, w: 70, h: 40]
+today: Today [pill, red, x: 368, y: 310, w: 60, h: 26]
+
+t1 -> t2
+t2 -> t5
+t4 -> t5: blocks [red, dashed]
+t3 -> m1
+t5 -> t6 -> m2

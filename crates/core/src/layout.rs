@@ -18,8 +18,16 @@ pub const DETAIL_SIZE: f64 = 12.0;
 pub const LINE_H: f64 = 1.3;
 const NODE_GAP: f64 = 36.0;
 const LAYER_GAP: f64 = 64.0;
-const GROUP_PAD: f64 = 20.0;
-const GROUP_HEAD: f64 = 32.0;
+const GROUP_PAD: f64 = 24.0;
+/// Room above a group's members for its title pill.
+const GROUP_HEAD: f64 = 56.0;
+/// Left inset of a group's title pill.
+pub const GROUP_PILL_X: f64 = 16.0;
+
+/// Width a group needs for its title pill (bold 14px label + padding).
+pub fn group_label_w(label: &str) -> f64 {
+    text::width(label, 14.0) * 1.08 + 28.0 + 2.0 * GROUP_PILL_X
+}
 
 #[derive(Debug, Clone, Copy, Default, PartialEq, Serialize)]
 pub struct Rect {
@@ -128,7 +136,7 @@ pub fn measure(n: &Node) -> (Vec<String>, Vec<String>, f64, f64) {
     if !detail.is_empty() {
         th += 4.0 + detail.len() as f64 * DETAIL_SIZE * LINE_H;
     }
-    let (px, py) = (16.0, 12.0);
+    let (px, py) = (18.0, 12.0);
     let (mut w, mut h) = ((tw + 2.0 * px).max(96.0), (th + 2.0 * py).max(44.0));
     match n.shape {
         Shape::Circle => {
@@ -307,7 +315,7 @@ pub fn layout(doc: &Document) -> Layout {
                 }
             }
             if let Some(b) = bb {
-                let label_w = text::width(doc.groups[g].display(), 13.0) + 2.0 * GROUP_PAD;
+                let label_w = group_label_w(doc.groups[g].display());
                 rects[g] = Rect {
                     x: b.x - GROUP_PAD,
                     y: b.y - GROUP_HEAD,
@@ -357,12 +365,12 @@ fn block(
     for (i, p) in pg.iter().enumerate() {
         if *p == group {
             let (w, h) = block(ctx, Some(i), pn, pg);
-            let label_w = text::width(ctx.doc.groups[i].display(), 13.0);
+            let label_w = group_label_w(ctx.doc.groups[i].display());
             let (gw, gh) = if w == 0.0 {
-                (label_w.max(140.0) + 2.0 * GROUP_PAD, 72.0)
+                (label_w.max(180.0), GROUP_HEAD + 40.0)
             } else {
                 (
-                    (w + 2.0 * GROUP_PAD).max(label_w + 2.0 * GROUP_PAD),
+                    (w + 2.0 * GROUP_PAD).max(label_w),
                     h + GROUP_HEAD + GROUP_PAD,
                 )
             };

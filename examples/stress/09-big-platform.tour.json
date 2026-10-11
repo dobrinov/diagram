@@ -1,0 +1,11 @@
+{"title": "Platform map: a guided tour",
+ "steps": [
+  {"title": "The 10-second version", "text": "Documents come in from customers, we read them with ML, a human checks the unsure ones, and the result is published to the customer's accounting software. Everything else supports that.", "focus": ["clients","ingest","ml","review","core","out"]},
+  {"title": "1 · Who uses it", "text": "Customers send receipts from the web, mobile apps or by forwarding e-mail. Accountants work in the web app.", "focus": ["user","acct","clients"]},
+  {"title": "2 · The front door", "text": "All traffic goes through the CDN and the API gateway. The gateway checks every request with the Auth service.", "focus": ["edge","web","ios","android"]},
+  {"title": "3 · Getting documents in", "text": "Uploads and parsed e-mails are stored in the object store. An event goes on the ingest queue, so the user never waits for OCR.", "focus": ["ingest","email_in","gw"]},
+  {"title": "4 · Reading the document", "text": "A pipeline: OCR → classify → extract fields → check for duplicates. If the model isn't confident, the document goes to a person.", "focus": ["ml","q_in"]},
+  {"title": "5 · The human in the loop", "text": "Unsure documents go to the review queue. Ops fix them in the Review tool, and they rejoin the main path at the Documents API.", "focus": ["review","conf","docs"]},
+  {"title": "6 · The core", "text": "The Documents API applies supplier rules, matches against bank transactions (via Plaid) and writes to the ledger.", "focus": ["core","plaid"]},
+  {"title": "7 · Getting it out", "text": "Every change is an event on the bus. The Publisher sends it to Xero, QuickBooks or Sage, and other listeners handle notifications, analytics and audit.", "focus": ["plat","out"]}
+ ]}

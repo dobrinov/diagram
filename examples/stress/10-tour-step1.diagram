@@ -1,0 +1,12 @@
+title: Onboarding tour — Step 1 · Who uses it
+direction: right
+
+user: Customer [person]
+acct: Accountant [person]
+group clients: Clients [gray] {
+  web: Web app [rounded]
+  ios: Mobile apps
+  email_in: E-mail inbox [document]
+}
+user -> web, ios, email_in
+acct -> web

@@ -1,0 +1,83 @@
+title: Platform map (the "too big" problem)
+direction: right
+
+user: Customer [person]
+acct: Accountant [person]
+group clients: Clients [gray] {
+  web: Web app [rounded]
+  ios: iOS
+  android: Android
+  email_in: E-mail inbox [document]
+}
+group edge: Edge [gray] {
+  cdn: CDN [cloud]
+  gw: API gateway [hexagon]
+  auth: Auth service
+}
+group ingest: Ingestion [blue] {
+  upload: Upload svc
+  mailparse: Mail parser
+  s3: Object store [cylinder]
+  q_in: ingest queue [pill]
+}
+group ml: Extraction [purple] {
+  ocr: OCR
+  cls: Classifier
+  extract: Extractor
+  dedupe: Duplicate check
+  conf: Confident? [diamond]
+}
+group review: Review [orange] {
+  rq: Review queue [pill]
+  rtool: Review tool
+}
+group core: Core [teal] {
+  docs: Documents API
+  clients_svc: Clients API
+  rules: Supplier rules
+  bank: Bank feeds
+  match: Matcher
+  ledger: Ledger DB [cylinder]
+  search: Search [cylinder, detail: OpenSearch]
+}
+group out: Integrations [green] {
+  pub: Publisher
+  xero: Xero [cloud]
+  qbo: QuickBooks [cloud]
+  sage: Sage [cloud]
+}
+group plat: Platform [gray] {
+  bus: Event bus [pill]
+  notif: Notifications
+  billing: Billing
+  analytics: Analytics [cylinder]
+  audit: Audit log [cylinder]
+}
+plaid: Plaid [cloud]
+stripe: Stripe [cloud]
+
+user -> web, ios, android
+user -> email_in
+acct -> web
+web, ios, android -> cdn
+cdn -> gw
+gw -> auth
+gw -> upload, docs, clients_svc
+email_in -> mailparse -> s3
+upload -> s3
+upload ..> q_in
+mailparse ..> q_in
+q_in ..> ocr -> cls -> extract -> dedupe -> conf
+conf -> docs: yes
+conf -> rq: no
+rq -> rtool -> docs
+docs -> rules
+docs -> match
+plaid -> bank -> match
+match -> ledger
+docs -> search
+docs ..> bus
+bus ..> notif, analytics, audit, pub
+pub -> xero, qbo, sage
+clients_svc -> billing -> stripe
+clients_svc -> ledger

@@ -1,0 +1,42 @@
+title: QA: password reset test cases
+description: Each path through the flow is a test case. Coloured stickies are cases with expected results.
+direction: down
+
+start: Open "Forgot password" [pill, green]
+email: Enter e-mail
+known: Account exists? [diamond]
+sent: Show "check your inbox" [rounded]
+silent: Show same message\n(no account leak) [rounded]
+link: Click link in e-mail
+valid: Token valid & < 30 min? [diamond]
+newpw: Enter new password
+strong: Meets policy? [diamond]
+err: Inline error [rounded, red]
+ok: Logged in [pill, green]
+expired: "Link expired" + resend [rounded, orange]
+
+start -> email -> known
+known -> sent: yes
+known -> silent: no
+sent -> link -> valid
+valid -> newpw: yes
+valid -> expired: no
+newpw -> strong
+strong -> ok: yes
+strong -> err: no
+err ..> newpw: retry
+
+group cases: Test cases [gray] {
+  tc1: TC-01 Happy path\nGiven known e-mail → logged in\nPriority: P0 [sticky, green]
+  tc2: TC-02 Unknown e-mail\nExpect identical message\nP0 · security [sticky, yellow]
+  tc3: TC-03 Expired token (31 min)\nExpect resend CTA · P1 [sticky, orange]
+  tc4: TC-04 Weak password\nExpect inline error, no submit · P1 [sticky, red]
+  tc5: TC-05 Token reuse\nSecond click → expired · P0 [sticky, orange]
+}
+tc1 .. ok [dotted]
+tc2 .. silent [dotted]
+tc3 .. expired [dotted]
+tc4 .. err [dotted]
+tc5 .. valid [dotted]
+
+comment on tc5 by mia: Do we invalidate the token after a successful reset or after first click?

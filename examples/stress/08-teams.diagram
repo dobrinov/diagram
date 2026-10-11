@@ -1,0 +1,16 @@
+title: Teams & people
+layout: grid
+
+group product: Product · 1 [purple] {
+  deyan: Deyan Dobrinov [person, purple, detail: Product Manager]
+}
+group agents: Agents · 1 [blue] {
+  cc: Claude Code [person, blue, detail: Coding agent (harness)]
+}
+group eng: Engineering · 3 [teal] {
+  ana: Ana Petrova [person, teal, detail: Backend]
+  ivo: Ivo Georgiev [person, teal, detail: Frontend]
+  mia: Mia Ivanova [person, teal, detail: QA]
+}
+deyan ..> cc: assigns specs
+cc ..> ana: PRs for review

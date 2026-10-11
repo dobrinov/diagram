@@ -1,0 +1,11 @@
+title: Decisions
+layout: grid
+
+group open: Open [orange] {
+  q1: How do /speckit-clarify answers get back into headless runs?\n• Board comments → agreed prompts\n• Deyan Dobrinov [sticky, yellow]
+  q2: Which feature goes first through SpecDeck?\n• OpenSpec repo scanner\n• MCP server · Auth\n• Deyan Dobrinov [sticky, yellow]
+}
+group decided: Decided [green] {
+  d1: Dogfooding setup\n→ stable worktree at a tag runs SpecDeck on :7878\n• Deyan Dobrinov [sticky, green]
+  d2: Harness permissions for headless claude -p\n→ acceptEdits + scoped Bash allow-list\n• Deyan Dobrinov [sticky, green]
+}

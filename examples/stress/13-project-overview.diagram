@@ -1,0 +1,13 @@
+title: Project overview
+layout: grid
+
+group ov: SpecDeck [gray] {
+  about: A PM cockpit for spec-driven development: walk Spec Kit / OpenSpec steps,\nkeep people, decisions, risks and the plan on a live board. [text, w: 420]
+  chips: Framework · speckit    Harness · claude-code [pill, w: 420]
+  step: Current step: Specify  ▓░░░░░░░ 1/8 [box, w: 420]
+  k1: 2 [rounded, orange, detail: open decisions, w: 200]
+  k2: 5 [rounded, red, detail: open risks · 1 high, w: 200]
+  k3: 0 [rounded, red, detail: open blockers, w: 200]
+  k4: 2 [rounded, purple, detail: people · 2 teams, w: 200]
+  ms: No upcoming milestones [text]
+}
