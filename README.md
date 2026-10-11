@@ -241,10 +241,12 @@ diagram skills install --global   # into ~/.claude/skills
 | `crates/cli` | The `diagram` binary: local editor server, exports (PNG via resvg), review commands, embed bundle, skills |
 | `web/` | No-build editor component (`editor.js`, `editor.css`), app shell (`app.js`) and embed API (`embed.js`). `web/pkg` is generated. |
 | `skills/` | Agent skills shipped inside the binary |
+| `scripts/e2e/` | Browser tests of the editor (Playwright, `make e2e`) |
 | `site/`, `scripts/build-site.sh` | GitHub Pages: landing page, playground and examples (`make site` → `docs/`) |
 
 ```bash
 make test     # cargo tests + node tests of the WASM API
+make e2e      # browser test of the editor (uses the installed Chrome)
 make dev      # serve web/ from disk while hacking on the editor
 make site     # build the static site into docs/
 ```

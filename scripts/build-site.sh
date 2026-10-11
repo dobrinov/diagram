@@ -26,7 +26,8 @@ cp "$ROOT/web/pkg/diagram_wasm.js" "$ROOT/web/pkg/diagram_wasm_bg.wasm" "$OUT/ap
 STATIC='<script>window.DIAGRAM_STATIC = { shareUrl: "'"$SITE_URL"'app/", examples: [
   { name: "Checkout architecture", url: "../examples/checkout.diagram" },
   { name: "User onboarding flow", url: "../examples/onboarding.diagram" },
-  { name: "Retro board", url: "../examples/retro.diagram" }
+  { name: "Retro board", url: "../examples/retro.diagram" },
+  { name: "A prompt as a mindmap", url: "../examples/prompt-mindmap.diagram" }
 ] };</script>'
 python3 - "$ROOT/web/index.html" "$OUT/app/index.html" "$STATIC" <<'PY'
 import sys

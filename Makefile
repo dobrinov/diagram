@@ -4,7 +4,7 @@ CARGO_BIN := $(HOME)/.cargo/bin
 RUSTUP_BIN := $(shell rustup which rustc 2>/dev/null | xargs dirname 2>/dev/null)
 WASM_ENV := PATH="$(RUSTUP_BIN):$(CARGO_BIN):$$PATH" DYLD_FALLBACK_LIBRARY_PATH="$(RUSTUP_BIN)/../lib" CARGO_TARGET_DIR="$(CURDIR)/target/wasm"
 
-.PHONY: all wasm build release install test site dev embed clean
+.PHONY: all wasm build release install test e2e site dev embed clean
 
 all: build
 
@@ -23,6 +23,10 @@ install: wasm
 test:
 	cargo test --workspace
 	node --test web/test/
+
+# Browser tests of the editor (Playwright + the installed Chrome; serves web/ from disk)
+e2e: build
+	cd scripts/e2e && (test -d node_modules || npm install --silent) && node mindmap.mjs
 
 # Browser library: one JS file with the WASM inlined
 embed: build
