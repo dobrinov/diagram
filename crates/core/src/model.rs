@@ -18,6 +18,31 @@ pub struct Document {
     pub groups: Vec<Group>,
     #[serde(skip_serializing_if = "Vec::is_empty")]
     pub comments: Vec<Comment>,
+    /// Themes written on the board (`theme brand [base: light] { … }`).
+    #[serde(skip_serializing_if = "Vec::is_empty")]
+    pub themes: Vec<ThemeDef>,
+}
+
+/// A theme: a base (light or dark) and what it changes: colours by role
+/// (`background`, `text`, `line`, …), the named colours (`blue: #3b6fd8`),
+/// `font` and `radius`. See [`crate::theme::KEYS`].
+#[derive(Debug, Clone, Default, PartialEq, Serialize, Deserialize)]
+#[serde(default)]
+pub struct ThemeDef {
+    pub id: String,
+    pub base: Theme,
+    /// (key, value), in the order written.
+    pub values: Vec<(String, String)>,
+}
+
+impl ThemeDef {
+    pub fn get(&self, key: &str) -> Option<&str> {
+        self.values
+            .iter()
+            .rev()
+            .find(|(k, _)| k == key)
+            .map(|(_, v)| v.as_str())
+    }
 }
 
 #[derive(Debug, Clone, Default, PartialEq, Serialize, Deserialize)]
@@ -27,6 +52,10 @@ pub struct Settings {
     pub layout: LayoutKind,
     pub routing: Routing,
     pub theme: Theme,
+    /// A theme by name: one written on the board, a preset (`paper`,
+    /// `blueprint`, `midnight`, `contrast`) or a file (`./brand.theme`).
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub palette: Option<String>,
 }
 
 impl Settings {

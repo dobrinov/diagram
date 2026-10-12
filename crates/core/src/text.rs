@@ -25,8 +25,27 @@ fn is_wide(c: char) -> bool {
     matches!(c as u32, 0x1100..=0x115F | 0x2E80..=0xA4CF | 0xAC00..=0xD7A3 | 0xF900..=0xFAFF | 0xFE30..=0xFE4F | 0xFF00..=0xFF60 | 0xFFE0..=0xFFE6 | 0x1F300..=0x1FAFF)
 }
 
+thread_local! {
+    /// While a monospace theme is drawn: every character is this wide (em).
+    static MONO: std::cell::Cell<Option<f64>> = const { std::cell::Cell::new(None) };
+}
+
+/// Measure for a theme's font: a monospace one has one width for all.
+pub fn set_font(font: &str) {
+    let f = font.to_ascii_lowercase();
+    MONO.with(|m| m.set((f.contains("mono") || f.contains("courier")).then_some(0.62)));
+}
+
 pub fn width(s: &str, size: f64) -> f64 {
-    s.chars().map(char_w).sum::<f64>() * size
+    match MONO.with(|m| m.get()) {
+        Some(w) => {
+            s.chars()
+                .map(|c| if is_wide(c) { 1.0 } else { w })
+                .sum::<f64>()
+                * size
+        }
+        None => s.chars().map(char_w).sum::<f64>() * size,
+    }
 }
 
 /// Greedy word wrap to `max` px; explicit `\n` always breaks.

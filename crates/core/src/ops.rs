@@ -363,6 +363,11 @@ pub enum Op {
     Merge {
         dsl: String,
     },
+    /// Add a theme, or replace the one with its id: its text in the language
+    /// (`theme brand [base: light] {\n  background: #faf9f6\n}`).
+    Theme {
+        source: String,
+    },
 }
 
 /// What a batch did.
@@ -908,6 +913,16 @@ fn apply_op(doc: &mut Document, op: &Op, created: &mut Vec<String>) -> Result<()
                 }
             }
         }
+        Op::Remove { id, keep_members }
+            if doc.element(id).is_none() && doc.themes.iter().any(|t| t.id == *id) =>
+        {
+            // a theme: boards using it go back to the default
+            let _ = keep_members;
+            doc.themes.retain(|t| t.id != *id);
+            if doc.settings.palette.as_deref() == Some(id.as_str()) {
+                doc.settings.palette = None;
+            }
+        }
         Op::Remove { id, keep_members } => {
             if doc
                 .node(id)
@@ -1388,6 +1403,23 @@ fn apply_op(doc: &mut Document, op: &Op, created: &mut Vec<String>) -> Result<()
                 .ok_or_else(|| format!("no comment `{id}`"))?;
             c.status = Status::Open;
         }
+        Op::Theme { source } => {
+            let parsed = crate::dsl::parse(source).map_err(|e| {
+                e.iter()
+                    .map(|d| format!("line {}: {}", d.line, d.message))
+                    .collect::<Vec<_>>()
+                    .join("; ")
+            })?;
+            if parsed.themes.is_empty() {
+                return Err("no `theme id [base: light] { … }` in `source`".into());
+            }
+            for t in parsed.themes {
+                match doc.themes.iter_mut().find(|x| x.id == t.id) {
+                    Some(x) => *x = t,
+                    None => doc.themes.push(t),
+                }
+            }
+        }
         Op::Merge { dsl } => {
             let base = crate::dsl::print(doc);
             // where the merged statements start in the text that is read
@@ -1444,10 +1476,15 @@ fn apply_op(doc: &mut Document, op: &Op, created: &mut Vec<String>) -> Result<()
                         format!("unknown routing `{v}` (use {})", Routing::names())
                     })?
                 }
-                "theme" => {
-                    s.theme = Theme::parse(v)
-                        .ok_or_else(|| format!("unknown theme `{v}` (use {})", Theme::names()))?
-                }
+                "theme" => match Theme::parse(v) {
+                    Some(t) => {
+                        s.theme = t;
+                        s.palette = None;
+                    }
+                    // a theme on the board, a preset or a file
+                    None if !v.is_empty() => s.palette = Some(v.to_string()),
+                    None => s.palette = None,
+                },
                 k => {
                     return Err(format!(
                         "unknown setting `{k}` (use {})",

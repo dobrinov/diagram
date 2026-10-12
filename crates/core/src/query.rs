@@ -264,7 +264,11 @@ pub fn subset(doc: &Document, ids: &[String]) -> Document {
     Document {
         title: doc.title.clone(),
         description: None,
-        settings: doc.settings.clone(),
+        themes: Vec::new(),
+        settings: Settings {
+            palette: None,
+            ..doc.settings.clone()
+        },
         nodes: doc
             .nodes
             .iter()

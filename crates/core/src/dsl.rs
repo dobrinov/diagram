@@ -96,6 +96,7 @@ pub(crate) fn parse_lines(src: &str) -> (Document, Vec<Diagnostic>, Vec<LineInfo
         line: 0,
         map: None,
         gantt: None,
+        theme: None,
         implicit: Default::default(),
         touched: Vec::new(),
     };
@@ -116,7 +117,9 @@ pub(crate) fn parse_lines(src: &str) -> (Document, Vec<Diagnostic>, Vec<LineInfo
             info.push(li);
             continue;
         }
-        let res = if p.map.is_some() {
+        let res = if p.theme.is_some() {
+            p.theme_line(t)
+        } else if p.map.is_some() {
             p.outline_line(raw)
         } else if p.gantt.is_some() {
             p.task_line(t)
@@ -140,6 +143,12 @@ pub(crate) fn parse_lines(src: &str) -> (Document, Vec<Diagnostic>, Vec<LineInfo
         p.errors.push(Diagnostic::new(
             m.line,
             format!("mindmap `{}` is never closed (missing `}}`)", m.root),
+        ));
+    }
+    if let Some((g, line)) = &p.theme {
+        p.errors.push(Diagnostic::new(
+            *line,
+            format!("theme `{g}` is never closed (missing `}}`)"),
         ));
     }
     if let Some((g, line)) = &p.gantt {
@@ -184,6 +193,8 @@ struct Parser {
     implicit: std::collections::HashSet<String>,
     /// What the current line declared.
     touched: Vec<Elem>,
+    /// The theme whose lines are being read, and the line that opened it.
+    theme: Option<(String, usize)>,
 }
 
 struct MapBlock {
@@ -257,6 +268,10 @@ impl Parser {
                 c.advance(5);
                 return self.chart_decl(c);
             }
+            "theme" if opens && c.rest()[5..].starts_with(|ch: char| ch.is_whitespace()) => {
+                c.advance(5);
+                return self.theme_decl(c);
+            }
             "table" if c.rest()[5..].starts_with(|ch: char| ch.is_whitespace()) => {
                 c.advance(5);
                 return self.table_decl(c);
@@ -305,8 +320,18 @@ impl Parser {
                 })?
             }
             "theme" => {
-                s.theme = Theme::parse(&value)
-                    .ok_or_else(|| format!("unknown theme `{value}` (use {})", Theme::names()))?
+                match Theme::parse(&value) {
+                    Some(t) => {
+                        s.theme = t;
+                        s.palette = None;
+                    }
+                    // a theme on the board, a preset or a file
+                    None if !value.is_empty() => s.palette = Some(value),
+                    None => return Err(
+                        "`theme:` needs a theme (light, dark, a preset, a theme's id or a file)"
+                            .into(),
+                    ),
+                }
             }
             _ => unreachable!(),
         }
@@ -529,6 +554,82 @@ impl Parser {
         if !closes_inline {
             self.gantt = Some((id, self.line));
         }
+        Ok(())
+    }
+
+    /// `theme id [base: light|dark] {` … `key: value` lines … `}`.
+    fn theme_decl(&mut self, mut c: Cursor) -> Result<(), String> {
+        c.skip_ws();
+        let (id, _) = c.reference()?;
+        let (_, attrs) = label_and_attrs_until_brace(&mut c)?;
+        c.skip_ws();
+        if !c.eat('{') {
+            return Err(
+                "a theme needs a body: `theme id [base: light] {` … `key: value` … `}`".into(),
+            );
+        }
+        c.skip_ws();
+        let closes_inline = c.eat('}');
+        let mut base = None;
+        for (k, v) in &attrs {
+            match (k.as_str(), v) {
+                ("base", Some(v)) => {
+                    base = Some(
+                        Theme::parse(v)
+                            .ok_or_else(|| format!("a theme's base is light or dark, not `{v}`"))?,
+                    )
+                }
+                (t, None) if Theme::parse(t).is_some() => base = Theme::parse(t),
+                (k, _) => return Err(format!("unknown theme attribute `{k}` (base)")),
+            }
+        }
+        // written again: it adds to (and changes) the same theme
+        if !self.doc.themes.iter().any(|t| t.id == id) {
+            self.doc.themes.push(ThemeDef {
+                id: id.clone(),
+                ..Default::default()
+            });
+        }
+        let t = self.doc.themes.iter_mut().find(|t| t.id == id).unwrap();
+        if let Some(b) = base {
+            t.base = b;
+        }
+        if !closes_inline {
+            self.theme = Some((id, self.line));
+        }
+        Ok(())
+    }
+
+    /// `background: #faf9f6` inside a theme (or the closing `}`).
+    fn theme_line(&mut self, t: &str) -> Result<(), String> {
+        if t == "}" {
+            self.theme = None;
+            return Ok(());
+        }
+        let (k, v) = t
+            .split_once(':')
+            .ok_or_else(|| format!("write `key: value` in a theme (keys: {})", theme_keys()))?;
+        let (k, v) = (k.trim().to_ascii_lowercase(), unquote(v.trim()));
+        let known = crate::theme::KEYS.iter().any(|(n, _)| *n == k)
+            || crate::theme::NAMED_KEYS.contains(&k.as_str());
+        if !known {
+            return Err(format!("unknown theme key `{k}` (use {})", theme_keys()));
+        }
+        let colour = !matches!(k.as_str(), "font" | "radius");
+        if colour
+            && !(v.starts_with('#')
+                && matches!(v.len(), 4 | 7 | 9)
+                && v[1..].chars().all(|c| c.is_ascii_hexdigit()))
+        {
+            return Err(format!("`{k}` is a colour like #3b6fd8, not `{v}`"));
+        }
+        if k == "radius" && v.parse::<f64>().is_err() {
+            return Err(format!("`radius` is a number, not `{v}`"));
+        }
+        let id = self.theme.as_ref().unwrap().0.clone();
+        let th = self.doc.themes.iter_mut().find(|x| x.id == id).unwrap();
+        th.values.retain(|(x, _)| *x != k);
+        th.values.push((k, v));
         Ok(())
     }
 
@@ -1926,6 +2027,28 @@ fn cell_text(s: &str) -> String {
     s.replace('|', "\\|").replace('\n', "\\n")
 }
 
+fn theme_keys() -> String {
+    crate::theme::KEYS
+        .iter()
+        .map(|(k, _)| *k)
+        .chain(crate::theme::NAMED_KEYS)
+        .collect::<Vec<_>>()
+        .join(", ")
+}
+
+/// A theme as written.
+pub(crate) fn theme_block(t: &ThemeDef, out: &mut String) {
+    out.push_str(&format!(
+        "theme {} [base: {}] {{\n",
+        id_text(&t.id),
+        t.base.as_str()
+    ));
+    for (k, v) in &t.values {
+        out.push_str(&format!("  {k}: {v}\n"));
+    }
+    out.push_str("}\n");
+}
+
 /// A chart row's id: the chart's, then the row's label (`revenue.q1`).
 pub fn row_id(chart: &str, label: &str) -> String {
     format!("{chart}.{}", slug(label))
@@ -2142,7 +2265,10 @@ pub(crate) fn setting_line(doc: &Document, key: &str) -> Option<String> {
         }
         "layout" => (s.layout != def.layout).then(|| format!("layout: {}", s.layout.as_str())),
         "routing" => (s.routing != def.routing).then(|| format!("routing: {}", s.routing.as_str())),
-        "theme" => (s.theme != def.theme).then(|| format!("theme: {}", s.theme.as_str())),
+        "theme" => match &s.palette {
+            Some(p) => Some(format!("theme: {p}")),
+            None => (s.theme != def.theme).then(|| format!("theme: {}", s.theme.as_str())),
+        },
         _ => None,
     }
 }
@@ -2229,6 +2355,11 @@ pub fn print(doc: &Document) -> String {
     let mut sections: Vec<String> = Vec::new();
     if !head.is_empty() {
         sections.push(head.join("\n") + "\n");
+    }
+    for t in &doc.themes {
+        let mut s = String::new();
+        theme_block(t, &mut s);
+        sections.push(s);
     }
 
     let in_map = map_members(doc);

@@ -1,5 +1,13 @@
 # Changelog
 
+## 0.15.0 — 2026-10-12
+
+- **Themes.** `theme: paper | blueprint | midnight | contrast` (presets), the id of a `theme` block on the board, or a shared file (`theme: ./brand.theme`). A `theme brand [base: light|dark] { … }` block sets `background`, `dots`, `text`, `muted`, `surface`, `border`, `line`, `section`, `header`, `title`, `title-text`, `pin`, any named colour (`blue: #3b6fd8`), `font` and `radius`; the rest comes from its base. Themes apply to the board, its SVG/PNG/HTML exports (a file theme is carried into the HTML) and the editor's canvas. Unknown keys and bad colours are errors.
+- In the editor: a theme picker in the toolbar (default, presets, the board's themes) and *Edit theme…* (the theme as text; a preset is copied into a new theme). The editor server sends a board's theme file along with it.
+- Ops: `theme` (add or replace a theme from its text), `set theme`, `remove` of a theme. JS: `Board.addThemeFile(name, src)`, `Board.themes()`, `render().canvas`; WASM `add_theme_file`, `themes`, `theme_preset`.
+- **Fixed:** the toolbar's Direction and Edge style pickers never showed a board's own settings (the editor stored the picker in an element's built-in `dir`).
+- `scripts/e2e/themes.mjs` in `make e2e`.
+
 ## 0.14.0 — 2026-10-12
 
 - **Tables:** `table id: Title {` … `}` with a header row and rows of cells separated by `|`. Columns line up in the file; long cells wrap on the board; a colour tints a row. Rows are elements named in their table (`options.local`): comment on a row, link to it, point arrows at it, hover it for its cells by column. Prompts show tables as Markdown.

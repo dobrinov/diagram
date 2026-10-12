@@ -46,6 +46,9 @@ pub struct RenderOptions {
     pub padding: Option<f64>,
     /// Today (`YYYY-MM-DD`): gantt charts mark it with a line.
     pub today: Option<String>,
+    /// Themes from elsewhere (a `./brand.theme` file the board names).
+    #[serde(skip)]
+    pub themes: Vec<crate::model::ThemeDef>,
     /// Only show these elements (nodes, groups): the view is cropped to them.
     #[serde(default)]
     pub focus: Vec<String>,
@@ -73,16 +76,60 @@ pub struct Rendered {
     pub groups: Vec<layout::GroupBox>,
     pub edges: Vec<EdgePath>,
     pub pins: Vec<Pin>,
+    /// The canvas around the board: its colour and its dots' (the theme's),
+    /// and whether it is dark.
+    pub canvas: Canvas,
+}
+
+#[derive(Debug, Clone, Default, Serialize)]
+pub struct Canvas {
+    pub background: String,
+    pub dots: String,
+    pub dark: bool,
+}
+
+/// The theme a board names (`theme: brand`), when it names one it has, one
+/// from `extra` (a file) or a preset.
+pub fn theme_of(
+    doc: &Document,
+    extra: &[crate::model::ThemeDef],
+) -> Option<crate::model::ThemeDef> {
+    let name = doc.settings.palette.as_deref()?;
+    doc.themes
+        .iter()
+        .chain(extra)
+        .find(|t| t.id == name)
+        .cloned()
+        .or_else(|| theme::preset(name))
 }
 
 pub fn render(doc: &Document, opts: &RenderOptions) -> Rendered {
+    // the theme's font sizes the boxes (while this board is drawn)
+    let def = theme_of(doc, &opts.themes);
+    text::set_font(
+        def.as_ref()
+            .and_then(|d| d.get("font"))
+            .unwrap_or(text::FONT),
+    );
+    let out = draw(doc, opts, def);
+    text::set_font(text::FONT);
+    theme::set_named(None);
+    out
+}
+
+fn draw(doc: &Document, opts: &RenderOptions, def: Option<crate::model::ThemeDef>) -> Rendered {
     let lay = layout::layout_at(
         doc,
         opts.today.as_deref().and_then(crate::gantt::parse_date),
     );
     let edges = route::route(doc, &lay);
-    let t = opts.theme.unwrap_or(doc.settings.theme);
-    let p = theme::palette(t);
+    // the board's theme: its own, one from a file, or a preset; it decides
+    // light or dark too
+    let t = def
+        .as_ref()
+        .map_or(opts.theme.unwrap_or(doc.settings.theme), |d| d.base);
+    let p = def.as_ref().map_or(theme::palette(t), theme::palette_for);
+    theme::set_named(def.as_ref());
     let pins = pins(doc, &lay, &edges, opts.comments);
 
     // edge labels and pins may stick out of the boxes
@@ -162,7 +209,7 @@ pub fn render(doc: &Document, opts: &RenderOptions) -> Rendered {
         n(view.h),
         n(view.w),
         n(view.h),
-        esc(text::FONT),
+        esc(p.font),
         t.as_str()
     );
     if let Some(title) = &doc.title {
@@ -517,6 +564,11 @@ pub fn render(doc: &Document, opts: &RenderOptions) -> Rendered {
         groups: lay.groups,
         edges,
         pins,
+        canvas: Canvas {
+            background: p.bg.to_string(),
+            dots: p.dot.to_string(),
+            dark: t == Theme::Dark,
+        },
     }
 }
 
@@ -1561,7 +1613,7 @@ fn node_svg(
     match node.shape {
         Shape::Box | Shape::Rounded => {
             let rx = if node.shape == Shape::Box {
-                8.0
+                p.radius
             } else {
                 (h / 2.0).min(14.0)
             };

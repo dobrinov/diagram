@@ -58,6 +58,7 @@
       fileEl.title = f.path;
       document.title = f.name + " — diagram";
       mount(wasm, f.source, {
+        themeFiles: f.themes || {},
         author: f.author || undefined,
         file: f.path,
         name: f.name.replace(/\..*$/, ""),

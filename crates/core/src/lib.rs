@@ -240,6 +240,8 @@ pub struct Session {
     /// The DSL as it was loaded, and what it said: `source("dsl")` keeps it
     /// as written and rewrites only what changed since (see [`patch`]).
     written: Option<(String, Document)>,
+    /// Themes from files the board names (`theme: ./brand.theme`).
+    pub themes: Vec<model::ThemeDef>,
 }
 
 impl Session {
@@ -310,10 +312,20 @@ impl Session {
     }
 
     pub fn render(&self, opts: &RenderOptions) -> Rendered {
+        let mut o = opts.clone();
+        o.themes.extend(self.themes.iter().cloned());
         match &self.base {
-            Some(b) => render_diff(b, &self.doc, opts),
-            None => render::render(&self.doc, opts),
+            Some(b) => render_diff(b, &self.doc, &o),
+            None => render::render(&self.doc, &o),
         }
+    }
+
+    /// A theme file the board names (`theme: ./brand.theme`), by that name.
+    pub fn add_theme_file(&mut self, name: &str, src: &str) -> Result<(), String> {
+        let t = theme::from_file(name, src)?;
+        self.themes.retain(|x| x.id != t.id);
+        self.themes.push(t);
+        Ok(())
     }
 
     pub fn diff_markdown(&self) -> String {

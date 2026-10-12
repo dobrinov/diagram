@@ -228,6 +228,14 @@ export class Board {
   }
 
   /** Add statements in the diagram language (an element written again by its id gets the attributes given). */
+  addThemeFile(name, source) {
+    parseResult(this.#live().add_theme_file(String(name), String(source)));
+  }
+
+  themes() {
+    return JSON.parse(this.#live().themes());
+  }
+
   merge(dsl) {
     return this.apply([{ op: "merge", dsl: String(dsl) }]);
   }

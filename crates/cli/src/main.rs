@@ -405,9 +405,33 @@ fn render_opts(args: &Args) -> Result<RenderOptions, String> {
     Ok(o)
 }
 
+/// The theme file a board names (`theme: ./brand.theme`), read next to it.
+pub fn theme_file(doc: &Document, file: &str) -> Result<Option<(String, String)>, String> {
+    let Some(name) = doc.settings.palette.as_deref() else {
+        return Ok(None);
+    };
+    if !diagram_core::theme::is_file(name) || doc.themes.iter().any(|t| t.id == name) {
+        return Ok(None);
+    }
+    let dir = Path::new(file).parent().unwrap_or(Path::new("."));
+    let path = dir.join(name);
+    let src =
+        std::fs::read_to_string(&path).map_err(|e| format!("theme {}: {e}", path.display()))?;
+    Ok(Some((name.to_string(), src)))
+}
+
+/// The board's theme from its file, as a render option.
+fn file_themes(doc: &Document, file: &str) -> Result<Vec<diagram_core::model::ThemeDef>, String> {
+    Ok(match theme_file(doc, file)? {
+        Some((name, src)) => vec![diagram_core::theme::from_file(&name, &src)?],
+        None => Vec::new(),
+    })
+}
+
 fn rendered(args: &Args, file: &str) -> Result<(Document, diagram_core::Rendered), String> {
     let doc = load(file)?;
-    let opts = render_opts(args)?;
+    let mut opts = render_opts(args)?;
+    opts.themes = file_themes(&doc, file)?;
     let r = match args.val("--base") {
         Some(b) => diagram_core::render_diff(&load_base(b, file)?, &doc, &opts),
         None => diagram_core::render::render(&doc, &opts),
@@ -503,7 +527,17 @@ fn run(args: Args) -> Result<ExitCode, String> {
         "html" => {
             let file = args.file(0)?;
             let src = read_text(file)?;
-            let doc = parse_doc(&src, file)?;
+            let mut doc = parse_doc(&src, file)?;
+            // a theme from a file goes into the page with the board
+            if let Some(mut t) = file_themes(&doc, file)?.pop() {
+                let id = Path::new(&t.id)
+                    .file_stem()
+                    .map(|s| diagram_core::model::slug(&s.to_string_lossy()))
+                    .unwrap_or_else(|| "theme".into());
+                t.id = id.clone();
+                doc.themes.push(t);
+                doc.settings.palette = Some(id);
+            }
             let base = args.val("--base").map(|b| load_base(b, file)).transpose()?;
             let html = export::html(&doc, base.as_ref(), &render_opts(&args)?);
             let out = args

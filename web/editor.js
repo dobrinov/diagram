@@ -137,6 +137,11 @@
       showResolved: false, base: null, space: false,
       author: opts.author || lsGet("diagram.author") || ""
     };
+    // theme files the board names (`theme: ./brand.theme`), read by the host
+    Object.keys(opts.themeFiles || {}).forEach(function (name) {
+      var r = JSON.parse(st.session.add_theme_file(name, opts.themeFiles[name]));
+      if (r.error) setTimeout(function () { flash(r.error, true); });
+    });
 
     function lsGet(k) { try { return localStorage.getItem(k); } catch (e) { return null; } }
     function lsSet(k, v) { try { localStorage.setItem(k, v); } catch (e) { /* private mode */ } }
@@ -240,9 +245,16 @@
         [["right", "→ Right"], ["down", "↓ Down"], ["left", "← Left"], ["up", "↑ Up"]].forEach(function (d) { dir.appendChild(h("option", { value: d[0] }, [d[1]])); });
         var routing = h("select", { title: "Edge style", class: "dge-select", onchange: function (e) { applyOps([{ op: "set", key: "routing", value: e.target.value }]); } });
         [["orthogonal", "Elbow"], ["curved", "Curved"], ["straight", "Straight"]].forEach(function (d) { routing.appendChild(h("option", { value: d[0] }, [d[1]])); });
-        toolbar.appendChild(h("div", { class: "dge-group" }, [dir, routing, btn({ title: "Tidy up: let the layout place every node again", onclick: function () { applyOps([{ op: "unpin" }]); fitSoon(); } }, icon("tidy"))]));
-        toolbar.dir = dir;
+        var themeSel = h("select", { title: "Theme of this board", class: "dge-select", onchange: function (e) {
+          var v = e.target.value;
+          if (v === "__edit") { e.target.value = currentTheme(); editTheme(); return; }
+          applyOps([{ op: "set", key: "theme", value: v || "light" }]);
+        } });
+        toolbar.appendChild(h("div", { class: "dge-group" }, [dir, routing, themeSel, btn({ title: "Tidy up: let the layout place every node again", onclick: function () { applyOps([{ op: "unpin" }]); fitSoon(); } }, icon("tidy"))]));
+        toolbar.dirSel = dir; // not `dir`: elements have a `dir` (text direction) of their own
         toolbar.routing = routing;
+        toolbar.theme = themeSel;
+        setTimeout(fillThemes); // the first render came before the toolbar
       }
       toolbar.appendChild(h("div", { class: "dge-spacer" }));
       toolbar.extra = h("div", { class: "dge-group dge-extra" });
@@ -429,6 +441,12 @@
       var old = st.r;
       st.r = r;
       stage.innerHTML = r.svg;
+      // the canvas around the board takes the board's theme
+      if (r.canvas) {
+        canvas.style.setProperty("--canvas", r.canvas.background);
+        canvas.style.setProperty("--dot", r.canvas.dots);
+        canvas.classList.toggle("dge-dark-canvas", !!r.canvas.dark);
+      }
       overlay.setAttribute("viewBox", [r.view.x, r.view.y, r.view.w, r.view.h].join(" "));
       overlay.setAttribute("width", r.view.w);
       overlay.setAttribute("height", r.view.h);
@@ -445,10 +463,11 @@
       markSelection();
       drawOverlay();
       renderPanel();
-      if (toolbar.dir && st.doc) {
+      if (toolbar.dirSel && st.doc) {
         var s = st.doc.settings || {};
-        toolbar.dir.value = s.direction || "right";
+        toolbar.dirSel.value = s.direction || "right";
         toolbar.routing.value = s.routing || "orthogonal";
+        fillThemes();
       }
       var nodes = st.doc ? st.doc.nodes.length : 0;
       hint.textContent = nodes ? "" : view ? "Empty diagram" : "Press T and click to start a mindmap · double-click to add a box · or paste a list";
@@ -1547,6 +1566,63 @@
     }
     function chartOf(id) { var n = node(id), g = n && n.group && group(n.group); return g && g.gantt ? g : null; }
     function matrixOf(id) { var n = node(id), g = n && n.group && group(n.group); return g && g.risks ? g : null; }
+    /* Themes: the board's choice ("" = default), and the picker's options. */
+    function currentTheme() { return (st.doc && st.doc.settings && st.doc.settings.palette) || ""; }
+    function fillThemes() {
+      var sel = toolbar.theme;
+      if (!sel || !st.doc) return;
+      var t = JSON.parse(st.session.themes()), cur = currentTheme();
+      var opts2 = [["", "Default theme"]].concat(t.presets.map(function (n) { return [n, n.charAt(0).toUpperCase() + n.slice(1)]; }));
+      t.board.forEach(function (n) { if (t.presets.indexOf(n) < 0) opts2.push([n, n + " (this board)"]); });
+      if (cur && !opts2.some(function (o) { return o[0] === cur; })) opts2.push([cur, cur]);
+      opts2.push(["__edit", "Edit theme…"]);
+      var key = JSON.stringify(opts2) + cur;
+      if (sel._key === key) return;
+      sel._key = key;
+      sel.innerHTML = "";
+      opts2.forEach(function (o) { var op = h("option", { value: o[0] }, [o[1]]); if (o[0] === cur) op.selected = true; sel.appendChild(op); });
+    }
+    /* Edit theme…: the board's theme as text (a preset or the default is copied into a new one). */
+    function editTheme() {
+      var cur = currentTheme(), own = (st.doc.themes || []).filter(function (t) { return t.id === cur; })[0];
+      var text;
+      if (own) {
+        text = "theme " + own.id + " [base: " + (own.base || "light") + "] {\n" + (own.values || []).map(function (kv) { return "  " + kv[0] + ": " + kv[1]; }).join("\n") + "\n}";
+      } else {
+        var id = freshThemeId(cur ? cur + "-custom" : "custom");
+        var base = st.dark ? "dark" : "light";
+        var body = cur ? presetBody(cur) : "  background: " + (st.dark ? "#0f1114" : "#f4f5f7") + "\n  text: " + (st.dark ? "#e3e7ec" : "#1c2026") + "\n  title: " + (st.dark ? "#e3e7ec" : "#1c2026") + "\n  blue: #0d99ff";
+        if (cur) base = presetBase(cur);
+        text = "theme " + id + " [base: " + base + "] {\n" + body + "\n}";
+      }
+      var ta = h("textarea", { class: "dge-chart-data", spellcheck: "false", rows: "14" });
+      ta.value = text;
+      var save = function () {
+        var m = /theme\s+([\w.-]+)/.exec(ta.value);
+        if (!m) { flash("Start with `theme id [base: light] {`", true); return; }
+        if (applyOps([{ op: "theme", source: ta.value }, { op: "set", key: "theme", value: m[1] }]).ok) closeModal();
+      };
+      showModal("Theme", h("div", {}, [
+        h("p", { class: "dge-muted" }, ["Colours as #hex. Keys: background, dots, text, muted, surface, border, line, section, header, title, title-text, pin, font, radius, and the named colours (gray, blue, green, yellow, orange, red, purple, pink, teal). What you leave out comes from the base."]),
+        ta
+      ]), [
+        h("button", { onclick: closeModal }, ["Cancel"]),
+        h("button", { class: "primary", onclick: save }, ["Save and use"])
+      ]);
+      setTimeout(function () { ta.focus(); }, 0);
+    }
+    function freshThemeId(base) {
+      var ids = (st.doc.themes || []).map(function (t) { return t.id; }), id = base, k = 2;
+      while (ids.indexOf(id) >= 0) id = base + "-" + k++;
+      return id;
+    }
+    function presetDoc(name) {
+      var src = (wasm.theme_preset ? wasm.theme_preset(name) : "");
+      var m = /\[base: (\w+)\] \{\n([\s\S]*)\n\}/.exec(src);
+      return m ? { base: m[1], body: m[2] } : { base: "light", body: "" };
+    }
+    function presetBody(name) { return presetDoc(name).body; }
+    function presetBase(name) { return presetDoc(name).base; }
     /* The chart a row belongs to. */
     function plotOf(id) { var n = node(id), g = n && n.group && group(n.group); return g && (g.chart || g.table) ? g : null; }
     function tableOf(id) { var n = node(id), g = n && n.group && group(n.group); return g && g.table ? g : null; }

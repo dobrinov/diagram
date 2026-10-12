@@ -126,10 +126,19 @@ pub fn serve(
                     .file_name()
                     .map(|n| n.to_string_lossy().into_owned())
                     .unwrap_or_default();
+                // a theme file the board names comes along
+                let (doc, _) = diagram_core::dsl::parse_lenient(&source);
+                let themes: serde_json::Map<String, serde_json::Value> =
+                    crate::theme_file(&doc, &file.to_string_lossy())
+                        .ok()
+                        .flatten()
+                        .map(|(n, src)| (n, serde_json::Value::String(src)))
+                        .into_iter()
+                        .collect();
                 respond_json(
                     req,
                     200,
-                    json!({ "path": display, "name": name, "source": source, "mtime": mtime(&file).to_string(), "author": author, "format": crate::format_for(&display), "version": env!("CARGO_PKG_VERSION") }),
+                    json!({ "path": display, "name": name, "source": source, "themes": themes, "mtime": mtime(&file).to_string(), "author": author, "format": crate::format_for(&display), "version": env!("CARGO_PKG_VERSION") }),
                 );
             }
             (Method::Get, "/api/ai") => respond_json(

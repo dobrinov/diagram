@@ -72,6 +72,32 @@ impl Diagram {
         }
     }
 
+    /// A theme file the board names (`theme: ./brand.theme`): its text, under
+    /// that name. Returns `{ok}` or `{error}`.
+    pub fn add_theme_file(&mut self, name: &str, src: &str) -> String {
+        match self.inner.add_theme_file(name, src) {
+            Ok(()) => json!({"ok": true}).to_string(),
+            Err(e) => err(e),
+        }
+    }
+
+    /// The presets' names, and the themes this board has.
+    pub fn themes(&self) -> String {
+        let presets: Vec<&str> = diagram_core::theme::PRESETS
+            .iter()
+            .map(|(n, _)| *n)
+            .collect();
+        let own: Vec<&str> = self
+            .inner
+            .doc
+            .themes
+            .iter()
+            .map(|t| t.id.as_str())
+            .collect();
+        json!({"presets": presets, "board": own, "current": self.inner.doc.settings.palette})
+            .to_string()
+    }
+
     /// Diff against a base version (any format); `undefined` clears it.
     pub fn set_base(&mut self, src: Option<String>) -> String {
         to_json(&self.inner.set_base(src.as_deref()))
@@ -183,6 +209,16 @@ impl Diagram {
             Err(e) => err(e),
         }
     }
+}
+
+/// A built-in theme's text (`paper`, `blueprint`, …), or "".
+#[wasm_bindgen]
+pub fn theme_preset(name: &str) -> String {
+    diagram_core::theme::PRESETS
+        .iter()
+        .find(|(n, _)| *n == name)
+        .map(|(_, s)| s.to_string())
+        .unwrap_or_default()
 }
 
 /// A prompt asking a model for a new mindmap about `topic`.

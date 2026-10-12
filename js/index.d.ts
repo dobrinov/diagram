@@ -31,6 +31,16 @@ export interface Document {
   edges?: Edge[];
   groups?: Group[];
   comments?: Comment[];
+  /** Themes written on the board. */
+  themes?: ThemeDef[];
+}
+
+/** A theme: a base and what it changes (see `theme` in the language reference). */
+export interface ThemeDef {
+  id: string;
+  base?: Theme;
+  /** [key, value] pairs: background, dots, text, muted, surface, border, line, section, header, title, title-text, pin, font, radius, and the named colours. */
+  values?: [string, string][];
 }
 
 export interface Settings {
@@ -39,6 +49,8 @@ export interface Settings {
   layout?: LayoutKind;
   routing?: Routing;
   theme?: Theme;
+  /** A theme by name: the board's own, a preset (paper, blueprint, midnight, contrast) or a file (`./brand.theme`). */
+  palette?: string;
 }
 
 /** A box, sticky, mindmap topic or gantt task. */
@@ -453,13 +465,19 @@ export interface MergeOp {
   dsl: string;
 }
 
+/** Add a theme, or replace the one with its id, from its text (`theme brand [base: light] { … }`). */
+export interface ThemeOp {
+  op: "theme";
+  source: string;
+}
+
 export type ChartKind = "bar" | "line" | "area" | "pie" | "donut" | "scatter";
 
 /** One edit. A batch of ops is applied atomically. */
 export type Op =
   | AddNodeOp | UpdateNodeOp | AddOutlineOp | RenameOp | RemoveOp | MoveOp | NudgeOp | UnpinOp
   | AddEdgeOp | UpdateEdgeOp | AddGroupOp | UpdateGroupOp
-  | AddCommentOp | ReplyOp | EditCommentOp | ResolveCommentOp | ReopenCommentOp | SetOp | MergeOp;
+  | AddCommentOp | ReplyOp | EditCommentOp | ResolveCommentOp | ReopenCommentOp | SetOp | MergeOp | ThemeOp;
 
 /** What Board.apply() accepts: ops, `{ops}`, one op, or a model's reply text containing that JSON. */
 export type OpsInput = Op[] | { ops: Op[] } | Op | string;
@@ -600,6 +618,8 @@ export interface RenderResult {
   groups: GroupBox[];
   edges: EdgePath[];
   pins: Pin[];
+  /** The canvas around the board, in the board's theme. */
+  canvas: { background: string; dots: string; dark: boolean };
 }
 
 // ------------------------------------------------------------------- prompts
@@ -738,6 +758,12 @@ export class Board {
 
   /** Add statements in the diagram language (op `merge`). */
   merge(dsl: string): ApplyResult;
+
+  /** A theme file the board names (`theme: ./brand.theme`): its text, under that name. @throws DiagramError */
+  addThemeFile(name: string, source: string): void;
+
+  /** The presets, the board's own themes, and the one it uses. */
+  themes(): { presets: string[]; board: string[]; current: string | null };
 
   /**
    * What changed since `base` (any format). Setting a base also makes

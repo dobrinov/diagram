@@ -57,6 +57,7 @@ Edits keep the file as it is written. Ops, the editor and `diagram apply` rewrit
 | `mindmap id: Topic [attrs] {` … `}` | a mindmap: the line is its central topic and the body is an indented outline (see *Mindmaps*) |
 | `comment [id] [on target] [at x,y] [by author]: text [attrs]` | a review comment. Ids default to `c1`, `c2`, … |
 | `reply id [by author]: text` | a reply to a comment |
+| `theme id [base: light] {` … `}` | a theme: `key: value` lines (see *Themes*) |
 | `title:` `description:` `direction:` `layout:` `routing:` `theme:` | settings (top level only). The title is metadata (briefs, export names); it is not drawn on the board (`--title` draws it in exports) |
 
 Ids are made of letters, digits, `_`, and `-` or `.` between them (`orders-api`, `svc.v2`). Writing `\n` in a label starts a new line. Quote a label (`"…"`) when it should keep leading or trailing spaces.
@@ -88,9 +89,29 @@ Attributes go in square brackets at the end of the line as `key: value` pairs se
 
 - **Shapes:** `box` (default), `rounded`, `pill`, `circle`, `diamond`, `hexagon`, `cylinder`, `parallelogram`, `document`, `person`, `cloud`, `sticky`, `text`
 - **Colours:** `gray`, `blue`, `green`, `yellow`, `orange`, `red`, `purple`, `pink`, `teal`, or `#rrggbb`
-- **Settings:** `layout: layered | grid`, `routing: orthogonal | curved | straight`, `theme: light | dark`
+- **Settings:** `layout: layered | grid`, `routing: orthogonal | curved | straight`, `theme: light | dark | paper | blueprint | midnight | contrast | <a theme's id> | ./file.theme`
 
 Nodes without `x`/`y` are placed automatically. Dragging a node in the editor pins it there. `diagram apply FILE` with `{"op":"unpin"}` releases every pinned node.
+
+### Themes
+
+```diagram
+theme: brand
+
+theme brand [base: light] {
+  background: #faf9f6
+  text: #1f2328
+  title: #5b5bd6
+  blue: #3b6fd8
+  font: "IBM Plex Sans", Inter, sans-serif
+  radius: 4
+}
+```
+
+- `theme:` picks the board's theme: `light` / `dark`, a preset (`paper`, `blueprint`, `midnight`, `contrast`), the id of a `theme` block on the board, or a file next to the board (`theme: ./brand.theme`, a file holding one `theme … { }` block), so a team can keep one brand theme in the repo.
+- A `theme id [base: light|dark] {` block starts from its base and changes what it lists: `background`, `dots`, `text`, `muted` (details, axes), `surface` (boxes), `border`, `line` (arrows), `section`, `header` (title strips, table headers), `title` (section title pills), `title-text`, `pin`, any named colour (`blue: #3b6fd8`, used wherever `blue` is), `font` (a CSS font list; monospace fonts are measured as such) and `radius` (boxes' corners). Colours are `#hex`; an unknown key is an error.
+- The theme applies to the board, its exports (a file theme goes into an HTML export) and the canvas around it in the editor. In the editor: the theme picker in the toolbar, and *Edit theme…* (the theme as text; a preset is copied into a new one).
+- Ops: `{"op":"theme","source":"theme brand [base: light] { … }"}` adds or replaces a theme, `{"op":"set","key":"theme","value":"brand"}` uses it, `{"op":"remove","id":"brand"}` removes it. In JSON: `themes` (`{id, base, values: [[key, value], …]}`) and `settings.palette`.
 
 ### Swimlanes
 

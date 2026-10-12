@@ -39,7 +39,7 @@ test("render: svg and geometry", () => {
   const b = Board.parse("api -> db\ncomment on api: cache?");
   const r = b.render({ theme: "dark", comments: "all" });
   assert.match(r.svg, /^<svg/);
-  assert.deepEqual(Object.keys(r).sort(), ["edges", "groups", "nodes", "pins", "svg", "view"]);
+  assert.deepEqual(Object.keys(r).sort(), ["canvas", "edges", "groups", "nodes", "pins", "svg", "view"]);
   const api = r.nodes.find((n) => n.id === "api");
   assert.equal(typeof api.x, "number");
   assert.equal(typeof api.w, "number");
@@ -239,5 +239,19 @@ test("tables", () => {
   assert.match(b.source(), /  option \| cost\n  Hosted \| \$1k\n  Local  \| \$0\n/);
   assert.match(b.selection(["t"]), /\| option \| cost \|\n\|---\|---\|\n\| Hosted \| \$1k \|/);
   assert.ok(b.render().groups[0].table);
+  b.free();
+});
+
+test("themes", () => {
+  const b = Board.parse("theme: ./brand.theme\napi: API [blue]\n");
+  b.addThemeFile("./brand.theme", "theme brand [base: dark] {\n  background: #101418\n  blue: #3b6fd8\n}\n");
+  const r = b.render();
+  assert.deepEqual([r.canvas.background, r.canvas.dark], ["#101418", true]);
+  assert.match(r.svg, /#3b6fd8/);
+  b.apply({ op: "theme", source: "theme own [base: light] {\n  text: #222222\n}" });
+  b.apply({ op: "set", key: "theme", value: "own" });
+  assert.deepEqual(b.themes().board, ["own"]);
+  assert.match(b.source(), /theme: own\n[^]*theme own \[base: light\] \{\n  text: #222222\n\}/);
+  assert.ok(b.themes().presets.includes("blueprint"));
   b.free();
 });
