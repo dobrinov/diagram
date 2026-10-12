@@ -89,7 +89,7 @@ Attributes go in square brackets at the end of the line as `key: value` pairs se
 
 - **Shapes:** `box` (default), `rounded`, `pill`, `circle`, `diamond`, `hexagon`, `cylinder`, `parallelogram`, `document`, `person`, `cloud`, `sticky`, `text`
 - **Colours:** `gray`, `blue`, `green`, `yellow`, `orange`, `red`, `purple`, `pink`, `teal`, or `#rrggbb`
-- **Settings:** `layout: layered | grid`, `routing: orthogonal | curved | straight`, `theme: light | dark | paper | blueprint | midnight | contrast | <a theme's id> | ./file.theme`
+- **Settings:** `layout: layered | grid`, `routing: orthogonal | curved | straight`, `theme: light | dark | paper | contrast | <a theme's id> | ./file.theme`
 
 Nodes without `x`/`y` are placed automatically. Dragging a node in the editor pins it there. `diagram apply FILE` with `{"op":"unpin"}` releases every pinned node.
 
@@ -108,7 +108,7 @@ theme brand [base: light] {
 }
 ```
 
-- `theme:` picks the board's theme: `light` / `dark`, a preset (`paper`, `blueprint`, `midnight`, `contrast`), the id of a `theme` block on the board, or a file next to the board (`theme: ./brand.theme`, a file holding one `theme … { }` block), so a team can keep one brand theme in the repo.
+- `theme:` picks the board's theme: `light` / `dark`, a preset (`paper`, `contrast`; only light ones until themes have a light and a dark mode), the id of a `theme` block on the board, or a file next to the board (`theme: ./brand.theme`, a file holding one `theme … { }` block), so a team can keep one brand theme in the repo.
 - A `theme id [base: light|dark] {` block starts from its base and changes what it lists: `background`, `dots`, `text`, `muted` (details, axes), `surface` (boxes), `border`, `line` (arrows), `section`, `header` (title strips, table headers), `title` (section title pills), `title-text`, `pin`, any named colour (`blue: #3b6fd8`, used wherever `blue` is), `font` (a CSS font list; monospace fonts are measured as such) and `radius` (boxes' corners). Colours are `#hex`; an unknown key is an error.
 - The theme applies to the board, its exports (a file theme goes into an HTML export) and the canvas around it in the editor. In the editor: the theme picker in the toolbar, and *Edit theme…* (the theme as text; a preset is copied into a new one).
 - Ops: `{"op":"theme","source":"theme brand [base: light] { … }"}` adds or replaces a theme, `{"op":"set","key":"theme","value":"brand"}` uses it, `{"op":"remove","id":"brand"}` removes it. In JSON: `themes` (`{id, base, values: [[key, value], …]}`) and `settings.palette`.

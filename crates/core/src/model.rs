@@ -53,7 +53,7 @@ pub struct Settings {
     pub routing: Routing,
     pub theme: Theme,
     /// A theme by name: one written on the board, a preset (`paper`,
-    /// `blueprint`, `midnight`, `contrast`) or a file (`./brand.theme`).
+    /// `contrast`) or a file (`./brand.theme`).
     #[serde(skip_serializing_if = "Option::is_none")]
     pub palette: Option<String>,
 }

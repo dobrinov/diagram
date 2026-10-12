@@ -211,7 +211,7 @@ impl Diagram {
     }
 }
 
-/// A built-in theme's text (`paper`, `blueprint`, …), or "".
+/// A built-in theme's text (`paper`, `contrast`), or "".
 #[wasm_bindgen]
 pub fn theme_preset(name: &str) -> String {
     diagram_core::theme::PRESETS

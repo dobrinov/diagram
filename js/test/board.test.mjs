@@ -252,6 +252,6 @@ test("themes", () => {
   b.apply({ op: "set", key: "theme", value: "own" });
   assert.deepEqual(b.themes().board, ["own"]);
   assert.match(b.source(), /theme: own\n[^]*theme own \[base: light\] \{\n  text: #222222\n\}/);
-  assert.ok(b.themes().presets.includes("blueprint"));
+  assert.ok(b.themes().presets.includes("contrast"));
   b.free();
 });

@@ -36,8 +36,6 @@ pub const NAMED_KEYS: [&str; 9] = [
 /// Built-in themes, written in the language.
 pub const PRESETS: &[(&str, &str)] = &[
     ("paper", "theme paper [base: light] {\n  background: #f6f1e7\n  dots: #e3d9c6\n  surface: #fffdf8\n  border: #d9ccb2\n  section: #fffaf0\n  header: #f2eadb\n  text: #2b2620\n  muted: #6e6253\n  line: #a8987d\n  title: #7a4f24\n  font: Georgia, 'Iowan Old Style', serif\n  radius: 4\n}\n"),
-    ("blueprint", "theme blueprint [base: dark] {\n  background: #0b2545\n  dots: #1c3c66\n  surface: #0f2f57\n  border: #5583bd\n  section: #0d2a4f\n  header: #13365f\n  text: #eaf2ff\n  muted: #a9c1e6\n  line: #8fb3e8\n  title: #eaf2ff\n  title-text: #0b2545\n  font: 'IBM Plex Mono', ui-monospace, SFMono-Regular, Menlo, monospace\n  radius: 2\n}\n"),
-    ("midnight", "theme midnight [base: dark] {\n  background: #050505\n  dots: #1c1c1c\n  surface: #111111\n  border: #2c2c2c\n  section: #0b0b0b\n  header: #171717\n  text: #f2f2f2\n  muted: #9a9a9a\n  line: #6e6e6e\n  title: #7c5cff\n  blue: #4f8cff\n  purple: #8b6cff\n}\n"),
     ("contrast", "theme contrast [base: light] {\n  background: #ffffff\n  dots: #d0d0d0\n  surface: #ffffff\n  border: #000000\n  section: #ffffff\n  header: #eeeeee\n  text: #000000\n  muted: #2b2b2b\n  line: #000000\n  title: #000000\n}\n"),
 ];
 

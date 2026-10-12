@@ -49,7 +49,7 @@ export interface Settings {
   layout?: LayoutKind;
   routing?: Routing;
   theme?: Theme;
-  /** A theme by name: the board's own, a preset (paper, blueprint, midnight, contrast) or a file (`./brand.theme`). */
+  /** A theme by name: the board's own, a preset (paper, contrast) or a file (`./brand.theme`). */
   palette?: string;
 }
 

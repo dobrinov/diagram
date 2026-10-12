@@ -1,5 +1,9 @@
 # Changelog
 
+## 0.15.1 — 2026-10-12
+
+- The dark-only presets `blueprint` and `midnight` are gone until every theme has a light and a dark mode; `paper` and `contrast` stay. Boards that named them fall back to the default theme.
+
 ## 0.15.0 — 2026-10-12
 
 - **Themes.** `theme: paper | blueprint | midnight | contrast` (presets), the id of a `theme` block on the board, or a shared file (`theme: ./brand.theme`). A `theme brand [base: light|dark] { … }` block sets `background`, `dots`, `text`, `muted`, `surface`, `border`, `line`, `section`, `header`, `title`, `title-text`, `pin`, any named colour (`blue: #3b6fd8`), `font` and `radius`; the rest comes from its base. Themes apply to the board, its SVG/PNG/HTML exports (a file theme is carried into the HTML) and the editor's canvas. Unknown keys and bad colours are errors.
