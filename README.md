@@ -168,7 +168,7 @@ For LLMs there is an **ops** language for precise edits:
 1. **Draw:** `diagram docs/checkout.diagram`, or ask Claude Code to draw it (see *Agent skills*).
 2. **Review:** colleagues open the same file (or a share link, or an HTML export) and leave comments.
 3. **Prompt:** use the **Prompt** button or `diagram prompt FILE --target code`. The prompt contains the diagram, each open thread with its replies, and exact instructions for replying.
-4. **Apply:** paste the reply into **Apply reply** or run `diagram apply FILE reply.md`. The changes are applied atomically, and each comment is resolved with a note on what was done. Comments on deleted elements are kept as canvas comments, so feedback is never lost silently.
+4. **Apply:** paste the reply into **Apply reply** or run `diagram apply FILE reply.md`. The changes are applied atomically, and each comment is resolved with a note on what was done. Only the statements that changed are rewritten: the rest of the file, its blank lines and `#` notes stay as you wrote them, so the commit diff shows just the change. Comments on deleted elements are kept as canvas comments, so feedback is never lost silently.
 
 ## Using it as a library
 

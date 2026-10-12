@@ -26,6 +26,7 @@ pub mod mermaid;
 pub mod mindmap;
 pub mod model;
 pub mod ops;
+pub mod patch;
 pub mod prompt;
 pub mod render;
 pub mod route;
@@ -217,6 +218,9 @@ pub struct Session {
     pub doc: Document,
     pub base: Option<Document>,
     pub errors: Vec<Diagnostic>,
+    /// The DSL as it was loaded, and what it said: `source("dsl")` keeps it
+    /// as written and rewrites only what changed since (see [`patch`]).
+    written: Option<(String, Document)>,
 }
 
 impl Session {
@@ -235,6 +239,7 @@ impl Session {
                 Err(e) => (self.doc.clone(), e),
             },
         };
+        self.written = (format == Format::Dsl).then(|| (src.to_string(), doc.clone()));
         self.doc = doc;
         self.errors = errors;
         json!({"ok": self.errors.is_empty(), "format": format, "errors": self.errors})
@@ -243,10 +248,14 @@ impl Session {
     pub fn set_document(&mut self, doc: Document) {
         self.doc = doc;
         self.errors.clear();
+        self.written = None;
     }
 
     pub fn source(&self, format: &str) -> Result<String, String> {
-        export(&self.doc, format)
+        match (&self.written, format) {
+            (Some((src, old)), "dsl" | "diagram") => Ok(patch::patch(src, old, &self.doc)),
+            _ => export(&self.doc, format),
+        }
     }
 
     pub fn set_base(&mut self, src: Option<&str>) -> Value {

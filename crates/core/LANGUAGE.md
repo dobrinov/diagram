@@ -36,7 +36,9 @@ comment c9 at 400,20: Overall flow looks right [resolved, resolution: ok]
 
 ### Statements
 
-There is one statement per line. A line that starts with `#` or `//` is a comment for people reading the file. It is not kept when the file is reformatted, so use `comment` for review notes.
+There is one statement per line. A line that starts with `#` or `//` is a note for people reading the file; use `comment` for review notes.
+
+Edits keep the file as it is written. Ops, the editor and `diagram apply` rewrite only the statements whose elements changed (a chain like `a -> b -> c` is split only when one of its arrows changes; a changed mindmap or gantt chart is rewritten as a block), put new statements next to their kind (inside their section, after the last box, arrow or comment), and leave every other line, blank line and `#` note alone. Only `diagram fmt` rewrites the whole file in its canonical form.
 
 | Statement | Meaning |
 |---|---|

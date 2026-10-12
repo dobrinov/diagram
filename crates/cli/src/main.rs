@@ -285,7 +285,16 @@ pub fn format_for(path: &str) -> &'static str {
 }
 
 fn save(path: &str, doc: &Document) -> Result<(), String> {
-    let text = diagram_core::export(doc, format_for(path))?;
+    let format = format_for(path);
+    let mut text = diagram_core::export(doc, format)?;
+    if format == "dsl" && path != "-" {
+        // keep the file as it is written: rewrite only what changed
+        if let Ok(src) = std::fs::read_to_string(path) {
+            if let Ok(old) = diagram_core::dsl::parse(&src) {
+                text = diagram_core::patch::patch(&src, &old, doc);
+            }
+        }
+    }
     if path == "-" {
         print!("{text}");
         return Ok(());

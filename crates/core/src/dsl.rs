@@ -17,8 +17,8 @@
 //! reply c1 by ana: Not before launch.
 //! ```
 //!
-//! One statement per line. Full-line `#` / `//` comments are ignored (and
-//! not kept when the file is re-printed). `docs/LANGUAGE.md` is the reference.
+//! One statement per line. Full-line `#` / `//` comments are ignored here
+//! (edits keep them: see [`crate::patch`]). `docs/LANGUAGE.md` is the reference.
 use crate::model::*;
 
 pub const SETTINGS: &[&str] = &[
@@ -59,6 +59,36 @@ pub fn parse(src: &str) -> Result<Document, Vec<Diagnostic>> {
 
 /// Parse as much as possible; bad lines are skipped and reported.
 pub fn parse_lenient(src: &str) -> (Document, Vec<Diagnostic>) {
+    let (doc, errors, _) = parse_lines(src);
+    (doc, errors)
+}
+
+/// Something a line of the source declares.
+#[derive(Debug, Clone, PartialEq, Eq, Hash)]
+pub(crate) enum Elem {
+    Node(String),
+    Edge(String),
+    Group(String),
+    Comment(String),
+    Setting(String),
+}
+
+/// What one line of the source is (see [`parse_lines`]).
+#[derive(Debug, Clone, Default)]
+pub(crate) struct LineInfo {
+    /// What the line declares or adds to.
+    pub elems: Vec<Elem>,
+    /// Inside a mindmap or gantt block: the line (0-based) that opened it.
+    pub block: Option<usize>,
+    /// The `}` closing this group.
+    pub close: Option<String>,
+    /// How many groups are open before the line.
+    pub depth: usize,
+}
+
+/// [`parse_lenient`], and what each line of the source declares.
+pub(crate) fn parse_lines(src: &str) -> (Document, Vec<Diagnostic>, Vec<LineInfo>) {
+    let mut info = Vec::new();
     let mut p = Parser {
         doc: Document::default(),
         errors: Vec::new(),
@@ -67,11 +97,23 @@ pub fn parse_lenient(src: &str) -> (Document, Vec<Diagnostic>) {
         map: None,
         gantt: None,
         implicit: Default::default(),
+        touched: Vec::new(),
     };
     for (i, raw) in src.lines().enumerate() {
         p.line = i + 1;
         let t = raw.trim();
+        let mut li = LineInfo {
+            depth: p.stack.len(),
+            ..Default::default()
+        };
+        // a line inside a mindmap or a gantt chart belongs to its block
+        li.block = p
+            .map
+            .as_ref()
+            .map(|m| m.line - 1)
+            .or(p.gantt.as_ref().map(|g| g.1 - 1));
         if t.is_empty() || t.starts_with('#') || t.starts_with("//") {
+            info.push(li);
             continue;
         }
         let res = if p.map.is_some() {
@@ -79,11 +121,20 @@ pub fn parse_lenient(src: &str) -> (Document, Vec<Diagnostic>) {
         } else if p.gantt.is_some() {
             p.task_line(t)
         } else {
+            if t == "}" {
+                li.close = p.stack.last().map(|(g, _)| g.clone());
+            }
             p.statement(t)
         };
         if let Err(e) = res {
             p.errors.push(Diagnostic::new(p.line, e));
         }
+        // a line that opened a block is its first line
+        if li.block.is_none() && (p.map.is_some() || p.gantt.is_some()) {
+            li.block = Some(i);
+        }
+        li.elems = std::mem::take(&mut p.touched);
+        info.push(li);
     }
     if let Some(m) = &p.map {
         p.errors.push(Diagnostic::new(
@@ -115,7 +166,7 @@ pub fn parse_lenient(src: &str) -> (Document, Vec<Diagnostic>) {
             }
         }
     }
-    (p.doc, p.errors)
+    (p.doc, p.errors, info)
 }
 
 struct Parser {
@@ -131,6 +182,8 @@ struct Parser {
     /// Nodes created only because an edge mentioned them; a mindmap topic
     /// with that id adopts them.
     implicit: std::collections::HashSet<String>,
+    /// What the current line declared.
+    touched: Vec<Elem>,
 }
 
 struct MapBlock {
@@ -206,6 +259,7 @@ impl Parser {
     }
 
     fn setting(&mut self, key: &str, value: &str) -> Result<(), String> {
+        self.touched.push(Elem::Setting(key.to_string()));
         let value = unquote(value);
         let s = &mut self.doc.settings;
         match key {
@@ -292,6 +346,7 @@ impl Parser {
         n.group = group;
         n.mindmap = Some(MapLayout::default());
         apply_node_attrs(n, &attrs)?;
+        self.touched.push(Elem::Node(id.clone()));
         if !closes_inline {
             self.map = Some(MapBlock {
                 root: id,
@@ -353,6 +408,7 @@ impl Parser {
                 }
             }
         }
+        self.touched.push(Elem::Group(id.clone()));
         if !closes_inline {
             self.gantt = Some((id, self.line));
         }
@@ -394,6 +450,7 @@ impl Parser {
         n.label = if label == id { String::new() } else { label };
         n.group = Some(chart);
         apply_node_attrs(&mut n, &attrs)?;
+        self.touched.push(Elem::Node(n.id.clone()));
         self.doc.nodes.push(n);
         Ok(())
     }
@@ -443,6 +500,7 @@ impl Parser {
         n.label = if label == id { String::new() } else { label };
         n.parent = Some(parent);
         apply_node_attrs(n, &attrs)?;
+        self.touched.push(Elem::Node(id.clone()));
         self.map.as_mut().unwrap().chain.push(id);
         Ok(())
     }
@@ -475,6 +533,7 @@ impl Parser {
                 n.label = l;
             }
             apply_node_attrs(n, &attrs)?;
+            self.touched.push(Elem::Node(id));
         }
         Ok(())
     }
@@ -523,6 +582,7 @@ impl Parser {
                     } else if self.doc.id_taken(&e.id) {
                         return Err(format!("id `{}` is already used", e.id));
                     }
+                    self.touched.push(Elem::Edge(e.id.clone()));
                     self.doc.edges.push(e);
                 }
             }
@@ -569,6 +629,7 @@ impl Parser {
                 (k, _) => return Err(format!("unknown group attribute `{k}`")),
             }
         }
+        self.touched.push(Elem::Group(id.clone()));
         if !closes_inline {
             self.stack.push((id, self.line));
         }
@@ -631,6 +692,7 @@ impl Parser {
         } else if self.doc.comment(&cm.id).is_some() {
             return Err(format!("comment `{}` already exists", cm.id));
         }
+        self.touched.push(Elem::Comment(cm.id.clone()));
         self.doc.comments.push(cm);
         Ok(())
     }
@@ -655,6 +717,7 @@ impl Parser {
             format!("no comment `{id}` to reply to (replies go after their comment)")
         })?;
         cm.replies.push(Reply { author: by, text });
+        self.touched.push(Elem::Comment(id));
         Ok(())
     }
 }
@@ -1135,7 +1198,7 @@ fn attrs_text(items: &[String]) -> String {
     }
 }
 
-fn node_line(n: &Node) -> String {
+pub(crate) fn node_line(n: &Node) -> String {
     let mut s = id_text(&n.id);
     if !n.label.is_empty() && n.label != n.id {
         s.push_str(": ");
@@ -1160,7 +1223,7 @@ fn group_pos(g: &Group) -> Vec<String> {
         .collect()
 }
 
-fn gantt_block(doc: &Document, g: &Group, pad: &str, out: &mut String) {
+pub(crate) fn gantt_block(doc: &Document, g: &Group, pad: &str, out: &mut String) {
     let mut head = id_text(&g.id);
     if !g.label.is_empty() && g.label != g.id {
         head.push_str(": ");
@@ -1219,7 +1282,7 @@ fn gantt_block(doc: &Document, g: &Group, pad: &str, out: &mut String) {
     out.push_str(&format!("{pad}}}\n"));
 }
 
-fn map_block(doc: &Document, root: &Node, pad: &str, out: &mut String) {
+pub(crate) fn map_block(doc: &Document, root: &Node, pad: &str, out: &mut String) {
     let mut head = id_text(&root.id);
     if !root.label.is_empty() && root.label != root.id {
         head.push_str(": ");
@@ -1385,7 +1448,7 @@ fn node_attrs(n: &Node) -> Vec<String> {
     a
 }
 
-fn edge_line(e: &Edge) -> String {
+pub(crate) fn edge_line(e: &Edge) -> String {
     let base = |l: Line| match l {
         Line::Solid | Line::Dotted => ("->", "<->", "--"),
         Line::Dashed => ("..>", "<..>", ".."),
@@ -1424,7 +1487,7 @@ fn edge_line(e: &Edge) -> String {
     s + &attrs_text(&a)
 }
 
-fn comment_lines(c: &Comment, out: &mut String) {
+pub(crate) fn comment_lines(c: &Comment, out: &mut String) {
     let mut s = format!("comment {}", id_text(&c.id));
     if let Some(on) = &c.on {
         s.push_str(&format!(
@@ -1472,90 +1535,107 @@ fn comment_lines(c: &Comment, out: &mut String) {
 }
 
 /// Canonical text form. `parse(print(doc)) == doc` for normalized documents.
-pub fn print(doc: &Document) -> String {
-    let mut out = String::new();
-    let mut head = Vec::new();
-    if let Some(t) = &doc.title {
-        head.push(format!("title: {}", t.replace('\n', " ")));
-    }
-    if let Some(d) = &doc.description {
-        head.push(format!("description: {}", d.replace('\n', " ")));
-    }
+/// A setting's line (`title: …`), or None when it has its default.
+pub(crate) fn setting_line(doc: &Document, key: &str) -> Option<String> {
     let s = &doc.settings;
     let def = Settings::default();
-    if s.direction != def.direction {
-        head.push(format!("direction: {}", s.direction.as_str()));
+    match key {
+        "title" => doc
+            .title
+            .as_ref()
+            .map(|t| format!("title: {}", t.replace('\n', " "))),
+        "description" => doc
+            .description
+            .as_ref()
+            .map(|d| format!("description: {}", d.replace('\n', " "))),
+        "direction" => {
+            (s.direction != def.direction).then(|| format!("direction: {}", s.direction.as_str()))
+        }
+        "layout" => (s.layout != def.layout).then(|| format!("layout: {}", s.layout.as_str())),
+        "routing" => (s.routing != def.routing).then(|| format!("routing: {}", s.routing.as_str())),
+        "theme" => (s.theme != def.theme).then(|| format!("theme: {}", s.theme.as_str())),
+        _ => None,
     }
-    if s.layout != def.layout {
-        head.push(format!("layout: {}", s.layout.as_str()));
+}
+
+/// Which nodes are mindmap topics (or centres).
+pub(crate) fn map_members(doc: &Document) -> impl Fn(&Node) -> bool + '_ {
+    let forest = crate::mindmap::Forest::new(doc);
+    move |n: &Node| {
+        doc.nodes
+            .iter()
+            .position(|x| x.id == n.id)
+            .is_some_and(|i| forest.in_map(i))
     }
-    if s.routing != def.routing {
-        head.push(format!("routing: {}", s.routing.as_str()));
+}
+
+/// A group's opening line without its `{`: `group id: Label [attrs]`.
+pub(crate) fn group_header(doc: &Document, g: &Group) -> String {
+    let word = if g.lanes {
+        "lanes"
+    } else if doc.is_lane(g) {
+        "lane"
+    } else {
+        "group"
+    };
+    let mut line = format!("{word} {}", id_text(&g.id));
+    if !g.label.is_empty() && g.label != g.id {
+        line.push_str(": ");
+        line.push_str(&label_text(&g.label));
     }
-    if s.theme != def.theme {
-        head.push(format!("theme: {}", s.theme.as_str()));
+    let mut a = Vec::new();
+    if let Some(c) = &g.color {
+        a.push(if c.starts_with('#') {
+            format!("color: {c}")
+        } else {
+            c.clone()
+        });
     }
+    a.extend(group_pos(g));
+    line.push_str(&attrs_text(&a));
+    line
+}
+
+/// A group (section, swimlanes, lane or gantt chart) with what is inside it.
+pub(crate) fn group_block(
+    doc: &Document,
+    g: &Group,
+    depth: usize,
+    out: &mut String,
+    in_map: &dyn Fn(&Node) -> bool,
+) {
+    let pad = "  ".repeat(depth);
+    if g.gantt {
+        gantt_block(doc, g, &pad, out);
+        return;
+    }
+    out.push_str(&format!("{pad}{} {{\n", group_header(doc, g)));
+    let (nodes, groups) = doc.members(Some(&g.id));
+    for n in nodes.iter().filter(|n| !in_map(n)) {
+        out.push_str(&format!("{pad}  {}\n", node_line(n)));
+    }
+    for n in nodes.iter().filter(|n| in_map(n) && n.parent.is_none()) {
+        map_block(doc, n, &format!("{pad}  "), out);
+    }
+    for child in groups {
+        group_block(doc, child, depth + 1, out, in_map);
+    }
+    out.push_str(&format!("{pad}}}\n"));
+}
+
+pub fn print(doc: &Document) -> String {
+    let mut out = String::new();
+    let head: Vec<String> = SETTINGS
+        .iter()
+        .filter_map(|k| setting_line(doc, k))
+        .collect();
     let mut sections: Vec<String> = Vec::new();
     if !head.is_empty() {
         sections.push(head.join("\n") + "\n");
     }
 
-    let forest = crate::mindmap::Forest::new(doc);
-    let in_map = |n: &Node| {
-        doc.nodes
-            .iter()
-            .position(|x| x.id == n.id)
-            .is_some_and(|i| forest.in_map(i))
-    };
+    let in_map = map_members(doc);
     let is_root = |n: &Node| in_map(n) && n.parent.is_none();
-    fn group_block(
-        doc: &Document,
-        g: &Group,
-        depth: usize,
-        out: &mut String,
-        in_map: &dyn Fn(&Node) -> bool,
-    ) {
-        let pad = "  ".repeat(depth);
-        if g.gantt {
-            gantt_block(doc, g, &pad, out);
-            return;
-        }
-        let word = if g.lanes {
-            "lanes"
-        } else if doc.is_lane(g) {
-            "lane"
-        } else {
-            "group"
-        };
-        let mut line = format!("{pad}{word} {}", id_text(&g.id));
-        if !g.label.is_empty() && g.label != g.id {
-            line.push_str(": ");
-            line.push_str(&label_text(&g.label));
-        }
-        let mut a = Vec::new();
-        if let Some(c) = &g.color {
-            a.push(if c.starts_with('#') {
-                format!("color: {c}")
-            } else {
-                c.clone()
-            });
-        }
-        a.extend(group_pos(g));
-        line.push_str(&attrs_text(&a));
-        out.push_str(&line);
-        out.push_str(" {\n");
-        let (nodes, groups) = doc.members(Some(&g.id));
-        for n in nodes.iter().filter(|n| !in_map(n)) {
-            out.push_str(&format!("{pad}  {}\n", node_line(n)));
-        }
-        for n in nodes.iter().filter(|n| in_map(n) && n.parent.is_none()) {
-            map_block(doc, n, &format!("{pad}  "), out);
-        }
-        for child in groups {
-            group_block(doc, child, depth + 1, out, in_map);
-        }
-        out.push_str(&format!("{pad}}}\n"));
-    }
     let (top_nodes, top_groups) = doc.members(None);
     // groups whose parent is missing are printed at the top level too
     let orphans: Vec<&Group> = doc

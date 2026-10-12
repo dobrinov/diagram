@@ -1,5 +1,9 @@
 # Changelog
 
+## 0.7.0 — 2026-10-12
+
+- **Edits keep the file as written.** Ops, the editor, `diagram apply` (also a whole ```diagram reply), `comment`, `reply` and `resolve` rewrite only the statements whose elements changed, put new statements next to their kind (a box inside its section, an arrow after the last arrow, a comment after the comments) and leave every other line, blank line and `#` note alone. A chain like `web, mobile -> cdn -> gw` is split only when one of its arrows changes; a renamed box keeps its line; a changed mindmap or gantt chart is rewritten as a block. The result is read back before it is written, and the whole file is reprinted only when the edit can't be placed (e.g. moving a section into another one). A 6-op edit of a 60-line board now changes 10 lines instead of 40. `diagram fmt` still reprints everything.
+
 ## 0.6.0 — 2026-10-12
 
 - **Milestones:** `[milestone]` makes a task a point in time, drawn as a diamond on its day (right-click → *Make it a milestone*).

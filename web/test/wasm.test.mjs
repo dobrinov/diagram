@@ -65,3 +65,17 @@ test("mindmaps: outline in, outline and markdown out, prompts", () => {
   assert.match(w.mindmap_prompt("Lisbon", "{}"), /Make a mindmap about: Lisbon/);
   d.free();
 });
+
+test("edits keep the file as written", () => {
+  const d = new w.Diagram();
+  const src = "title: Shop\n\n# who uses it\nweb, mobile -> api\n\ngroup back: Backend {\n  api: Orders API\n}\n";
+  d.set_source(src);
+  const res = JSON.parse(d.apply(JSON.stringify({ ops: [
+    { op: "add_node", id: "db", label: "Postgres", group: "back" },
+    { op: "add_edge", from: "api", to: "db" },
+  ] })));
+  assert.equal(res.ok, true);
+  // the new box in its section, the new arrow after the last one, the rest as written
+  assert.equal(d.source("dsl"), "title: Shop\n\n# who uses it\nweb, mobile -> api\napi -> db\n\ngroup back: Backend {\n  api: Orders API\n  db: Postgres\n}\n");
+  d.free();
+});
