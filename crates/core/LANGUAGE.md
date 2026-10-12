@@ -156,7 +156,7 @@ offsite-note ..> who-books-it
 - Each level of a side lines up in one column, and each branch's sub-topics fan out evenly around it. A topic with `x`/`y` was placed by hand: the position is relative to the centre's top-left, its own branches follow it, and its siblings close up. `{"op":"unpin","id":ID}` puts it back in the automatic layout (the editor's *Reset arrangement* does that for the whole map).
 - `[collapsed]` folds the branches under a topic. A colour on a topic colours its whole branch; main branches get distinct colours automatically.
 - In JSON a topic is a node with `parent` (the topic it branches from); the centre has `mindmap` (its layout). Siblings keep document order.
-- `diagram outline FILE` prints a map as an outline and `--md` as Markdown (the centre is the title, topics are bullets; main branches are `##` sections when each has something under it): that is how a mindmap becomes a prompt. `diagram expand FILE ID` grows a topic with your AI harness.
+- `diagram outline FILE` prints a map as an outline and `--md` as Markdown (the centre is the title, topics are bullets; main branches are `##` sections when each has something under it): that is how a mindmap becomes a prompt. A topic with `link: #id` reads "label (see “target”)", and the block it points at (a flow, a plan, a section, another map) follows as a section of its own, so one prompt map can gather context from the whole board. `diagram expand FILE ID` grows a topic with your AI harness.
 
 ## JSON
 

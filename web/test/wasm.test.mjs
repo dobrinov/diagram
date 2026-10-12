@@ -36,7 +36,7 @@ test("ops, comments and prompts", () => {
   assert.match(d.source("dsl"), /comment c1 on a by ana: rename this\?/);
   const p = d.prompt(JSON.stringify({ target: "code" }));
   assert.match(p, /rename this\?/);
-  assert.match(d.brief(), /## Comments/);
+  assert.match(d.brief(), /## Source\n\n```diagram\n[^]*comment c1 on a by ana: rename this\?/);
   const fail = JSON.parse(d.apply('{"ops":[{"op":"remove","id":"nope"}]}'));
   assert.equal(fail.ok, false);
   d.free();

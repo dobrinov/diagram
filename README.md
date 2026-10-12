@@ -50,7 +50,7 @@ mindmap offsite: Team offsite [layout: both] {
 
 **✦ AI that costs few tokens.** *Grow this topic* sends a model only the map as an outline plus the path to the topic, and gets indented lines back, about 5–15 tokens per topic. Any harness works: the editor takes an `ai(prompt) → Promise<string>` function, and `diagram FILE --ai "claude -p --model haiku"` (or `codex exec -`, `llm`, `ollama run …`) wires the local editor and `diagram expand` to a CLI. Without one, the editor shows the prompt to copy and takes the reply back.
 
-**Mindmaps as prompts.** *Copy as prompt* (or `diagram outline FILE --md`) turns a map into Markdown: the centre is the title and topics are nested bullets; when every main branch has something under it, main branches become `##` sections. It works on any selection too (right-click or `⌘⇧C`): sections become headings with their blocks as bullets, followed by the arrows between them and their open comments.
+**Mindmaps as prompts.** *Copy as prompt* (or `diagram outline FILE --md`) turns a map into Markdown: the centre is the title and topics are nested bullets; when every main branch has something under it, main branches become `##` sections. It works on any selection too (right-click or `⌘⇧C`): sections become headings with their blocks as bullets, followed by the arrows between them and their open comments. Swimlanes read as numbered steps in flow order (decisions say which step each answer leads to), gantt tasks with their start and end dates. A `#id` link pulls the block it points at into the prompt, so a prompt map can reference a flow or a plan on the same board.
 
 ## Why
 
@@ -78,7 +78,7 @@ Whiteboard tools are great for talking. Their output, though, ends up in a forma
 - **Export anywhere.**
   - Images: SVG and PNG. PNG is rasterised by resvg in the CLI and by a canvas in the browser.
   - Documents: a self-contained interactive HTML page.
-  - For pasting: Mermaid (for GitHub Markdown) and a Markdown *brief* that gives an LLM the diagram as context.
+  - For pasting: Mermaid (for GitHub Markdown) and a Markdown *brief* that gives an LLM the diagram as context (the source with every id, plus gantt dates and swimlane steps in order).
   - A **share link** that carries the whole diagram, compressed, in the URL.
 - **Git-aware.** `--base main` (or any ref or file) highlights what changed: green for added, red for removed, amber for changed. The editor's *Compare ▾* button does the same against any git version.
 - **Usable as a library.** Use the Rust crate `diagram-core` on servers. In the browser, use one `diagram.embed.js` file (JS with the WASM inlined) to render diagrams or mount the full editor. Agent skills teach Claude Code to draw, edit and review diagrams.

@@ -737,7 +737,7 @@ pub fn to_markdown(doc: &Document, id: &str) -> String {
     if sections {
         for c in branches {
             seen.push(c.id.clone());
-            out.push_str(&format!("\n## {}\n", topic_label(c)));
+            out.push_str(&format!("\n## {}\n", topic_label(doc, c)));
             if let Some(d) = &c.detail {
                 out.push_str(&format!("\n{d}\n"));
             }
@@ -754,12 +754,8 @@ pub fn to_markdown(doc: &Document, id: &str) -> String {
 }
 
 /// A topic's label for Markdown: one line, linked when it has a link.
-fn topic_label(n: &crate::model::Node) -> String {
-    let label = n.display().replace('\n', " ");
-    match &n.link {
-        Some(l) => format!("[{label}]({l})"),
-        None => label,
-    }
+fn topic_label(doc: &Document, n: &crate::model::Node) -> String {
+    crate::prompt::link_md(doc, &n.display().replace('\n', " "), n.link.as_deref())
 }
 
 /// The topics under `id` as nested Markdown bullets, from `depth`.
@@ -776,7 +772,7 @@ pub(crate) fn bullets(
         }
         seen.push(c.id.clone());
         out.push_str(&"  ".repeat(depth));
-        out.push_str(&format!("- {}", topic_label(c)));
+        out.push_str(&format!("- {}", topic_label(doc, c)));
         if let Some(d) = &c.detail {
             out.push_str(&format!(": {}", d.replace('\n', " ")));
         }

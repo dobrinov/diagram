@@ -106,9 +106,10 @@ impl Diagram {
         diagram_core::mindmap::outline(&self.inner.doc, id, true)
     }
 
-    /// The mindmap under `id` as Markdown (title, sections, bullets): a prompt.
+    /// The mindmap under `id` as Markdown (title, sections, bullets): a
+    /// prompt, followed by what its `#id` links point at.
     pub fn markdown(&self, id: &str) -> String {
-        diagram_core::mindmap::to_markdown(&self.inner.doc, id)
+        diagram_core::prompt::selection(&self.inner.doc, &[id.to_string()])
     }
 
     /// The selected items (a JSON array of ids) as Markdown to paste into a

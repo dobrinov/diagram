@@ -1,5 +1,12 @@
 # Changelog
 
+## 0.5.0 — 2026-10-12
+
+- **Links pull in what they point at:** in *Copy as prompt* (and `outline --md`, `markdown()`), a block with `link: #id` reads "label (see “Target”)", and the target (swimlanes, a gantt chart, a section, a mindmap or a single block with its arrows) follows as a section headed "— linked from “label”". Links inside it are followed too (up to 8 blocks), and nothing is repeated. Web links stay Markdown links.
+- **Swimlanes as numbered steps:** prompts list the steps in the order the flow runs, each with its lane; decisions are marked, and where a step does not just lead to the next one its arrows name the step they go to (`yes → 5. Confirm order`).
+- **Gantt tasks with end dates** in prompts: `Design: 2026-10-12 → 2026-10-16, 5d`.
+- **Shorter brief:** `diagram brief` is now the title and counts, gantt dates and swimlane steps (what the source doesn't spell out), then the source with every id and comment. It used to list every node and arrow and then repeat them in the source (about half the size now on an architecture board), and it ignored gantt charts.
+
 ## 0.4.2 — 2026-10-12
 
 - **Colour from the right-click menu:** *Colour…* on a gantt task (its bar), a box, an arrow, a section or a lane, and *Branch colour…* on a mindmap topic. Until now colours could only be set in the hidden inspector panel or in the file.

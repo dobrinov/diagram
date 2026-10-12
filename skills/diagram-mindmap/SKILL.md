@@ -38,7 +38,7 @@ Save it in a `.diagram` file (or add the block to an existing board), then `diag
 
 ## Mindmap → prompt
 
-`diagram outline FILE ID --md` prints the map as Markdown: the centre is the title, deeper topics are bullets, and main branches are `##` sections when every one of them has topics or a detail under it (otherwise the whole map is one nested list). Use it as the prompt for the task the map describes (e.g. a map with Context / Constraints / Steps / Acceptance branches).
+`diagram outline FILE ID --md` prints the map as Markdown: the centre is the title, deeper topics are bullets, and main branches are `##` sections when every one of them has topics or a detail under it (otherwise the whole map is one nested list). Use it as the prompt for the task the map describes (e.g. a map with Context / Constraints / Steps / Acceptance branches). Topics with `[link: #id]` pull the linked block (swimlanes, a gantt chart, a section, another map) into the prompt after the map.
 
 ## Gotchas
 

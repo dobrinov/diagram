@@ -390,11 +390,8 @@ fn run(args: Args) -> Result<ExitCode, String> {
         "open" => {
             let file = args.pos.first().cloned().unwrap_or_else(untitled);
             if !Path::new(&file).exists() {
-                std::fs::write(
-                    &file,
-                    "idea: Start here\nidea -> next: then\n",
-                )
-                .map_err(|e| format!("{file}: {e}"))?;
+                std::fs::write(&file, "idea: Start here\nidea -> next: then\n")
+                    .map_err(|e| format!("{file}: {e}"))?;
                 eprintln!("created {file}");
             }
             let port = args
@@ -626,7 +623,7 @@ fn run(args: Args) -> Result<ExitCode, String> {
                 return Err(format!("no node `{id}`"));
             }
             if args.flag("--md") {
-                print!("{}", diagram_core::mindmap::to_markdown(&doc, &id));
+                print!("{}", diagram_core::prompt::selection(&doc, &[id]));
             } else {
                 print!("{}", diagram_core::mindmap::outline(&doc, &id, true));
             }
