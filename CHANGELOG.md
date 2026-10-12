@@ -1,5 +1,9 @@
 # Changelog
 
+## 0.3.3 — 2026-10-12
+
+- The open file's name sits at the right of the top bar, next to *Saved* (`notes.diagram · Saved`).
+
 ## 0.3.2 — 2026-10-12
 
 - **Move swimlanes and gantt charts:** drag them by their frame, title or a lane (or nudge with the arrow keys); they keep their place. Saved as `x`/`y` on the `lanes` or `gantt` line, which the `move`, `nudge` and `unpin` ops now handle. Inside, they are still laid out automatically.

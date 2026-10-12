@@ -22,8 +22,10 @@
   .app-bar .brand { display: flex; align-items: center; gap: 8px; font-weight: 700; font-size: 14px; letter-spacing: -.01em; flex: none; }
   .app-bar .brand img { display: block; }
   .app-bar .vsep { width: 1px; height: 20px; background: var(--line); flex: none; }
-  .app-bar .file { font: 600 12px var(--font-mono); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; min-width: 0; }
-  .app-bar .status { margin-left: auto; color: var(--muted); font-size: 12px; white-space: nowrap; }
+  .app-bar .file { margin-left: auto; font: 600 12px var(--font-mono); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; min-width: 0; }
+  .app-bar .status { margin-left: -4px; color: var(--muted); font-size: 12px; white-space: nowrap; }
+  #app-actions:empty, .app-bar .vsep:has(+ #app-actions:empty) { display: none; }
+  .app-bar .file:not(:empty) + .status:not(:empty)::before { content: "· "; }
   .app-bar .status.dirty { color: var(--mod); }
   .app-bar .status.error { color: var(--del); }
   .app-bar select, .app-bar button, .app-bar label.btn { font: inherit; height: 28px; padding: 0 10px; border: 1px solid var(--line-strong); border-radius: 5px; background: var(--bg); color: inherit; cursor: pointer; display: inline-flex; align-items: center; gap: 6px; }
@@ -37,8 +39,8 @@
 <header class="app-bar">
   <div class="brand"><img src="favicon.svg" width="20" height="20" alt="">diagram</div>
   <div class="vsep"></div>
-  <span class="file" id="file"></span>
   <span id="app-actions" style="display:flex;gap:6px"></span>
+  <span class="file" id="file"></span>
   <span class="status" id="status"></span>
 </header>
 <div id="editor"><p id="boot">Loading…</p></div>

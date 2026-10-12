@@ -99,7 +99,7 @@ checksum = "be1e0bca6c3637f992fc1cc7cbc52a78c1ef6db076dbf1059c4323d6a2048376"
 
 [[package]]
 name = "diagram"
-version = "0.3.2"
+version = "0.3.3"
 dependencies = [
  "diagram-core",
  "resvg",
@@ -109,7 +109,7 @@ dependencies = [
 
 [[package]]
 name = "diagram-core"
-version = "0.3.2"
+version = "0.3.3"
 dependencies = [
  "serde",
  "serde_json",
@@ -117,7 +117,7 @@ dependencies = [
 
 [[package]]
 name = "diagram-wasm"
-version = "0.3.2"
+version = "0.3.3"
 dependencies = [
  "diagram-core",
  "serde",
