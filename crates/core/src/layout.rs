@@ -864,7 +864,14 @@ fn gantt_block(ctx: &mut Ctx, g: usize) -> (f64, f64) {
     let names = sched
         .tasks
         .iter()
-        .map(|t| text::width(ctx.doc.nodes[t.0].display(), 13.0) + 8.0)
+        .map(|t| {
+            let n = &ctx.doc.nodes[t.0];
+            text::width(n.display(), 13.0)
+                + n.owner
+                    .as_deref()
+                    .map_or(0.0, |o| text::width(o, 12.0) + 10.0)
+                + 8.0
+        })
         .fold(80.0, f64::max)
         .min(260.0);
     let scale = ctx.doc.groups[g].scale.unwrap_or_default();
@@ -872,11 +879,15 @@ fn gantt_block(ctx: &mut Ctx, g: usize) -> (f64, f64) {
     let day = crate::gantt::day_width(scale, days);
     let x0 = names + GANTT_GAP;
     for (k, &(i, start, len)) in sched.tasks.iter().enumerate() {
-        ctx.sizes[i] = ((len * day).max(4.0), GANTT_BAR);
-        ctx.node_pos[i] = (
-            x0 + start * day,
-            GANTT_HEAD + k as f64 * GANTT_ROW + (GANTT_ROW - GANTT_BAR) / 2.0,
-        );
+        let y = GANTT_HEAD + k as f64 * GANTT_ROW + (GANTT_ROW - GANTT_BAR) / 2.0;
+        if ctx.doc.nodes[i].milestone {
+            // a diamond centred on its day
+            ctx.sizes[i] = (GANTT_BAR, GANTT_BAR);
+            ctx.node_pos[i] = (x0 + start * day - GANTT_BAR / 2.0, y);
+        } else {
+            ctx.sizes[i] = ((len * day).max(4.0), GANTT_BAR);
+            ctx.node_pos[i] = (x0 + start * day, y);
+        }
     }
     ctx.gantt[g] = Some(GanttBox {
         names,

@@ -103,6 +103,7 @@ pub fn parse_lenient(src: &str) -> (Document, Vec<Diagnostic>) {
             format!("group `{g}` is never closed (missing `}}`)"),
         ));
     }
+    resolve_after(&mut p.doc);
     p.doc.normalize();
     for c in &p.doc.comments {
         if let Some(on) = &c.on {
@@ -781,7 +782,7 @@ fn looks_like_attrs(inner: &str) -> bool {
                     Shape::parse(item).is_some()
                         || Line::parse(item).is_some()
                         || valid_color(&item.to_ascii_lowercase())
-                        || matches!(item, "resolved" | "open" | "done" | "collapsed" | "folded")
+                        || matches!(item, "resolved" | "open" | "done" | "collapsed" | "folded" | "milestone")
                         // gantt: a date or a duration
                         || crate::gantt::parse_date(item).is_some()
                         || (item.ends_with(['d', 'w', 'm', 'q']) && crate::gantt::parse_days(item).is_some())
@@ -867,6 +868,12 @@ pub fn apply_node_attrs(n: &mut Node, attrs: &Attrs) -> Result<(), String> {
                 })?)
             }
             ("after", Some(v)) => n.after = v.split_whitespace().map(String::from).collect(),
+            ("milestone", None) => n.milestone = true,
+            ("done", None) => n.done = Some(100.0),
+            ("done" | "progress", Some(v)) => {
+                n.done = Some(percent(v)?).filter(|d| *d > 0.0);
+            }
+            ("owner", Some(v)) => n.owner = Some(v.clone()).filter(|s| !s.is_empty()),
             (k, None) if crate::gantt::parse_date(k).is_some() => n.start = Some(k.to_string()),
             (k, None) if k.ends_with(['d', 'w', 'm', 'q']) && crate::gantt::parse_days(k).is_some() => {
                 n.days = crate::gantt::parse_days(k)
@@ -875,7 +882,7 @@ pub fn apply_node_attrs(n: &mut Node, attrs: &Attrs) -> Result<(), String> {
             (k, None) if valid_color(k) => n.color = Some(k.to_string()),
             (k, _) => {
                 return Err(format!(
-                    "unknown node attribute `{k}` (shape, color, detail, link, tags, x, y, w, h, collapsed, layout, parent, start, days, after)"
+                    "unknown node attribute `{k}` (shape, color, detail, link, tags, x, y, w, h, collapsed, layout, parent, start, days, after, milestone, done, owner)"
                 ))
             }
         }
@@ -1185,9 +1192,21 @@ fn gantt_block(doc: &Document, g: &Group, pad: &str, out: &mut String) {
         return;
     }
     out.push_str(&format!("{pad}gantt {head} {{\n"));
-    for n in tasks {
+    // a task in another chart whose id a task here is named after:
+    // `chart/task`, so it does not read back as this chart's
+    let named = |a: &str| -> String {
+        match doc.node(a).and_then(|t| t.group.as_deref()) {
+            Some(c) if c != g.id && tasks.iter().any(|t| slug(t.display()) == a) => {
+                format!("{c}/{a}")
+            }
+            _ => a.to_string(),
+        }
+    };
+    for n in &tasks {
         let label = n.display();
-        let mut a = node_attrs(n);
+        let mut m = (*n).clone();
+        m.after = m.after.iter().map(|a| named(a)).collect();
+        let mut a = node_attrs(&m);
         if slug(label) != n.id {
             a.insert(0, format!("id: {}", attr_value(&n.id)));
         }
@@ -1249,6 +1268,63 @@ fn map_block(doc: &Document, root: &Node, pad: &str, out: &mut String) {
     out.push_str(&format!("{pad}}}\n"));
 }
 
+/// What gantt tasks' `after:` names mean: a task of the same chart first
+/// (by id, then by its label's slug, so `after: design` is this chart's
+/// Design even when another chart's took the id `design`), then any id on
+/// the board. `chart/task` names a task of another chart.
+fn resolve_after(doc: &mut Document) {
+    let tasks: Vec<(String, String, String)> = doc
+        .nodes
+        .iter()
+        .filter(|n| {
+            n.group
+                .as_deref()
+                .and_then(|g| doc.group(g))
+                .is_some_and(|g| g.gantt)
+        })
+        .map(|n| (n.group.clone().unwrap(), n.id.clone(), slug(n.display())))
+        .collect();
+    let find = |chart: &str, name: &str| -> Option<String> {
+        let mine = || tasks.iter().filter(|t| t.0 == chart);
+        if let Some(t) = mine().find(|t| t.1 == name) {
+            return Some(t.1.clone());
+        }
+        let by_label: Vec<_> = mine().filter(|t| t.2 == name).collect();
+        match by_label[..] {
+            [t] => Some(t.1.clone()),
+            _ => None,
+        }
+    };
+    for n in &mut doc.nodes {
+        let Some(chart) = n.group.clone() else {
+            continue;
+        };
+        if !tasks.iter().any(|t| t.0 == chart) {
+            continue;
+        }
+        for a in &mut n.after {
+            let found = match a.split_once('/') {
+                Some((c, t)) => find(c, t),
+                None => find(&chart, a),
+            };
+            if let Some(id) = found {
+                *a = id;
+            }
+        }
+    }
+}
+
+/// A percentage: `60%` or `60`, 0 to 100.
+fn percent(v: &str) -> Result<f64, String> {
+    v.trim()
+        .trim_end_matches('%')
+        .trim()
+        .parse::<f64>()
+        .ok()
+        .filter(|d| (0.0..=100.0).contains(d))
+        .ok_or_else(|| format!("`{v}` is not a percentage (like 60%)"))
+}
+
 /// A `YYYY-MM-DD` date, checked.
 fn date(v: &str) -> Result<String, String> {
     crate::gantt::parse_date(v)
@@ -1267,6 +1343,17 @@ fn node_attrs(n: &Node) -> Vec<String> {
     }
     if !n.after.is_empty() {
         a.push(format!("after: {}", n.after.join(" ")));
+    }
+    if n.milestone {
+        a.push("milestone".into());
+    }
+    match n.done {
+        Some(d) if d >= 100.0 => a.push("done".into()),
+        Some(d) => a.push(format!("done: {}%", fmt_num(d))),
+        None => {}
+    }
+    if let Some(o) = &n.owner {
+        a.push(format!("owner: {}", attr_value(o)));
     }
     if n.shape != Shape::default() {
         a.push(n.shape.as_str().to_string());

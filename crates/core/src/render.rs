@@ -44,6 +44,8 @@ pub struct RenderOptions {
     /// Transparent instead of the theme's background.
     pub transparent: bool,
     pub padding: Option<f64>,
+    /// Today (`YYYY-MM-DD`): gantt charts mark it with a line.
+    pub today: Option<String>,
     /// Diff status per element id (see `diff::merge`).
     #[serde(skip)]
     pub changes: HashMap<String, Change>,
@@ -285,7 +287,8 @@ pub fn render(doc: &Document, opts: &RenderOptions) -> Rendered {
             esc(label)
         );
         if let Some(gb_t) = &gb.gantt {
-            gantt_svg(&mut s, doc, gb, gb_t, &lay, p);
+            let today = opts.today.as_deref().and_then(crate::gantt::parse_date);
+            gantt_svg(&mut s, doc, gb, gb_t, &lay, p, today);
         }
     }
     s.push_str("</g>");
@@ -605,6 +608,7 @@ fn gantt_svg(
     g: &layout::GanttBox,
     lay: &Layout,
     p: &Palette,
+    today: Option<i64>,
 ) {
     let (ox, oy) = (
         gb.rect.x + layout::GROUP_PAD,
@@ -658,12 +662,38 @@ fn gantt_svg(
             );
         }
     }
-    // task names
+    // today
+    if let (Some(t), Some(o)) = (today, g.origin) {
+        let d = (t - o) as f64 + 0.5;
+        if (0.0..g.days).contains(&d) {
+            let x = ox + g.x0 + d * g.day;
+            let _ = write!(
+                s,
+                r##"<g class="dg-today"><line x1="{x}" y1="{}" x2="{x}" y2="{}" stroke="#e03131" stroke-width="1.5"/><circle cx="{x}" cy="{}" r="3" fill="#e03131"/></g>"##,
+                n(top - 4.0),
+                n(bottom),
+                n(top - 4.0),
+                x = n(x)
+            );
+        }
+    }
+    // task names, and who does each
     for (k, id) in g.rows.iter().enumerate() {
         let Some(node) = doc.node(id) else { continue };
+        let owner = node
+            .owner
+            .as_deref()
+            .map(|o| {
+                format!(
+                    r#"<tspan dx="8" font-size="12" fill="{}">{}</tspan>"#,
+                    p.muted,
+                    esc(o)
+                )
+            })
+            .unwrap_or_default();
         let _ = write!(
             s,
-            r#"<text x="{}" y="{}" font-size="13" fill="{}">{}</text>"#,
+            r#"<text x="{}" y="{}" font-size="13" fill="{}">{}{owner}</text>"#,
             n(ox),
             n(top + k as f64 * layout::GANTT_ROW + layout::GANTT_ROW / 2.0 + 4.5),
             p.fg,
@@ -677,9 +707,29 @@ fn gantt_svg(
         };
         for a in &node.after {
             let Some(from) = lay.rect(a) else { continue };
+            // waits for a task in another chart: dashed
+            let dash = if doc.node(a).is_some_and(|t| t.group != node.group) {
+                r#" stroke-dasharray="5 4""#
+            } else {
+                ""
+            };
             let (x1, y1, x2, y2) = (from.right(), from.cy(), to.x, to.cy());
             let mid = x1 + 6.0;
-            let path = if x2 - x1 >= 12.0 {
+            let path = if !dash.is_empty() {
+                // from another chart: along the row's top line, clear of the
+                // task names, then down into the bar
+                let yb = to.y - (layout::GANTT_ROW - layout::GANTT_BAR) / 2.0;
+                format!(
+                    "M{},{} H{} V{} H{} V{} H{}",
+                    n(x1),
+                    n(y1),
+                    n(mid),
+                    n(yb),
+                    n(x2 - 8.0),
+                    n(y2),
+                    n(x2 - 3.0)
+                )
+            } else if x2 - x1 >= 12.0 {
                 format!(
                     "M{},{} H{} V{} H{}",
                     n(x1),
@@ -704,7 +754,7 @@ fn gantt_svg(
             };
             let _ = write!(
                 s,
-                r#"<g class="dg-dep" data-from="{}" data-to="{}"><path d="{path}" fill="none" stroke="{}" stroke-width="1.5"/><path d="M{},{} l-5,-3.5 v7 z" fill="{}"/><path d="{path}" fill="none" stroke="transparent" stroke-width="10" pointer-events="stroke"/></g>"#,
+                r#"<g class="dg-dep" data-from="{}" data-to="{}"><path d="{path}" fill="none" stroke="{}" stroke-width="1.5"{dash}/><path d="M{},{} l-5,-3.5 v7 z" fill="{}"/><path d="{path}" fill="none" stroke="transparent" stroke-width="10" pointer-events="stroke"/></g>"#,
                 esc(a),
                 esc(id),
                 p.edge,
@@ -737,19 +787,60 @@ fn task_svg(
         stroke = st.clone();
         fill = st;
     }
-    let days = node.days.unwrap_or(crate::gantt::DEFAULT_DAYS);
+    if node.milestone {
+        let _ = write!(
+            s,
+            r#"<g class="dg-node dg-task dg-milestone" data-id="{}"><path class="dg-shape" d="M{},{} L{},{} L{},{} L{},{} Z" fill="{}" stroke="{}" stroke-width="1"/></g>"#,
+            esc(&node.id),
+            n(r.cx()),
+            n(r.y),
+            n(r.right()),
+            n(r.cy()),
+            n(r.cx()),
+            n(r.y + r.h),
+            n(r.x),
+            n(r.cy()),
+            fill,
+            stroke
+        );
+        return;
+    }
+    let days = crate::gantt::task_days(node);
+    let done = node.done.unwrap_or(0.0).clamp(0.0, 100.0);
     let _ = write!(
         s,
-        r#"<g class="dg-node dg-task" data-id="{}"><rect class="dg-shape" x="{}" y="{}" width="{}" height="{}" rx="5" fill="{}" stroke="{}" stroke-width="1"/>"#,
+        r#"<g class="dg-node dg-task" data-id="{}"><rect class="dg-shape" x="{}" y="{}" width="{}" height="{}" rx="5" fill="{}" stroke="{}" stroke-width="1"{}/>"#,
         esc(&node.id),
         n(r.x),
         n(r.y),
         n(r.w),
         n(r.h),
         fill,
-        stroke
+        stroke,
+        // in progress: the part still to do is lighter
+        if done > 0.0 && done < 100.0 {
+            r#" fill-opacity="0.45""#
+        } else {
+            ""
+        }
     );
-    let label = crate::gantt::format_days(days);
+    if done > 0.0 && done < 100.0 {
+        let _ = write!(
+            s,
+            r#"<rect x="{}" y="{}" width="{}" height="{}" rx="5" fill="{}" pointer-events="none"/>"#,
+            n(r.x),
+            n(r.y),
+            n(r.w * done / 100.0),
+            n(r.h),
+            fill
+        );
+    }
+    let mut label = crate::gantt::format_days(days);
+    if done >= 100.0 {
+        label.push_str(" ✓");
+    } else if done > 0.0 {
+        label.push_str(&format!(" · {}%", done.round()));
+    }
     if r.w >= text::width(&label, 11.0) + 12.0 {
         let _ = write!(
             s,

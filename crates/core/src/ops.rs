@@ -61,6 +61,15 @@ pub enum Op {
         /// Gantt task: the tasks it starts after.
         #[serde(default, skip_serializing_if = "Option::is_none")]
         after: Option<Vec<String>>,
+        /// Gantt task: a milestone (a point in time, not a bar).
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        milestone: Option<bool>,
+        /// Gantt task: percent done, 0–100 (0 clears it).
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        done: Option<f64>,
+        /// Gantt task: who does it ("" clears it).
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        owner: Option<String>,
     },
     UpdateNode {
         id: String,
@@ -104,6 +113,15 @@ pub enum Op {
         /// Gantt task: the tasks it starts after.
         #[serde(default, skip_serializing_if = "Option::is_none")]
         after: Option<Vec<String>>,
+        /// Gantt task: a milestone (a point in time, not a bar).
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        milestone: Option<bool>,
+        /// Gantt task: percent done, 0–100 (0 clears it).
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        done: Option<f64>,
+        /// Gantt task: who does it ("" clears it).
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        owner: Option<String>,
     },
     /// Add topics from an indented outline (or a Markdown list) under
     /// `parent`; without `parent` the first line becomes a new mindmap.
@@ -313,6 +331,9 @@ fn task(
     start: &Option<String>,
     days: &Option<f64>,
     after: &Option<Vec<String>>,
+    milestone: &Option<bool>,
+    done: &Option<f64>,
+    owner: &Option<String>,
 ) -> Result<(), String> {
     if let Some(s) = opt(start) {
         n.start = s
@@ -328,6 +349,18 @@ fn task(
     }
     if let Some(a) = after {
         n.after = a.iter().filter(|s| !s.is_empty()).cloned().collect();
+    }
+    if let Some(m) = milestone {
+        n.milestone = *m;
+    }
+    if let Some(d) = done {
+        if !(0.0..=100.0).contains(d) {
+            return Err(format!("done is a percentage (0 to 100), not {d}"));
+        }
+        n.done = Some(*d).filter(|d| *d > 0.0);
+    }
+    if let Some(o) = opt(owner) {
+        n.owner = o;
     }
     Ok(())
 }
@@ -404,6 +437,9 @@ fn apply_one(doc: &mut Document, op: &Op, created: &mut Vec<String>) -> Result<(
             start,
             days,
             after,
+            milestone,
+            done,
+            owner,
         } => {
             let id = new_id(doc, id.as_deref(), label)?;
             let parent = parent.as_deref().filter(|p| !p.is_empty());
@@ -435,7 +471,7 @@ fn apply_one(doc: &mut Document, op: &Op, created: &mut Vec<String>) -> Result<(
             if let Some(m) = mindmap.as_deref().filter(|m| !m.is_empty()) {
                 n.mindmap = Some(map_layout(m)?);
             }
-            task(&mut n, start, days, after)?;
+            task(&mut n, start, days, after, milestone, done, owner)?;
             doc.nodes.push(n);
             if let Some(p) = parent {
                 doc.set_parent(&id, Some(p), *index)?;
@@ -460,6 +496,9 @@ fn apply_one(doc: &mut Document, op: &Op, created: &mut Vec<String>) -> Result<(
             start,
             days,
             after,
+            milestone,
+            done,
+            owner,
         } => {
             if let Some(Some(g)) = opt(group) {
                 need_container(doc, &g)?;
@@ -515,7 +554,7 @@ fn apply_one(doc: &mut Document, op: &Op, created: &mut Vec<String>) -> Result<(
             if let Some(c) = collapsed {
                 n.collapsed = *c;
             }
-            task(n, start, days, after)?;
+            task(n, start, days, after, milestone, done, owner)?;
         }
         Op::AddOutline {
             parent,

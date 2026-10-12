@@ -1,5 +1,15 @@
 # Changelog
 
+## 0.6.0 — 2026-10-12
+
+- **Milestones:** `[milestone]` makes a task a point in time, drawn as a diamond on its day (right-click → *Make it a milestone*).
+- **Progress:** `done: 60%` (or `done`) shades the part of the bar that is done and shows `5d · 60%` / `5d ✓` (right-click → *Progress…*).
+- **Owners:** `owner: ana` shows next to the task's name (right-click → *Owner…*).
+- **Today:** a red line marks today on dated charts in the editor and its exports (`--today` for `diagram svg|png|html`).
+- **Dependencies between charts:** a task can wait for a task in another chart (draw an arrow between them, or `after:` its id); the line is dashed and runs along the row line, clear of the task names. Both charts need dates.
+- **Task names are per chart:** `after: design` means this chart's Design, even when another chart's Design took the id `design` (it used to link the other chart's task). `chart/task` names a task of another chart when this one has one of the same name.
+- Prompts list milestones, progress and owners: `Build: 2026-10-12 → 2026-10-16, 5d, 60% done, owner ana`. The ops reference for models now covers gantt charts.
+
 ## 0.5.0 — 2026-10-12
 
 - **Links pull in what they point at:** in *Copy as prompt* (and `outline --md`, `markdown()`), a block with `link: #id` reads "label (see “Target”)", and the target (swimlanes, a gantt chart, a section, a mindmap or a single block with its arrows) follows as a section headed "— linked from “label”". Links inside it are followed too (up to 8 blocks), and nothing is repeated. Web links stay Markdown links.

@@ -27,7 +27,7 @@ EXPORT
   diagram svg  FILE [-o out.svg]     static SVG
   diagram png  FILE [-o out.png]     PNG image (--scale N, default 2)
   diagram html FILE [-o out.html]    self-contained interactive page (viewer + WASM)
-    render options: --dark --transparent --title --comments open|all|none
+    render options: --dark --transparent --title --comments open|all|none --today
                     --base FILE|GIT_REF   highlight what changed since then
   diagram convert FILE --to dsl|json|mermaid|brief [-o OUT]
                                      FILE may be DSL, JSON or Mermaid (detected)
@@ -332,6 +332,14 @@ fn render_opts(args: &Args) -> Result<RenderOptions, String> {
         o.theme = Some(Theme::parse(t).ok_or_else(|| format!("unknown theme {t}"))?);
     }
     o.transparent = args.flag("--transparent");
+    if args.flag("--today") {
+        // gantt charts mark today (UTC)
+        let secs = std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .map(|d| d.as_secs())
+            .unwrap_or(0);
+        o.today = Some(diagram_core::gantt::format_date((secs / 86400) as i64));
+    }
     if args.flag("--title") {
         o.title = Some(true);
     }

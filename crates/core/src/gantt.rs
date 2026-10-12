@@ -14,7 +14,9 @@
 //! ```
 //!
 //! Days are calendar days. Dates are `YYYY-MM-DD`.
-use crate::model::{Document, Scale};
+use std::collections::HashMap;
+
+use crate::model::{Document, Node, Scale};
 
 /// Days since 1970-01-01 for a `YYYY-MM-DD` date.
 pub fn parse_date(s: &str) -> Option<i64> {
@@ -228,6 +230,44 @@ pub fn ticks(scale: Scale, origin: Option<i64>, days: f64) -> Vec<(f64, String)>
 /// A task without a duration takes this long.
 pub const DEFAULT_DAYS: f64 = 1.0;
 
+/// How long a task takes on the timeline; a milestone takes no time.
+pub fn task_days(n: &Node) -> f64 {
+    if n.milestone {
+        0.0
+    } else {
+        n.days.unwrap_or(DEFAULT_DAYS)
+    }
+}
+
+/// The day each task on the board ends (days since 1970, dated charts
+/// only), with tasks that wait for tasks in other charts placed after them.
+pub fn board_ends(doc: &Document) -> HashMap<String, f64> {
+    let charts: Vec<&str> = doc
+        .groups
+        .iter()
+        .filter(|g| g.gantt)
+        .map(|g| g.id.as_str())
+        .collect();
+    let mut ends: HashMap<String, f64> = HashMap::new();
+    // charts can wait for each other in any order: settle a few rounds
+    for _ in 0..charts.len().clamp(1, 8) {
+        let mut next = HashMap::new();
+        for c in &charts {
+            let s = schedule_with(doc, c, &ends);
+            if let Some(o) = s.origin {
+                for (i, start, days) in s.tasks {
+                    next.insert(doc.nodes[i].id.clone(), o as f64 + start + days);
+                }
+            }
+        }
+        if next == ends {
+            break;
+        }
+        ends = next;
+    }
+    ends
+}
+
 /// When each task of the chart `group` starts and how long it takes, in days
 /// from the chart's first day (`origin`, days since 1970 when the chart has
 /// dates). Tasks in document order.
@@ -241,6 +281,23 @@ pub struct Schedule {
 }
 
 pub fn schedule(doc: &Document, group: &str) -> Schedule {
+    // waits for a task in another chart: place the whole board first
+    let elsewhere = doc.nodes.iter().any(|n| {
+        n.group.as_deref() == Some(group)
+            && n.after.iter().any(|a| {
+                doc.node(a)
+                    .is_some_and(|t| t.group.as_deref() != Some(group))
+            })
+    });
+    if elsewhere {
+        schedule_with(doc, group, &board_ends(doc))
+    } else {
+        schedule_with(doc, group, &HashMap::new())
+    }
+}
+
+/// [`schedule`], with when tasks in other charts end (days since 1970).
+fn schedule_with(doc: &Document, group: &str, ends: &HashMap<String, f64>) -> Schedule {
     let g = doc.group(group);
     let idx: Vec<usize> = (0..doc.nodes.len())
         .filter(|&i| doc.nodes[i].group.as_deref() == Some(group))
@@ -261,7 +318,7 @@ pub fn schedule(doc: &Document, group: &str) -> Schedule {
         let mut prev_end = 0.0f64;
         for (k, &i) in idx.iter().enumerate() {
             let n = &doc.nodes[i];
-            let days = n.days.unwrap_or(DEFAULT_DAYS);
+            let days = task_days(n);
             let start = match (n.start.as_deref().and_then(parse_date), origin) {
                 (Some(d), Some(o)) => (d - o) as f64,
                 _ if !n.after.is_empty() => n
@@ -272,7 +329,9 @@ pub fn schedule(doc: &Document, group: &str) -> Schedule {
                             // not placed yet this round: use the last round's
                             idx.iter()
                                 .position(|&j| doc.nodes[j].id == *a)
-                                .map(|p| starts[p] + doc.nodes[idx[p]].days.unwrap_or(DEFAULT_DAYS))
+                                .map(|p| starts[p] + task_days(&doc.nodes[idx[p]]))
+                                // in another chart: when it ends there
+                                .or_else(|| Some(ends.get(a.as_str())? - origin? as f64))
                                 .unwrap_or(0.0)
                         })
                     })
@@ -285,7 +344,7 @@ pub fn schedule(doc: &Document, group: &str) -> Schedule {
         }
     }
     for (k, &i) in idx.iter().enumerate() {
-        tasks.push((i, starts[k], doc.nodes[i].days.unwrap_or(DEFAULT_DAYS)));
+        tasks.push((i, starts[k], task_days(&doc.nodes[i])));
     }
     let lo = tasks.iter().map(|t| t.1).fold(0.0, f64::min);
     if lo < 0.0 {
@@ -364,6 +423,66 @@ mod tests {
         assert_eq!(at("beta"), (22.0, 7.0));
         assert_eq!(at("launch"), (29.0, 1.0));
         assert_eq!(s.span, 30.0);
+    }
+
+    #[test]
+    fn milestones_progress_and_owners() {
+        let src = "gantt g: Plan [start: 2026-10-12] {\n  Build [5d, done: 60%, owner: ana]\n  Docs [2d, done]\n  Launch [after: build, milestone]\n}\n";
+        let d = crate::dsl::parse(src).unwrap();
+        assert_eq!(crate::dsl::print(&d), src);
+        let (b, l) = (d.node("build").unwrap(), d.node("launch").unwrap());
+        assert_eq!((b.done, b.owner.as_deref()), (Some(60.0), Some("ana")));
+        assert_eq!(d.node("docs").unwrap().done, Some(100.0));
+        assert!(l.milestone);
+        let s = schedule(&d, "g");
+        let at = |id: &str| {
+            s.tasks
+                .iter()
+                .find(|t| d.nodes[t.0].id == id)
+                .map(|t| (t.1, t.2))
+        };
+        // a milestone takes no time, on the day its task ends
+        assert_eq!(at("launch"), Some((5.0, 0.0)));
+        let lay = crate::layout::layout(&d);
+        let (m, bar) = (lay.rect("launch").unwrap(), lay.rect("build").unwrap());
+        assert!((m.cx() - bar.right()).abs() < 1e-6, "{m:?} {bar:?}");
+        let svg = crate::render::render(
+            &d,
+            &crate::render::RenderOptions {
+                today: Some("2026-10-14".into()),
+                ..Default::default()
+            },
+        )
+        .svg;
+        assert!(svg.contains("dg-milestone") && svg.contains("dg-today"));
+        assert!(svg.contains(">ana</tspan>") && svg.contains("5d · 60%") && svg.contains("2d ✓"));
+        let p = crate::prompt::selection(&d, &["g".to_string()]);
+        assert!(
+            p.contains("- Build: 2026-10-12 → 2026-10-16, 5d, 60% done, owner ana\n"),
+            "{p}"
+        );
+        assert!(
+            p.contains("- Launch: 2026-10-17, milestone, after Build\n"),
+            "{p}"
+        );
+    }
+
+    #[test]
+    fn after_means_this_chart_and_reaches_other_charts() {
+        // both charts have a Design; each Build waits for its own
+        let src = "gantt a: A [start: 2026-10-12] {\n  Design [5d]\n  Build [2d, after: design]\n}\ngantt b: B [start: 2026-10-12] {\n  Design [10d]\n  Build [2d, after: design]\n  Ship [1d, after: build a/build]\n}\n";
+        let d = crate::dsl::parse(src).unwrap();
+        assert_eq!(d.node("build-2").unwrap().after, ["design-2"]);
+        // it reads back the way it was written
+        let out = crate::dsl::print(&d);
+        assert!(out.contains("  Ship [1d, after: build-2 a/build]"), "{out}");
+        assert_eq!(crate::dsl::parse(&out).unwrap(), d);
+        // Ship (in B) waits for A's Build too, which ends later than B's
+        let mut d = d;
+        d.node_mut("build").unwrap().days = Some(20.0);
+        let s = schedule(&d, "b");
+        let ship = s.tasks.iter().find(|t| d.nodes[t.0].id == "ship").unwrap();
+        assert_eq!(ship.1, 25.0);
     }
 
     #[test]

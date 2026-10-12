@@ -148,6 +148,15 @@ pub struct Node {
     /// Gantt task: the tasks it starts after.
     #[serde(skip_serializing_if = "Vec::is_empty")]
     pub after: Vec<String>,
+    /// Gantt task: a milestone, a point in time instead of a bar.
+    #[serde(skip_serializing_if = "std::ops::Not::not")]
+    pub milestone: bool,
+    /// Gantt task: how much is done, in percent (0–100).
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub done: Option<f64>,
+    /// Gantt task: who does it.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub owner: Option<String>,
 }
 
 impl Node {

@@ -47,7 +47,7 @@ pub struct PromptOptions {
 
 pub const OPS_REFERENCE: &str = r#"Operations (fields in [] are optional; ids are letters, digits, `_`, `-`, `.`):
 - {"op":"add_node","id":"cache","label":"Redis","shape":"cylinder",["color","detail","group","link","tags","x","y","w","h","parent","index","mindmap"]}
-- {"op":"update_node","id":"api",["label","shape","color","detail","group","link","tags","w","h","parent","index","mindmap","collapsed"]}   ("" clears a field)
+- {"op":"update_node","id":"api",["label","shape","color","detail","group","link","tags","w","h","parent","index","mindmap","collapsed","start","days","after","milestone","done","owner"]}   ("" clears a field)
 - {"op":"add_outline","parent":"risks","outline":"Fraud\n  Card testing\nBank delays"}   (mindmap topics, two spaces per level; without parent: a new mindmap)
 - {"op":"add_edge","from":"api","to":"cache",["id","label","arrow":"end|start|both|none","line":"solid|dashed|dotted|thick","color"]}
 - {"op":"update_edge","id":"api->cache",["from","to","label","arrow","line","color"]}
@@ -59,6 +59,7 @@ pub const OPS_REFERENCE: &str = r#"Operations (fields in [] are optional; ids ar
 - {"op":"add_comment","text":"…",["on":"api","author"]}  {"op":"reply","id":"c1","text":"…",["author"]}
 - {"op":"resolve_comment","id":"c1",["resolution":"what was done"]}  {"op":"reopen_comment","id":"c1"}
 - {"op":"set","key":"title|description|direction|layout|routing|theme","value":"…"}
+- Gantt: a chart is {"op":"add_group","id":"plan","label":"Plan","gantt":true,["start":"YYYY-MM-DD","scale":"day|week|month|quarter"]}; its tasks are add_node / update_node with "group":"plan" and ["start","days","after":["id"],"milestone":true,"done":60,"owner":"ana"] (after may name tasks in other charts)
 Shapes: box, rounded, pill, circle, diamond, hexagon, cylinder, parallelogram, document, person, cloud, sticky, text.
 Colours: gray, blue, green, yellow, orange, red, purple, pink, teal or #rrggbb.
 Edge ids default to `from->to` (`from->to#2` for a second edge between the same nodes).
@@ -547,11 +548,24 @@ fn selection_core(doc: &Document, ids: &[String], titled: bool) -> String {
                 } else {
                     format!(", after {}", after.join(", "))
                 };
+                let mut more = String::new();
+                match n.done {
+                    Some(d) if d >= 100.0 => more.push_str(", done"),
+                    Some(d) => more.push_str(&format!(", {}% done", d.round())),
+                    None => {}
+                }
+                if let Some(o) = &n.owner {
+                    more.push_str(&format!(", owner {o}"));
+                }
+                let length = if n.milestone {
+                    "milestone".to_string()
+                } else {
+                    crate::gantt::format_days(days)
+                };
                 seen.push(n.id.clone());
                 out.push_str(&format!(
-                    "- {}: {when}{}{after}\n",
-                    item(doc, n),
-                    crate::gantt::format_days(days)
+                    "- {}: {when}{length}{after}{more}\n",
+                    item(doc, n)
                 ));
             }
         } else if g.lanes {

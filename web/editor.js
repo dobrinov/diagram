@@ -415,7 +415,7 @@
 
     // --------------------------------------------------------------- render
     function render() {
-      var r = JSON.parse(st.session.render(JSON.stringify({ comments: st.showResolved ? "all" : "open", theme: st.dark ? "dark" : "light" })));
+      var r = JSON.parse(st.session.render(JSON.stringify({ comments: st.showResolved ? "all" : "open", theme: st.dark ? "dark" : "light", today: isoDay(today()) })));
       if (r.error) {
         flash(r.error, true);
         return;
@@ -793,8 +793,9 @@
       (moving || []).forEach(function (id) {
         var ch = chartBox(id), g = geom(id);
         if (!ch || !g || ch.origin == null) return;
-        var from = ch.origin + Math.round((g.x - ch.left) / ch.day), n = node(id).days || 1;
-        var tip = h("div", { class: "dge-when" }, [shortDay(from) + (n > 1 ? " – " + shortDay(from + n - 1) : "") + " · " + n + (n === 1 ? " day" : " days")]);
+        var ms = node(id).milestone;
+        var from = ch.origin + Math.round((g.x + (ms ? g.w / 2 : 0) - ch.left) / ch.day), n = node(id).days || 1;
+        var tip = h("div", { class: "dge-when" }, [ms ? shortDay(from) + " · milestone" : shortDay(from) + (n > 1 ? " – " + shortDay(from + n - 1) : "") + " · " + n + (n === 1 ? " day" : " days")]);
         var at = toScreen(g.x + g.w / 2, g.y);
         tip.style.left = at.x + "px";
         tip.style.top = at.y + "px";
@@ -934,8 +935,11 @@
         var tk = node(t.id);
         return [
           ["Rename", function () { editLabel(t.id); }],
-          ["Duration…", function () { askDuration(t.id); }, "Or drag the end of the bar"],
-          ["Starts after…", function () { afterMenu(t.id); }, "Or draw an arrow from the task it waits for"],
+          tk.milestone ? null : ["Duration…", function () { askDuration(t.id); }, "Or drag the end of the bar"],
+          ["Starts after…", function () { afterMenu(t.id); }, "Or draw an arrow from the task it waits for (in any chart)"],
+          tk.milestone ? null : ["Progress…", function () { askProgress(t.id); }, "How much is done, like 60%"],
+          ["Owner…", function () { askOwner(t.id); }, "Who does it"],
+          [tk.milestone ? "Make it a task" : "Make it a milestone", function () { applyOps([{ op: "update_node", id: t.id, milestone: !tk.milestone }]); }, tk.milestone ? "A bar again" : "A point in time, drawn as a diamond"],
           ["Colour…", function () { colourMenu(t.id, "update_node", tk.color); }, "The colour of its bar"],
           tk.start ? ["Follow the task before", function () { applyOps([{ op: "update_node", id: t.id, start: "" }]); }, "Drop its fixed date"] : null,
           ["Add task after", function () { addTask(tk.group, t.id); }],
@@ -1247,7 +1251,7 @@
         if (!applyOps(ops).ok) { refreshDoc(); render(); }
       } else if (d.type === "connect" && e) {
         var p = toDiagram(e.clientX, e.clientY);
-        if (d.target && chartOf(d.from) && chartOf(d.target) && chartOf(d.from) === chartOf(d.target)) dependOn(d.target, d.from);
+        if (d.target && chartOf(d.from) && chartOf(d.target)) dependOn(d.target, d.from);
         else if (d.target) applyOps([{ op: "add_edge", from: d.from, to: d.target }]);
         else if (Math.hypot(p.x - (geom(d.from).x + geom(d.from).w / 2), p.y - (geom(d.from).y + geom(d.from).h / 2)) > 60) {
           // dropped on empty canvas: create a connected box there
@@ -1485,7 +1489,7 @@
     function snapDays(scale) { return scale === "quarter" ? 30 : scale === "month" ? 7 : 1; }
     /* Is the pointer on the right end of a task's bar? */
     function barEnd(id, clientX) {
-      var g = chartOf(id) && geom(id);
+      var g = chartOf(id) && !node(id).milestone && geom(id);
       if (!g) return false;
       var right = toScreen(g.x + g.w, 0).x + canvas.getBoundingClientRect().left;
       return Math.abs(clientX - right) <= 6;
@@ -1542,7 +1546,7 @@
         var v = inp.value.trim();
         inp.remove();
         canvas.focus({ preventScroll: true });
-        if (save && v) done(v);
+        if (save && (v || value)) done(v);
       }
       inp.addEventListener("keydown", function (e) {
         e.stopPropagation();
@@ -1559,6 +1563,18 @@
         if (!m || !(+m[1] > 0)) { flash("Write a duration like 5d, 2w, 1m or 1q", true); return; }
         var days = +m[1] * ({ d: 1, w: 7, m: 30, q: 91 }[(m[2] || "d").toLowerCase()]);
         applyOps([{ op: "update_node", id: id, days: days }]);
+      });
+    }
+    function askProgress(id) {
+      askAt(st.menuAt, (node(id).done || 0) + "%", "60%", function (v) {
+        var m = /^(\d+(?:\.\d+)?)\s*%?$/.exec(v);
+        if (!m || +m[1] > 100) { flash("Write a percentage from 0 to 100, like 60%", true); return; }
+        applyOps([{ op: "update_node", id: id, done: +m[1] }]);
+      });
+    }
+    function askOwner(id) {
+      askAt(st.menuAt, node(id).owner || "", "Name", function (v) {
+        applyOps([{ op: "update_node", id: id, owner: v }]);
       });
     }
 
@@ -1655,7 +1671,8 @@
         // a bar moved along its own chart starts on the day it was dropped at
         if (sec && sec.gantt && into === was) {
           var gt = sec.gantt, origin = gt.origin != null ? gt.origin : today();
-          var unit = snapDays(gt.scale), day = Math.round((m.x + d.dx - gt.left) / gt.day / unit) * unit;
+          var at = m.x + d.dx + (node(m.id).milestone ? m.w / 2 : 0);
+          var unit = snapDays(gt.scale), day = Math.round((at - gt.left) / gt.day / unit) * unit;
           if (gt.origin == null) ops.push({ op: "update_group", id: into, start: isoDay(origin) });
           ops.push({ op: "update_node", id: m.id, start: isoDay(origin + day) });
         }
@@ -2222,11 +2239,11 @@
 
     // -------------------------------------------------------------- exports
     function exportSVG() {
-      return JSON.parse(st.session.render(JSON.stringify({ comments: "none", theme: st.dark ? "dark" : "light" }))).svg;
+      return JSON.parse(st.session.render(JSON.stringify({ comments: "none", theme: st.dark ? "dark" : "light", today: isoDay(today()) }))).svg;
     }
     function exportPNG(scale) {
       scale = scale || 2;
-      var r = JSON.parse(st.session.render(JSON.stringify({ comments: "none", theme: st.dark ? "dark" : "light" })));
+      var r = JSON.parse(st.session.render(JSON.stringify({ comments: "none", theme: st.dark ? "dark" : "light", today: isoDay(today()) })));
       return new Promise(function (resolve, reject) {
         var img = new Image();
         var url = URL.createObjectURL(new Blob([r.svg], { type: "image/svg+xml" }));

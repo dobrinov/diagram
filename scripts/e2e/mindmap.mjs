@@ -241,6 +241,17 @@ try {
   await p.locator(".dge-menu button", { hasText: "Orange" }).click();
   await sleep(600);
   assert.match(saved(), /  Task 1 \[\d{4}-\d\d-\d\d, 6d, orange\]\n/, saved());
+  // Progress… and Owner…; a milestone has neither a duration nor progress
+  await topic("task-1").click({ button: "right" });
+  await p.locator(".dge-menu button", { hasText: "Progress…" }).click();
+  await p.waitForSelector(".dge-ask");
+  await key(MOD + "+a"); await type("40%"); await key("Enter"); await sleep(400);
+  await topic("task-1").click({ button: "right" });
+  await p.locator(".dge-menu button", { hasText: "Owner…" }).click();
+  await p.waitForSelector(".dge-ask");
+  await type("ana"); await key("Enter"); await sleep(600);
+  assert.match(saved(), /  Task 1 \[\d{4}-\d\d-\d\d, 6d, done: 40%, owner: ana, orange\]\n/, saved());
+  assert.match(await topic("task-1").textContent(), /6d · 40%/);
   // Duration… takes 2w
   await topic("task-2").click({ button: "right" });
   await p.locator(".dge-menu button", { hasText: "Duration…" }).click();
@@ -279,8 +290,8 @@ try {
   assert.match(saved(), /gantt roadmap: Roadmap \[start: [\d-]+, scale: month, x: -?\d+, y: -?\d+\]/, saved());
   await key("Delete"); await sleep(600);
   assert.doesNotMatch(saved(), /Roadmap|Task 1|Task 2/, saved());
-  // create, name, longer, reschedule, colour, duration, remove dependency, add it, scale, move, delete: eleven steps back
-  for (let k = 0; k < 11; k++) await key(MOD + "+z");
+  // create, name, longer, reschedule, colour, progress, owner, duration, remove dependency, add it, scale, move, delete: thirteen steps back
+  for (let k = 0; k < 13; k++) await key(MOD + "+z");
   await sleep(600);
   assert.equal(saved(), ganttBefore);
 

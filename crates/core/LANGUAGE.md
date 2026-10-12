@@ -121,17 +121,20 @@ gantt launch: Launch plan [start: 2026-10-12] {
   Build [2w, after: design]
   Docs [3d, after: design, purple]
   Beta [2026-11-03, 1w]
-  Launch day [after: beta docs, green]
+  Launch day [after: beta docs, milestone, green]
+  QA [1w, after: build, done: 40%, owner: ana]
 }
 ```
 
 - Each line is a task: its label, then optional `[attrs]`. Ids come from labels as in mindmaps (`[id: x]` to choose one).
 - `5d` / `2w` / `1m` (30 days) / `1q` (91 days), or `days: 5`, is the duration (1 day if left out). `2026-11-03` (or `start: …`) fixes the start. `after: a b` starts it when those tasks end. Otherwise a task starts when the one above it ends; the first starts on the chart's `start`.
-- Days are calendar days. A colour colours the bar. In JSON, the chart is a group with `"gantt": true` and `start`; tasks are its nodes with `start`, `days` and `after`.
+- `after:` names a task of the same chart first (its id, or its label as an id: `after: design` is this chart's Design even if another chart's took the id `design`), then any task on the board, so a task can wait for one in another chart (drawn dashed; both charts need dates). `chart/task` names a task of another chart when this one has a task of the same name.
+- `milestone` makes a task a point in time (a diamond on the day it falls), `done: 60%` (or `done` for all of it) shades the part that is done, and `owner: ana` shows who does it next to the task's name.
+- Days are calendar days. A colour colours the bar. In JSON, the chart is a group with `"gantt": true` and `start`; tasks are its nodes with `start`, `days`, `after`, `milestone`, `done` and `owner`.
 - Bars are tasks like any node: comment on them, link them to anything on the board.
 - `x`/`y` on the chart (`[start: …, x: 400, y: 120]`) pin it, as dragging it in the editor does.
 - `scale: day | week | month | quarter` sets the timeline's resolution (week when left out): lines and dates at each day, Monday, 1st of the month or quarter. In JSON it is the group's `scale`.
-- In the editor: drag a bar to reschedule it and its end to change its duration (right-click → *Duration…* to type one); draw an arrow from one bar to another to make the second wait for the first (right-click the dependency line to remove it, or a task → *Starts after…*); right-click a task → *Colour…* to colour its bar; right-click the chart → *Scale…*.
+- In the editor: drag a bar to reschedule it and its end to change its duration (right-click → *Duration…* to type one); draw an arrow from one bar to another to make the second wait for the first (right-click the dependency line to remove it, or a task → *Starts after…*); right-click a task → *Colour…* to colour its bar, *Progress…*, *Owner…* or *Make it a milestone*; a red line marks today; right-click the chart → *Scale…*.
 
 ### Mindmaps
 

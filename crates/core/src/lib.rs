@@ -16,6 +16,8 @@
 //! - [`diff`]: comparing two versions
 //! - [`prompt`]: briefs and review prompts for LLMs
 //! - [`Session`]: a stateful wrapper used by the WASM build and editors
+// the JSON Schema is one large `json!` literal
+#![recursion_limit = "256"]
 pub mod diff;
 pub mod dsl;
 pub mod gantt;
@@ -171,7 +173,10 @@ pub fn json_schema() -> Value {
                 "collapsed": {"type": "boolean", "description": "mindmap: branches under this topic are folded"},
                 "start": {"type": "string", "format": "date", "description": "gantt task: start date (YYYY-MM-DD)"},
                 "days": {"type": "number", "exclusiveMinimum": 0, "description": "gantt task: duration in days"},
-                "after": {"type": "array", "items": {"type": "string"}, "description": "gantt task: ids of the tasks it starts after"}
+                "after": {"type": "array", "items": {"type": "string"}, "description": "gantt task: ids of the tasks it starts after (in any chart)"},
+                "milestone": {"type": "boolean", "description": "gantt task: a point in time (drawn as a diamond), not a bar"},
+                "done": {"type": "number", "minimum": 0, "maximum": 100, "description": "gantt task: percent done"},
+                "owner": {"type": "string", "description": "gantt task: who does it"}
             }}},
             "edges": {"type": "array", "items": {"type": "object", "required": ["from", "to"], "additionalProperties": false, "properties": {
                 "id": {"type": "string", "description": "defaults to from->to"},
