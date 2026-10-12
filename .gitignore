@@ -1,5 +1,6 @@
 /target
 /web/pkg
+/js/pkg
 /docs
 .DS_Store
 *.log

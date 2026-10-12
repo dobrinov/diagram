@@ -198,6 +198,18 @@ diagram embed -o public/diagram.embed.js
 
 `<div data-diagram data-mode="view">…source…</div>` mounts itself. If you serve `web/` and `web/pkg` yourself, load `pkg/diagram_wasm.js`, `editor.js` and `editor.css`, then call `DiagramEditor.create(el, { wasm: wasm_bindgen, … })`.
 
+### JavaScript / TypeScript (Node and browsers)
+
+`js/` is a typed ES-module package around the WASM build, for tools built on top of diagram: parse, render, apply ops or a model's reply, prompts, mindmap outlines, diffs. Build it with `make js`; see [js/README.md](js/README.md).
+
+```js
+import { init, Board } from "./js/index.mjs";
+await init();
+const board = Board.parse("api -> db");
+board.apply(modelReply);                       // ```json {"ops": [...]}``` → atomic edit, throws DiagramError
+const { svg } = board.render({ theme: "dark" });
+```
+
 ### Rust
 
 ```toml
@@ -245,12 +257,14 @@ diagram skills install --global   # into ~/.claude/skills
 | `crates/wasm` | `wasm-bindgen` bindings (`Diagram` class and one-shot helpers) |
 | `crates/cli` | The `diagram` binary: local editor server, exports (PNG via resvg), review commands, embed bundle, skills |
 | `web/` | No-build editor component (`editor.js`, `editor.css`), app shell (`app.js`) and embed API (`embed.js`). `web/pkg` is generated. |
+| `js/` | Typed JS/TS package for Node and browsers (`make js`; `js/pkg` is generated) |
 | `skills/` | Agent skills shipped inside the binary |
 | `scripts/e2e/` | Browser tests of the editor (Playwright, `make e2e`) |
 | `site/`, `scripts/build-site.sh` | GitHub Pages: landing page, playground and examples (`make site` → `docs/`) |
 
 ```bash
-make test     # cargo tests + node tests of the WASM API
+make test     # cargo tests + node tests of the WASM API (and of js/ once `make js` has run)
+make js       # build the js/ package's WASM into js/pkg
 make e2e      # browser test of the editor (uses the installed Chrome)
 make dev      # serve web/ from disk while hacking on the editor
 make site     # build the static site into docs/

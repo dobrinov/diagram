@@ -1,5 +1,10 @@
 # Changelog
 
+## 0.8.0 — 2026-10-12
+
+- **JavaScript / TypeScript package** in `js/` (`make js`): an ES module for Node ≥ 18 and browsers with `index.d.ts` types. `await init()`, then `Board.parse(src)` / `Board.empty()` with `apply(ops | {ops} | model reply)` (atomic; throws `DiagramError` with the failing op's `index`), `source()`, `document()`, `render()`, `prompt()`, `brief()`, `outline()`, `markdown()`, `selection(ids)`, `diff(base)`, `expandPrompt()`; one-shot `parse`, `render`, `convert`, `spec`, `jsonSchema`, `version`, `mindmapPrompt`, `replyOutline`. Objects in and out, camelCase options; `Op` is a typed union of every op. `make test` runs its tests once `js/pkg` is built. Marked private for now: the npm name `diagram` is taken.
+- The WASM `markdown(id)` returns an empty string for an unknown id again.
+
 ## 0.7.0 — 2026-10-12
 
 - **Edits keep the file as written.** Ops, the editor, `diagram apply` (also a whole ```diagram reply), `comment`, `reply` and `resolve` rewrite only the statements whose elements changed, put new statements next to their kind (a box inside its section, an arrow after the last arrow, a comment after the comments) and leave every other line, blank line and `#` note alone. A chain like `web, mobile -> cdn -> gw` is split only when one of its arrows changes; a renamed box keeps its line; a changed mindmap or gantt chart is rewritten as a block. The result is read back before it is written, and the whole file is reprinted only when the edit can't be placed (e.g. moving a section into another one). A 6-op edit of a 60-line board now changes 10 lines instead of 40. `diagram fmt` still reprints everything.

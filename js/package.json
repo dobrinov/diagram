@@ -1,0 +1,38 @@
+{
+  "name": "diagram",
+  "version": "0.8.0",
+  "private": true,
+  "description": "FigJam-style boards as text (mindmaps, flowcharts, swimlanes, gantt charts, review comments) with ops and prompts for LLMs. WASM, for Node and browsers.",
+  "type": "module",
+  "main": "./index.mjs",
+  "types": "./index.d.ts",
+  "exports": {
+    ".": {
+      "types": "./index.d.ts",
+      "default": "./index.mjs"
+    },
+    "./diagram_wasm_bg.wasm": "./pkg/diagram_wasm_bg.wasm",
+    "./package.json": "./package.json"
+  },
+  "files": [
+    "index.mjs",
+    "index.d.ts",
+    "pkg/diagram_wasm.js",
+    "pkg/diagram_wasm_bg.wasm",
+    "README.md"
+  ],
+  "sideEffects": false,
+  "engines": {
+    "node": ">=18"
+  },
+  "scripts": {
+    "test": "node --test test/"
+  },
+  "keywords": ["diagram", "mindmap", "flowchart", "gantt", "swimlanes", "figjam", "llm", "wasm"],
+  "license": "MIT",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/dobrinov/diagram.git",
+    "directory": "js"
+  }
+}

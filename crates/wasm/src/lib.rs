@@ -109,6 +109,9 @@ impl Diagram {
     /// The mindmap under `id` as Markdown (title, sections, bullets): a
     /// prompt, followed by what its `#id` links point at.
     pub fn markdown(&self, id: &str) -> String {
+        if self.inner.doc.node(id).is_none() {
+            return String::new();
+        }
         diagram_core::prompt::selection(&self.inner.doc, &[id.to_string()])
     }
 
