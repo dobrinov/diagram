@@ -46,11 +46,13 @@ There is one statement per line. A line that starts with `#` or `//` is a commen
 | `a -> b` · `a -> b: label [attrs]` | an edge |
 | `a -> b -> c` | a chain of edges (the label applies to each) |
 | `a -> b, c` | fan-out: one edge to each node in the list |
-| `group id: Label [attrs] {` … `}` | a group. Nodes declared or listed inside belong to it. Groups nest. |
+| `group id: Label [attrs] {` … `}` | a group (a *section* in the editor): a titled frame around what is declared or listed inside. Groups nest. |
+| `lanes id: Title {` … `lane id: Title {` … `}` … `}` | swimlanes: each `lane` is a band (a row when the flow runs right or left, a column when it runs down or up) with its title at the side; the flow runs across lanes |
+| `gantt id: Title [start: YYYY-MM-DD] {` … `}` | a gantt chart: one task per line, `Label [5d, after: other-task]` (see *Gantt charts*) |
 | `mindmap id: Topic [attrs] {` … `}` | a mindmap: the line is its central topic and the body is an indented outline (see *Mindmaps*) |
 | `comment [id] [on target] [at x,y] [by author]: text [attrs]` | a review comment. Ids default to `c1`, `c2`, … |
 | `reply id [by author]: text` | a reply to a comment |
-| `title:` `description:` `direction:` `layout:` `routing:` `theme:` | settings (top level only) |
+| `title:` `description:` `direction:` `layout:` `routing:` `theme:` | settings (top level only). The title is metadata (briefs, export names); it is not drawn on the board (`--title` draws it in exports) |
 
 Ids are made of letters, digits, `_`, and `-` or `.` between them (`orders-api`, `svc.v2`). Writing `\n` in a label starts a new line. Quote a label (`"…"`) when it should keep leading or trailing spaces.
 
@@ -74,7 +76,7 @@ Attributes go in square brackets at the end of the line as `key: value` pairs se
 
 | On | Keys |
 |---|---|
-| nodes | `shape`, `color`, `detail` (smaller second line), `link`, `tags` (space separated), `x`, `y` (pinned position), `w`, `h`; mindmap topics also `collapsed`, `id`, and a centre `layout` |
+| nodes | `shape`, `color`, `detail` (smaller second line), `link`, `tags` (space separated), `x`, `y` (pinned position; on a mindmap topic, relative to its centre), `w`, `h`; mindmap topics also `collapsed`, `id`, and a centre `layout` |
 | edges | `label`, `arrow` (`end`, `start`, `both`, `none`), `line` (`solid`, `dashed`, `dotted`, `thick`), `color`, `id` |
 | groups | `color`, `label` |
 | comments | `resolved` / `open`, `resolution`, `author`, `x`, `y` |
@@ -85,26 +87,70 @@ Attributes go in square brackets at the end of the line as `key: value` pairs se
 
 Nodes without `x`/`y` are placed automatically. Dragging a node in the editor pins it there. `diagram apply FILE` with `{"op":"unpin"}` releases every pinned node.
 
+### Swimlanes
+
+```diagram
+lanes order: Order to cash {
+  lane customer: Customer {
+    place: Place order [pill]
+    pay: Pay invoice
+  }
+  lane sales: Sales {
+    check: Credit OK? [diamond]
+    confirm: Confirm order
+  }
+  lane finance: Finance [blue] {
+    invoice: Send invoice
+  }
+}
+place -> check
+check -> confirm: yes
+check -> place: no
+confirm -> invoice -> pay
+```
+
+- `lanes` is a group whose groups are lanes; in JSON it is a group with `"lanes": true`, and its lanes are the groups whose `parent` it is.
+- Everything in all lanes is ranked together, so a step in one lane lines up with the steps before and after it in the others. Lanes share one length; a lane is as tall (or wide) as what it holds.
+- Lanes are laid out automatically: `x`/`y` on a block inside a lane are ignored. Edges can leave the lanes for anything else on the board.
+
+### Gantt charts
+
+```diagram
+gantt launch: Launch plan [start: 2026-10-12] {
+  Design [5d]
+  Build [2w, after: design]
+  Docs [3d, after: design, purple]
+  Beta [2026-11-03, 1w]
+  Launch day [after: beta docs, green]
+}
+```
+
+- Each line is a task: its label, then optional `[attrs]`. Ids come from labels as in mindmaps (`[id: x]` to choose one).
+- `5d` / `2w` (or `days: 5`) is the duration (1 day if left out). `2026-11-03` (or `start: …`) fixes the start. `after: a b` starts it when those tasks end. Otherwise a task starts when the one above it ends; the first starts on the chart's `start`.
+- Days are calendar days. A colour colours the bar. In JSON, the chart is a group with `"gantt": true` and `start`; tasks are its nodes with `start`, `days` and `after`.
+- Bars are tasks like any node: comment on them, link them to anything on the board.
+
 ### Mindmaps
 
 ```diagram
-mindmap pf: Payments France [layout: both, x: 0, y: 0] {
-  Discovery
-    Who pays today?
-    Card vs SEPA share
-  Regulations [red]
-    PSD2 / SCA
-  Customer collections [collapsed]
-    Direct debit
-  Card [id: card-scheme]
+mindmap offsite: Team offsite [layout: both, x: 0, y: 0] {
+  Venue
+    Who books it?
+    City vs countryside
+  Budget [red]
+    Travel and hotels
+  Agenda [collapsed]
+    Workshops
+  Food [id: catering]
 }
-pf-note: Ask ops about volumes [sticky]
-pf-note ..> who-pays-today
+offsite-note: Ask finance about limits [sticky]
+offsite-note ..> who-books-it
 ```
 
 - The header line is the **central topic** (same syntax as a node). Its `layout` is `right` (default), `left`, `both` (balanced) or `down` (org chart). `x`/`y` pin the centre; the whole map moves with it.
 - Each body line is a **topic**: its label, then optional `[attrs]`. Indentation makes the tree (any consistent indent; Markdown bullets `- ` / `* ` are allowed, so a pasted list works).
-- Topic ids come from their labels (`Who pays today?` → `who-pays-today`); a clash gets `-2`. Write `[id: x]` to choose one. Edges and comments use these ids, so mindmap topics can be linked to anything on the board.
+- Topic ids come from their labels (`Who books it?` → `who-books-it`); a clash gets `-2`. Write `[id: x]` to choose one. Edges and comments use these ids, so mindmap topics can be linked to anything on the board.
+- Each level of a side lines up in one column, and each branch's sub-topics fan out evenly around it. A topic with `x`/`y` was placed by hand: the position is relative to the centre's top-left, its own branches follow it, and its siblings close up. `{"op":"unpin","id":ID}` puts it back in the automatic layout (the editor's *Reset arrangement* does that for the whole map).
 - `[collapsed]` folds the branches under a topic. A colour on a topic colours its whole branch; main branches get distinct colours automatically.
 - In JSON a topic is a node with `parent` (the topic it branches from); the centre has `mindmap` (its layout). Siblings keep document order.
 - `diagram outline FILE` prints a map as an outline and `--md` as Markdown (the centre is the title, main branches are sections): that is how a mindmap becomes a prompt. `diagram expand FILE ID` grows a topic with your AI harness.

@@ -65,6 +65,7 @@ pub fn parse_lenient(src: &str) -> (Document, Vec<Diagnostic>) {
         stack: Vec::new(),
         line: 0,
         map: None,
+        gantt: None,
         implicit: Default::default(),
     };
     for (i, raw) in src.lines().enumerate() {
@@ -75,6 +76,8 @@ pub fn parse_lenient(src: &str) -> (Document, Vec<Diagnostic>) {
         }
         let res = if p.map.is_some() {
             p.outline_line(raw)
+        } else if p.gantt.is_some() {
+            p.task_line(t)
         } else {
             p.statement(t)
         };
@@ -86,6 +89,12 @@ pub fn parse_lenient(src: &str) -> (Document, Vec<Diagnostic>) {
         p.errors.push(Diagnostic::new(
             m.line,
             format!("mindmap `{}` is never closed (missing `}}`)", m.root),
+        ));
+    }
+    if let Some((g, line)) = &p.gantt {
+        p.errors.push(Diagnostic::new(
+            *line,
+            format!("gantt `{g}` is never closed (missing `}}`)"),
         ));
     }
     if let Some((g, line)) = p.stack.last() {
@@ -116,6 +125,8 @@ struct Parser {
     line: usize,
     /// The mindmap whose outline is being read.
     map: Option<MapBlock>,
+    /// The gantt chart whose tasks are being read, and the line that opened it.
+    gantt: Option<(String, usize)>,
     /// Nodes created only because an edge mentioned them; a mindmap topic
     /// with that id adopts them.
     implicit: std::collections::HashSet<String>,
@@ -149,7 +160,16 @@ impl Parser {
         match word {
             "group" if c.rest()[5..].starts_with(|ch: char| ch.is_whitespace()) => {
                 c.advance(5);
-                return self.group_decl(c);
+                return self.group_decl(c, false);
+            }
+            // swimlanes; only as block openers, so `lane -> x` stays an edge
+            "lanes" | "lane"
+                if c.rest()[word.len()..].starts_with(|ch: char| ch.is_whitespace())
+                    && (t.trim_end().ends_with('{') || t.trim_end().ends_with("{}")) =>
+            {
+                let (lanes, n) = (word == "lanes", word.len());
+                c.advance(n);
+                return self.group_decl(c, lanes);
             }
             "comment" if c.rest()[7..].starts_with(|ch: char| ch.is_whitespace() || ch == ':') => {
                 c.advance(7);
@@ -158,6 +178,10 @@ impl Parser {
             "mindmap" if c.rest()[7..].starts_with(|ch: char| ch.is_whitespace()) => {
                 c.advance(7);
                 return self.mindmap_decl(c);
+            }
+            "gantt" if c.rest()[5..].starts_with(|ch: char| ch.is_whitespace()) => {
+                c.advance(5);
+                return self.gantt_decl(c);
             }
             "reply" if c.rest()[5..].starts_with(|ch: char| ch.is_whitespace()) => {
                 c.advance(5);
@@ -275,6 +299,90 @@ impl Parser {
                 chain: Vec::new(),
             });
         }
+        Ok(())
+    }
+
+    /// `gantt id: Title [start: YYYY-MM-DD] {` … one task per line … `}`
+    fn gantt_decl(&mut self, mut c: Cursor) -> Result<(), String> {
+        c.skip_ws();
+        let (id, qlabel) = c.reference()?;
+        let (label, attrs) = label_and_attrs_until_brace(&mut c)?;
+        c.skip_ws();
+        if !c.eat('{') {
+            return Err("a gantt chart needs a body: `gantt id: Title {` … `}`".into());
+        }
+        c.skip_ws();
+        let closes_inline = c.eat('}');
+        if !c.at_end() {
+            return Err("put the gantt chart's tasks on the following lines".into());
+        }
+        if self.doc.node(&id).is_some() {
+            return Err(format!("`{id}` is already a node"));
+        }
+        let parent = self.group();
+        if self.doc.group(&id).is_none() {
+            self.doc.groups.push(Group {
+                id: id.clone(),
+                ..Default::default()
+            });
+        }
+        let g = self.doc.group_mut(&id).unwrap();
+        g.parent = parent;
+        g.gantt = true;
+        if let Some(l) = label.or(qlabel) {
+            g.label = l;
+        }
+        for (k, v) in &attrs {
+            match (k.as_str(), v) {
+                ("start", Some(v)) => g.start = Some(date(v)?),
+                ("color" | "colour", Some(v)) => g.color = Some(color(v)?),
+                (d, None) if crate::gantt::parse_date(d).is_some() => g.start = Some(d.to_string()),
+                (c, None) if valid_color(c) => g.color = Some(c.to_string()),
+                (k, _) => return Err(format!("unknown gantt attribute `{k}` (start, color)")),
+            }
+        }
+        if !closes_inline {
+            self.gantt = Some((id, self.line));
+        }
+        Ok(())
+    }
+
+    /// One task of a gantt chart (or the closing `}`): `Label [5d, after: x]`.
+    fn task_line(&mut self, t: &str) -> Result<(), String> {
+        if t == "}" {
+            self.gantt = None;
+            return Ok(());
+        }
+        let t = crate::mindmap::strip_bullet(t);
+        let (text, attrs) = split_attrs(t);
+        let label = unescape_label(text.trim());
+        let mut attrs = parse_attrs(attrs.unwrap_or(""))?;
+        let mut explicit = None;
+        attrs.retain(|(k, v)| match (k.as_str(), v) {
+            ("id", Some(v)) => {
+                explicit = Some(v.clone());
+                false
+            }
+            _ => true,
+        });
+        let chart = self.gantt.as_ref().unwrap().0.clone();
+        let wanted = explicit.clone().unwrap_or_else(|| slug(&label));
+        let id = if !self.doc.id_taken(&wanted) {
+            wanted
+        } else if self.implicit.remove(&wanted) {
+            // a task that an edge mentioned earlier
+            self.doc.nodes.retain(|n| n.id != wanted);
+            wanted
+        } else if explicit.is_some() {
+            return Err(format!("id `{wanted}` is already used"));
+        } else {
+            self.doc.fresh_id(&wanted)
+        };
+        let mut n = Node::new(&id);
+        n.label = if label == id { String::new() } else { label };
+        n.group = Some(chart);
+        apply_node_attrs(&mut n, &attrs)?;
+        self.doc.nodes.push(n);
         Ok(())
     }
 
@@ -410,7 +518,7 @@ impl Parser {
         Ok(())
     }
 
-    fn group_decl(&mut self, mut c: Cursor) -> Result<(), String> {
+    fn group_decl(&mut self, mut c: Cursor, lanes: bool) -> Result<(), String> {
         c.skip_ws();
         let (id, qlabel) = c.reference()?;
         let (label, attrs) = label_and_attrs_until_brace(&mut c)?;
@@ -435,6 +543,7 @@ impl Parser {
         }
         let g = self.doc.group_mut(&id).unwrap();
         g.parent = parent;
+        g.lanes = lanes;
         if let Some(l) = label.or(qlabel) {
             g.label = l;
         }
@@ -660,6 +769,9 @@ fn looks_like_attrs(inner: &str) -> bool {
                         || Line::parse(item).is_some()
                         || valid_color(&item.to_ascii_lowercase())
                         || matches!(item, "resolved" | "open" | "done" | "collapsed" | "folded")
+                        // gantt: a date or a duration
+                        || crate::gantt::parse_date(item).is_some()
+                        || (item.ends_with(['d', 'w']) && crate::gantt::parse_days(item).is_some())
                 }
             }
         })
@@ -735,11 +847,22 @@ pub fn apply_node_attrs(n: &mut Node, attrs: &Attrs) -> Result<(), String> {
                 })?)
             }
             ("parent", Some(v)) => n.parent = Some(v.clone()).filter(|s| !s.is_empty()),
+            ("start", Some(v)) => n.start = Some(date(v)?),
+            ("days" | "duration", Some(v)) => {
+                n.days = Some(crate::gantt::parse_days(v).ok_or_else(|| {
+                    format!("`{v}` is not a duration (like 5d or 2w)")
+                })?)
+            }
+            ("after", Some(v)) => n.after = v.split_whitespace().map(String::from).collect(),
+            (k, None) if crate::gantt::parse_date(k).is_some() => n.start = Some(k.to_string()),
+            (k, None) if k.ends_with(['d', 'w']) && crate::gantt::parse_days(k).is_some() => {
+                n.days = crate::gantt::parse_days(k)
+            }
             (k, None) if Shape::parse(k).is_some() => n.shape = Shape::parse(k).unwrap(),
             (k, None) if valid_color(k) => n.color = Some(k.to_string()),
             (k, _) => {
                 return Err(format!(
-                    "unknown node attribute `{k}` (shape, color, detail, link, tags, x, y, w, h, collapsed, layout, parent)"
+                    "unknown node attribute `{k}` (shape, color, detail, link, tags, x, y, w, h, collapsed, layout, parent, start, days, after)"
                 ))
             }
         }
@@ -1009,6 +1132,49 @@ fn node_line(n: &Node) -> String {
 }
 
 /// `mindmap id: Topic [attrs] {` + the indented outline + `}`.
+fn gantt_block(doc: &Document, g: &Group, pad: &str, out: &mut String) {
+    let mut head = id_text(&g.id);
+    if !g.label.is_empty() && g.label != g.id {
+        head.push_str(": ");
+        head.push_str(&label_text(&g.label));
+    }
+    let mut a = Vec::new();
+    if let Some(s) = &g.start {
+        a.push(format!("start: {s}"));
+    }
+    if let Some(c) = &g.color {
+        a.push(if c.starts_with('#') {
+            format!("color: {c}")
+        } else {
+            c.clone()
+        });
+    }
+    head.push_str(&attrs_text(&a));
+    let tasks: Vec<&Node> = doc
+        .nodes
+        .iter()
+        .filter(|n| n.group.as_deref() == Some(g.id.as_str()))
+        .collect();
+    if tasks.is_empty() {
+        out.push_str(&format!("{pad}gantt {head} {{}}\n"));
+        return;
+    }
+    out.push_str(&format!("{pad}gantt {head} {{\n"));
+    for n in tasks {
+        let label = n.display();
+        let mut a = node_attrs(n);
+        if slug(label) != n.id {
+            a.insert(0, format!("id: {}", attr_value(&n.id)));
+        }
+        out.push_str(&format!(
+            "{pad}  {}{}\n",
+            crate::mindmap::outline_label(label),
+            attrs_text(&a)
+        ));
+    }
+    out.push_str(&format!("{pad}}}\n"));
+}
+
 fn map_block(doc: &Document, root: &Node, pad: &str, out: &mut String) {
     let mut head = id_text(&root.id);
     if !root.label.is_empty() && root.label != root.id {
@@ -1058,8 +1224,25 @@ fn map_block(doc: &Document, root: &Node, pad: &str, out: &mut String) {
     out.push_str(&format!("{pad}}}\n"));
 }
 
+/// A `YYYY-MM-DD` date, checked.
+fn date(v: &str) -> Result<String, String> {
+    crate::gantt::parse_date(v)
+        .map(crate::gantt::format_date)
+        .ok_or_else(|| format!("`{v}` is not a date (YYYY-MM-DD)"))
+}
+
 fn node_attrs(n: &Node) -> Vec<String> {
     let mut a = Vec::new();
+    // gantt tasks read best with their schedule first
+    if let Some(s) = &n.start {
+        a.push(s.clone());
+    }
+    if let Some(d) = n.days {
+        a.push(crate::gantt::format_days(d));
+    }
+    if !n.after.is_empty() {
+        a.push(format!("after: {}", n.after.join(" ")));
+    }
     if n.shape != Shape::default() {
         a.push(n.shape.as_str().to_string());
     }
@@ -1221,7 +1404,18 @@ pub fn print(doc: &Document) -> String {
         in_map: &dyn Fn(&Node) -> bool,
     ) {
         let pad = "  ".repeat(depth);
-        let mut line = format!("{pad}group {}", id_text(&g.id));
+        if g.gantt {
+            gantt_block(doc, g, &pad, out);
+            return;
+        }
+        let word = if g.lanes {
+            "lanes"
+        } else if doc.is_lane(g) {
+            "lane"
+        } else {
+            "group"
+        };
+        let mut line = format!("{pad}{word} {}", id_text(&g.id));
         if !g.label.is_empty() && g.label != g.id {
             line.push_str(": ");
             line.push_str(&label_text(&g.label));

@@ -27,7 +27,7 @@ EXPORT
   diagram svg  FILE [-o out.svg]     static SVG
   diagram png  FILE [-o out.png]     PNG image (--scale N, default 2)
   diagram html FILE [-o out.html]    self-contained interactive page (viewer + WASM)
-    render options: --dark --transparent --no-title --comments open|all|none
+    render options: --dark --transparent --title --comments open|all|none
                     --base FILE|GIT_REF   highlight what changed since then
   diagram convert FILE --to dsl|json|mermaid|brief [-o OUT]
                                      FILE may be DSL, JSON or Mermaid (detected)
@@ -332,8 +332,8 @@ fn render_opts(args: &Args) -> Result<RenderOptions, String> {
         o.theme = Some(Theme::parse(t).ok_or_else(|| format!("unknown theme {t}"))?);
     }
     o.transparent = args.flag("--transparent");
-    if args.flag("--no-title") {
-        o.title = Some(false);
+    if args.flag("--title") {
+        o.title = Some(true);
     }
     o.comments = match args.val("--comments").unwrap_or("open") {
         "open" => CommentMode::Open,
@@ -392,7 +392,7 @@ fn run(args: Args) -> Result<ExitCode, String> {
             if !Path::new(&file).exists() {
                 std::fs::write(
                     &file,
-                    "title: Untitled\n\nidea: Start here\nidea -> next: then\n",
+                    "idea: Start here\nidea -> next: then\n",
                 )
                 .map_err(|e| format!("{file}: {e}"))?;
                 eprintln!("created {file}");

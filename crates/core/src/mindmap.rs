@@ -6,11 +6,11 @@
 //! else. In the DSL a map is an indented outline:
 //!
 //! ```text
-//! mindmap pf: Payments France [layout: both] {
-//!   Discovery
-//!     Who pays today?
-//!   Regulations [red]
-//!     PSD2
+//! mindmap offsite: Team offsite [layout: both] {
+//!   Venue
+//!     Who books it?
+//!   Budget [red]
+//!     Travel and hotels
 //! }
 //! ```
 //!
@@ -387,255 +387,66 @@ pub fn measure(n: &Node, st: Option<Style>) -> (Vec<String>, Vec<String>, f64, f
 
 /// Place the visible topics of the map centred on `root`. Rects are
 /// relative to the map's bounding box (whose top-left is 0,0).
-pub fn layout_tree(f: &Forest, root: usize, sizes: &[(f64, f64)]) -> (Vec<(usize, Rect)>, Rect) {
-    let lay = f.layout[root];
-    let down = lay == MapLayout::Down;
-    let cross = |i: usize| if down { sizes[i].0 } else { sizes[i].1 };
-    let visible_kids = |i: usize| -> Vec<usize> {
-        if f.kids[i].is_empty() || f.hidden.get(f.kids[i][0]).copied().unwrap_or(false) {
-            Vec::new()
-        } else {
-            f.kids[i].clone()
-        }
+///
+/// Every level of a side shares one column (one row in a `down` map), so
+/// sibling branches line up whatever the width of their parents, and each
+/// fan of sub-topics is centred on the point its branch leaves from.
+/// `pins` are topics placed by hand, relative to the centre's top-left:
+/// they keep their place, their branches follow them, and their siblings
+/// close up behind them.
+pub fn layout_tree(
+    f: &Forest,
+    root: usize,
+    sizes: &[(f64, f64)],
+    styles: &[Option<Style>],
+    pins: &[Option<(f64, f64)>],
+) -> (Vec<(usize, Rect)>, Rect) {
+    let mut t = Tree {
+        f,
+        sizes,
+        styles,
+        pins,
+        down: f.layout[root] == MapLayout::Down,
+        ext: vec![(0.0, 0.0); sizes.len()],
+        cols: [Vec::new(), Vec::new()],
+        placed: vec![false; sizes.len()],
+        out: Vec::new(),
     };
-    let sib_gap = |parent: usize| -> f64 {
-        match (down, f.depth[parent]) {
-            (true, 0) => 28.0,
-            (true, _) => 16.0,
-            (false, 0) => 22.0,
-            (false, _) => 6.0,
-        }
-    };
-    let level_gap = |parent: usize| -> f64 {
-        match (down, f.depth[parent]) {
-            (true, _) => 44.0,
-            (false, 0) => 64.0,
-            (false, _) => 36.0,
-        }
-    };
-
-    // cross-axis span of every subtree
-    let mut span = vec![0.0f64; sizes.len()];
-    fn compute(
-        i: usize,
-        span: &mut Vec<f64>,
-        kids: &dyn Fn(usize) -> Vec<usize>,
-        cross: &dyn Fn(usize) -> f64,
-        gap: &dyn Fn(usize) -> f64,
-    ) -> f64 {
-        let ks = kids(i);
-        let mut total = 0.0;
-        for (n, &k) in ks.iter().enumerate() {
-            total += compute(k, span, kids, cross, gap);
-            if n > 0 {
-                total += gap(i);
-            }
-        }
-        span[i] = cross(i).max(total);
-        span[i]
-    }
-    compute(root, &mut span, &visible_kids, &cross, &sib_gap);
-
-    let mut rects: Vec<(usize, Rect)> = Vec::new();
-    // place `i` with its near edge at `near` (main axis) and centred on `c`
-    #[allow(clippy::too_many_arguments)]
-    fn place(
-        i: usize,
-        near: f64,
-        c: f64,
-        dir: f64,
-        down: bool,
-        sizes: &[(f64, f64)],
-        span: &[f64],
-        kids: &dyn Fn(usize) -> Vec<usize>,
-        gap: &dyn Fn(usize) -> f64,
-        level: &dyn Fn(usize) -> f64,
-        out: &mut Vec<(usize, Rect)>,
-    ) {
-        let (w, h) = sizes[i];
-        let r = if down {
-            Rect {
-                x: c - w / 2.0,
-                y: near,
-                w,
-                h,
-            }
-        } else if dir > 0.0 {
-            Rect {
-                x: near,
-                y: c - h / 2.0,
-                w,
-                h,
-            }
-        } else {
-            Rect {
-                x: near - w,
-                y: c - h / 2.0,
-                w,
-                h,
-            }
-        };
-        out.push((i, r));
-        let ks = kids(i);
-        if ks.is_empty() {
-            return;
-        }
-        let next = if down {
-            r.bottom() + level(i)
-        } else if dir > 0.0 {
-            r.right() + level(i)
-        } else {
-            r.x - level(i)
-        };
-        place_kids(
-            &ks,
-            next,
-            c,
-            dir,
-            down,
-            sizes,
-            span,
-            kids,
-            gap,
-            gap(i),
-            level,
-            out,
-        );
-    }
-    #[allow(clippy::too_many_arguments)]
-    fn place_kids(
-        ks: &[usize],
-        near: f64,
-        c: f64,
-        dir: f64,
-        down: bool,
-        sizes: &[(f64, f64)],
-        span: &[f64],
-        kids: &dyn Fn(usize) -> Vec<usize>,
-        gap: &dyn Fn(usize) -> f64,
-        g: f64,
-        level: &dyn Fn(usize) -> f64,
-        out: &mut Vec<(usize, Rect)>,
-    ) {
-        let total: f64 = ks.iter().map(|&k| span[k]).sum::<f64>() + g * (ks.len() as f64 - 1.0);
-        let mut at = c - total / 2.0;
-        for &k in ks {
-            place(
-                k,
-                near,
-                at + span[k] / 2.0,
-                dir,
-                down,
-                sizes,
-                span,
-                kids,
-                gap,
-                level,
-                out,
-            );
-            at += span[k] + g;
-        }
-    }
-
+    t.compute_ext(root);
     let (w0, h0) = sizes[root];
-    rects.push((
-        root,
-        Rect {
-            x: 0.0,
-            y: 0.0,
-            w: w0,
-            h: h0,
-        },
-    ));
-    let ks = visible_kids(root);
-    let g = sib_gap(root);
-    let lg = level_gap(root);
-    match lay {
-        MapLayout::Down => place_kids(
-            &ks,
-            h0 + lg,
-            w0 / 2.0,
-            1.0,
-            true,
-            sizes,
-            &span,
-            &visible_kids,
-            &sib_gap,
-            g,
-            &level_gap,
-            &mut rects,
-        ),
-        MapLayout::Right => place_kids(
-            &ks,
-            w0 + lg,
-            h0 / 2.0,
-            1.0,
-            false,
-            sizes,
-            &span,
-            &visible_kids,
-            &sib_gap,
-            g,
-            &level_gap,
-            &mut rects,
-        ),
-        MapLayout::Left => place_kids(
-            &ks,
-            -lg,
-            h0 / 2.0,
-            -1.0,
-            false,
-            sizes,
-            &span,
-            &visible_kids,
-            &sib_gap,
-            g,
-            &level_gap,
-            &mut rects,
-        ),
+    let centre = Rect {
+        x: 0.0,
+        y: 0.0,
+        w: w0,
+        h: h0,
+    };
+    t.out.push((root, centre));
+    let ks = t.flow_kids(root);
+    let sides: Vec<(Vec<usize>, f64)> = match f.layout[root] {
+        MapLayout::Left => vec![(ks, -1.0)],
         MapLayout::Both => {
-            let (right, left) = split_sides(&ks, &span, g);
-            place_kids(
-                &right,
-                w0 + lg,
-                h0 / 2.0,
-                1.0,
-                false,
-                sizes,
-                &span,
-                &visible_kids,
-                &sib_gap,
-                g,
-                &level_gap,
-                &mut rects,
-            );
-            place_kids(
-                &left,
-                -lg,
-                h0 / 2.0,
-                -1.0,
-                false,
-                sizes,
-                &span,
-                &visible_kids,
-                &sib_gap,
-                g,
-                &level_gap,
-                &mut rects,
-            );
+            let span: Vec<f64> = t.ext.iter().map(|(a, b)| a + b).collect();
+            let (right, left) = split_sides(&ks, &span, t.sib_gap(root));
+            vec![(right, 1.0), (left, -1.0)]
         }
+        _ => vec![(ks, 1.0)],
+    };
+    for (ks, dir) in &sides {
+        t.columns(root, ks, *dir);
+        t.place_kids(root, centre, ks, *dir, false);
     }
-    let bbox = rects
+    let bbox = t
+        .out
         .iter()
         .map(|(_, r)| *r)
         .reduce(|a, b| a.union(&b))
         .unwrap_or_default();
-    for (_, r) in &mut rects {
+    for (_, r) in &mut t.out {
         r.x -= bbox.x;
         r.y -= bbox.y;
     }
     (
-        rects,
+        t.out,
         Rect {
             x: 0.0,
             y: 0.0,
@@ -643,6 +454,214 @@ pub fn layout_tree(f: &Forest, root: usize, sizes: &[(f64, f64)]) -> (Vec<(usize
             h: bbox.h,
         },
     )
+}
+
+struct Tree<'a> {
+    f: &'a Forest,
+    sizes: &'a [(f64, f64)],
+    styles: &'a [Option<Style>],
+    pins: &'a [Option<(f64, f64)>],
+    down: bool,
+    /// How far every subtree reaches before and after its topic's centre
+    /// (cross axis).
+    ext: Vec<(f64, f64)>,
+    /// Near edge (main axis) of each depth's column, per side (right, left).
+    cols: [Vec<f64>; 2],
+    /// Topics placed by hand that are already laid out.
+    placed: Vec<bool>,
+    out: Vec<(usize, Rect)>,
+}
+
+impl Tree<'_> {
+    fn pinned(&self, i: usize) -> bool {
+        self.pins[i].is_some() && self.f.parent[i].is_some()
+    }
+    fn visible_kids(&self, i: usize) -> &[usize] {
+        let ks = &self.f.kids[i];
+        if ks.is_empty() || self.f.hidden[ks[0]] {
+            &[]
+        } else {
+            ks
+        }
+    }
+    /// Visible branches that take part in the tidy layout (not placed by hand).
+    fn flow_kids(&self, i: usize) -> Vec<usize> {
+        self.visible_kids(i)
+            .iter()
+            .copied()
+            .filter(|&k| !self.pinned(k))
+            .collect()
+    }
+    fn main(&self, i: usize) -> f64 {
+        if self.down {
+            self.sizes[i].1
+        } else {
+            self.sizes[i].0
+        }
+    }
+    fn cross(&self, i: usize) -> f64 {
+        if self.down {
+            self.sizes[i].0
+        } else {
+            self.sizes[i].1
+        }
+    }
+    fn sib_gap(&self, parent: usize) -> f64 {
+        match (self.down, self.f.depth[parent]) {
+            (true, 0) => 28.0,
+            (true, _) => 16.0,
+            (false, 0) => 22.0,
+            (false, _) => 6.0,
+        }
+    }
+    fn level_gap(&self, parent: usize) -> f64 {
+        match (self.down, self.f.depth[parent]) {
+            (true, _) => 44.0,
+            (false, 0) => 64.0,
+            (false, _) => 36.0,
+        }
+    }
+    /// Where a branch meets topic `i`, from its centre (cross axis): a
+    /// sub-topic is underlined, and its branches run along the underline.
+    fn anchor(&self, i: usize) -> f64 {
+        if !self.down && self.styles[i] == Some(Style::Topic) {
+            self.sizes[i].1 / 2.0
+        } else {
+            0.0
+        }
+    }
+    /// Centres of the branches `ks` relative to `i`'s centre (cross axis).
+    /// The points where the branches arrive are spaced symmetrically around
+    /// the point they leave `i` from: mirrored pairs of neighbours share the
+    /// larger of their two gaps, so a middle branch runs straight out.
+    fn fan(&self, i: usize, ks: &[usize]) -> Vec<f64> {
+        // room each pair of neighbours needs, between their arrival points
+        let need: Vec<f64> = ks
+            .windows(2)
+            .map(|w| {
+                let (a, b) = (w[0], w[1]);
+                self.ext[a].1 + self.sib_gap(i) + self.ext[b].0 + self.anchor(b) - self.anchor(a)
+            })
+            .collect();
+        let mut at = 0.0;
+        let mut points = vec![0.0];
+        for j in 0..need.len() {
+            at += need[j].max(need[need.len() - 1 - j]);
+            points.push(at);
+        }
+        let shift = self.anchor(i) - at / 2.0;
+        ks.iter()
+            .zip(points)
+            .map(|(&k, p)| p + shift - self.anchor(k))
+            .collect()
+    }
+    fn compute_ext(&mut self, i: usize) {
+        for k in self.visible_kids(i).to_vec() {
+            self.compute_ext(k);
+        }
+        let half = self.cross(i) / 2.0;
+        let ks = self.flow_kids(i);
+        let cs = self.fan(i, &ks);
+        self.ext[i] = ks.iter().zip(&cs).fold((half, half), |(b, a), (&k, &c)| {
+            (b.max(self.ext[k].0 - c), a.max(c + self.ext[k].1))
+        });
+    }
+    /// The columns of one side: the widest topic of each depth sets where
+    /// the next depth starts.
+    fn columns(&mut self, root: usize, ks: &[usize], dir: f64) {
+        let mut widest: Vec<f64> = Vec::new();
+        let mut gaps: Vec<f64> = vec![self.level_gap(root)];
+        let mut stack: Vec<usize> = ks.to_vec();
+        while let Some(i) = stack.pop() {
+            let d = self.f.depth[i];
+            if widest.len() < d {
+                widest.resize(d, 0.0);
+                gaps.resize(d + 1, 0.0);
+            }
+            widest[d - 1] = widest[d - 1].max(self.main(i));
+            gaps[d] = self.level_gap(i);
+            stack.extend(self.flow_kids(i));
+        }
+        let (w0, h0) = self.sizes[root];
+        let start = if self.down {
+            h0
+        } else if dir > 0.0 {
+            w0
+        } else {
+            0.0
+        };
+        let mut cols = vec![start];
+        let mut at = start + dir * gaps[0];
+        for (d, w) in widest.iter().enumerate() {
+            cols.push(at);
+            at += dir * (w + gaps[d + 1]);
+        }
+        self.cols[usize::from(dir < 0.0)] = cols;
+    }
+    /// `i`'s rect with its near edge at `near` (main axis), centred on `c`.
+    fn rect(&self, i: usize, near: f64, c: f64, dir: f64) -> Rect {
+        let (w, h) = self.sizes[i];
+        if self.down {
+            Rect {
+                x: c - w / 2.0,
+                y: near,
+                w,
+                h,
+            }
+        } else {
+            Rect {
+                x: if dir > 0.0 { near } else { near - w },
+                y: c - h / 2.0,
+                w,
+                h,
+            }
+        }
+    }
+    /// Lay out the branches of `i` (drawn at `r`). `free` once a topic
+    /// placed by hand is above them: the shared columns no longer apply.
+    fn place_kids(&mut self, i: usize, r: Rect, ks: &[usize], dir: f64, free: bool) {
+        if !ks.is_empty() {
+            let d = self.f.depth[i] + 1;
+            let near = match self.cols[usize::from(dir < 0.0)].get(d) {
+                Some(&col) if !free => col,
+                _ if self.down => r.bottom() + self.level_gap(i),
+                _ if dir > 0.0 => r.right() + self.level_gap(i),
+                _ => r.x - self.level_gap(i),
+            };
+            let c = if self.down { r.cx() } else { r.cy() };
+            for (&k, kc) in ks.iter().zip(self.fan(i, ks)) {
+                let kr = self.rect(k, near, c + kc, dir);
+                self.out.push((k, kr));
+                let kk = self.flow_kids(k);
+                self.place_kids(k, kr, &kk, dir, free);
+            }
+        }
+        for k in self.visible_kids(i).to_vec() {
+            if self.pinned(k) {
+                self.place_pinned(k, r, dir);
+            }
+        }
+    }
+    /// A topic placed by hand; its branches grow away from its parent.
+    fn place_pinned(&mut self, k: usize, parent: Rect, dir: f64) {
+        // the centre's are reached once per side
+        if std::mem::replace(&mut self.placed[k], true) {
+            return;
+        }
+        let (x, y) = self.pins[k].unwrap();
+        let (w, h) = self.sizes[k];
+        let r = Rect { x, y, w, h };
+        let dir = if self.down {
+            dir
+        } else if r.cx() < parent.cx() {
+            -1.0
+        } else {
+            1.0
+        };
+        self.out.push((k, r));
+        let ks = self.flow_kids(k);
+        self.place_kids(k, r, &ks, dir, true);
+    }
 }
 
 /// Balanced map: the first branches go right until about half the height
@@ -995,6 +1014,64 @@ mod tests {
         let m = l.rect("m").unwrap();
         assert!(l.rect("a").unwrap().x > m.right());
         assert!(l.rect("d").unwrap().right() < m.x);
+    }
+
+    #[test]
+    fn levels_share_a_column_and_fans_are_centred() {
+        let d = crate::dsl::parse(
+            "mindmap m: M {\n  a\n    a1\n    a2\n    a3\n  A much longer branch\n    b1\n}",
+        )
+        .unwrap();
+        let l = crate::layout::layout(&d);
+        let r = |id: &str| l.rect(id).unwrap();
+        // sub-topics start in one column, whatever their branch's width
+        assert_eq!(r("a1").x, r("b1").x);
+        // the middle sub-topic's underline is level with its branch
+        assert!((r("a2").bottom() - r("a").cy()).abs() < 0.5);
+        assert!((r("b1").bottom() - r("a-much-longer-branch").cy()).abs() < 0.5);
+    }
+
+    #[test]
+    fn a_middle_branch_runs_straight_out() {
+        // the middle branch's sub-topics reach further up than down
+        let d = crate::dsl::parse(
+            "mindmap m: Payments France {\n  Payment Links\n  New GLs\n    Fulll\n    Sage\n  Unintegrated\n}",
+        )
+        .unwrap();
+        let l = crate::layout::layout(&d);
+        let r = |id: &str| l.rect(id).unwrap();
+        assert!((r("new-gls").cy() - r("m").cy()).abs() < 0.5);
+        // and the outer two sit at the same distance from the centre
+        let up = r("m").cy() - r("payment-links").cy();
+        let down = r("unintegrated").cy() - r("m").cy();
+        assert!((up - down).abs() < 0.5, "{up} vs {down}");
+    }
+
+    #[test]
+    fn topics_placed_by_hand_keep_their_place() {
+        let src = "mindmap m: M [x: 0, y: 0] {\n  a [x: -300, y: 200]\n    a1\n  b\n}";
+        let d = crate::dsl::parse(src).unwrap();
+        assert_eq!(crate::dsl::parse(&crate::dsl::print(&d)).unwrap(), d);
+        let l = crate::layout::layout(&d);
+        let (m, a, a1) = (
+            l.rect("m").unwrap(),
+            l.rect("a").unwrap(),
+            l.rect("a1").unwrap(),
+        );
+        // relative to the centre; its branches grow away from the centre
+        assert_eq!((a.x - m.x, a.y - m.y), (-300.0, 200.0));
+        assert!(a1.right() < a.x);
+        assert_eq!(l.node("a").unwrap().map.as_ref().unwrap().side, "left");
+        // the siblings close up: `b` takes the first slot
+        let mut d2 = d.clone();
+        crate::ops::apply(
+            &mut d2,
+            &crate::ops::parse_ops(r#"{"op":"unpin","id":"a"}"#).unwrap(),
+        )
+        .unwrap();
+        let l2 = crate::layout::layout(&d2);
+        assert!(l2.rect("a").unwrap().x > l2.rect("m").unwrap().right());
+        assert!(l.rect("b").unwrap().y < l2.rect("b").unwrap().y);
     }
 
     #[test]

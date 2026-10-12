@@ -11,7 +11,7 @@ diagram is the core of an **AI-first, all-in-one project-management tool for the
 - **Library-first.** The owner builds small tools that are also libraries and composes them: this repo is the canvas and FigJam-style functionality; `../schema` (DB schemas, crate `schema-core`) is next to be brought onto the board as a block type. Keep `diagram-core` free of app concerns so it can be embedded.
 - **Mindmaps are central**, including **prompts written as mindmaps** (centre = task, branches = Context / Constraints / Steps / Acceptance → "Copy as prompt" Markdown). See `examples/prompt-mindmap.diagram`.
 
-A board is one `.diagram` file. Blocks (mindmaps today; schemas and more later) sit on it next to free boxes, stickies, groups, arrows and comments.
+A board is one `.diagram` file. Blocks (mindmaps, swimlanes and gantt charts today; schemas and more later) sit on it next to free boxes, stickies, groups, arrows and comments.
 
 ## Layout
 

@@ -18,6 +18,7 @@
 //! - [`Session`]: a stateful wrapper used by the WASM build and editors
 pub mod diff;
 pub mod dsl;
+pub mod gantt;
 pub mod layout;
 pub mod mermaid;
 pub mod mindmap;
@@ -167,7 +168,10 @@ pub fn json_schema() -> Value {
                 "x": {"type": "number"}, "y": {"type": "number"}, "w": {"type": "number"}, "h": {"type": "number"},
                 "parent": {"type": "string", "description": "mindmap: id of the topic this one branches from"},
                 "mindmap": e(&["right", "left", "both", "down"]),
-                "collapsed": {"type": "boolean", "description": "mindmap: branches under this topic are folded"}
+                "collapsed": {"type": "boolean", "description": "mindmap: branches under this topic are folded"},
+                "start": {"type": "string", "format": "date", "description": "gantt task: start date (YYYY-MM-DD)"},
+                "days": {"type": "number", "exclusiveMinimum": 0, "description": "gantt task: duration in days"},
+                "after": {"type": "array", "items": {"type": "string"}, "description": "gantt task: ids of the tasks it starts after"}
             }}},
             "edges": {"type": "array", "items": {"type": "object", "required": ["from", "to"], "additionalProperties": false, "properties": {
                 "id": {"type": "string", "description": "defaults to from->to"},
@@ -178,7 +182,10 @@ pub fn json_schema() -> Value {
                 "color": color
             }}},
             "groups": {"type": "array", "items": {"type": "object", "required": ["id"], "additionalProperties": false, "properties": {
-                "id": {"type": "string"}, "label": {"type": "string"}, "color": color, "parent": {"type": "string"}
+                "id": {"type": "string"}, "label": {"type": "string"}, "color": color, "parent": {"type": "string"},
+                "lanes": {"type": "boolean", "description": "swimlanes: the groups inside are lanes"},
+                "gantt": {"type": "boolean", "description": "gantt chart: the nodes inside are tasks"},
+                "start": {"type": "string", "format": "date", "description": "gantt chart: its first day (YYYY-MM-DD)"}
             }}},
             "comments": {"type": "array", "items": {"type": "object", "required": ["text"], "additionalProperties": false, "properties": {
                 "id": {"type": "string", "description": "defaults to c1, c2, …"},

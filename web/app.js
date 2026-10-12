@@ -26,7 +26,9 @@
   function mount(wasm, source, extra) {
     var host = document.getElementById("editor");
     host.innerHTML = "";
-    editor = DiagramEditor.create(host, Object.assign({ wasm: wasm, source: source, shareUrl: SHARE_URL }, extra));
+    // the sidebars are hidden for now; ?sidebars brings them back
+    var sidebars = /[?&]sidebars\b/.test(location.search);
+    editor = DiagramEditor.create(host, Object.assign({ wasm: wasm, source: source, shareUrl: SHARE_URL, code: sidebars, panel: sidebars }, extra));
     window.diagramEditor = editor; // handy from the console
     return editor;
   }
@@ -67,7 +69,8 @@
           });
         } : null,
         onChange: function (text) {
-          if (text === lastSaved) return;
+          // back to what is on disk (e.g. an undo within the debounce): drop the pending save
+          if (text === lastSaved) { clearTimeout(timer); status("Saved"); return; }
           status("Unsaved", "dirty");
           clearTimeout(timer);
           timer = setTimeout(function () { save(text); }, 400);
@@ -75,14 +78,6 @@
         onSave: function (text) { clearTimeout(timer); save(text); }
       });
       status("Saved");
-      editor.addButton({ label: "Compare ▾", title: "Highlight what changed since a git version", onClick: function () {
-        var ref = window.prompt("Show changes since which git version? (HEAD, main, HEAD~3, a commit…)", "HEAD");
-        if (!ref) return;
-        fetch("api/git?ref=" + encodeURIComponent(ref)).then(function (r) { return r.json(); }).then(function (res) {
-          if (!res.ok) return editor.flash(res.error, true);
-          editor.setBase(res.source, ref);
-        });
-      } });
       // pick up changes made outside the editor
       setInterval(function () {
         if (saving || document.hidden) return;

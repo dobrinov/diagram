@@ -6,8 +6,8 @@
  *     mode: "edit",       // or "view" (pan, zoom, comments, export only)
  *     theme: null,        // "light" | "dark" | null (follow the OS)
  *     author: "deyan",    // name used for new comments
- *     code: true,         // show the code pane (edit mode)
- *     panel: true,        // show the inspector / comments panel
+ *     code: false,        // the code pane (edit mode); off for now
+ *     panel: false,       // the inspector / comments panel; off for now
  *     shareUrl: null,     // playground URL, enables "Copy share link"
  *     ai: null,           // function (prompt) → Promise<string>: your model / harness.
  *                         // Without it, ✦ actions show the prompt to copy and take the reply.
@@ -32,7 +32,8 @@
   var MOD = MAC ? "⌘" : "Ctrl+";
 
   var ICON = {
-    select: '<path d="M5 3l14 8-6 1.5L10 19z"/>',
+    select: '<path transform="scale(1.5)" d="M3.5 2.2v10.6l2.9-2.7 1.9 4.2 1.8-.8-1.9-4.1h3.9z" fill="currentColor" stroke-width=".55"/>',
+    hand: '<path transform="scale(1.5)" d="M5.2 8.6V3.4a1 1 0 0 1 2 0V7.4m0-.4V2.6a1 1 0 0 1 2 0V7m0-.2V3.4a1 1 0 0 1 2 0V8m0-2.6a1 1 0 0 1 2 0v4.2c0 2.6-1.9 4.6-4.4 4.6-1.8 0-2.9-.8-3.9-2.3L2.6 9.3a1 1 0 0 1 1.6-1.2l1 1.1" stroke-width=".8"/>',
     node: '<rect x="4" y="6" width="16" height="12" rx="2"/>',
     sticky: '<path d="M5 4h14v10l-5 6H5z"/><path d="M14 20v-6h5"/>',
     mindmap: '<rect x="2" y="9" width="8" height="6" rx="3"/><path d="M10 12c3 0 3-6 7-6M10 12c3 0 3 6 7 6M17 6h4M17 18h4"/>',
@@ -44,6 +45,10 @@
     panel: '<rect x="3" y="4" width="18" height="16" rx="2"/><path d="M15 4v16"/>',
     theme: '<circle cx="12" cy="12" r="8"/><path d="M12 4a8 8 0 000 16z" fill="currentColor"/>',
     tidy: '<path d="M4 6h7M4 12h11M4 18h16"/>',
+    decision: '<path d="M12 3l9 9-9 9-9-9z"/>',
+    gantt: '<path d="M4 4v16h16"/><rect x="7" y="6.5" width="7" height="3" rx="1" fill="currentColor" stroke="none"/><rect x="11" y="11" width="8" height="3" rx="1" fill="currentColor" stroke="none"/><rect x="9" y="15.5" width="5" height="3" rx="1" fill="currentColor" stroke="none"/>',
+    lanes: '<rect x="3" y="4" width="18" height="16" rx="2"/><path d="M3 9.5h18M3 14.5h18M8 4v16"/>',
+    section: '<rect x="3" y="8" width="18" height="12" rx="2"/><rect x="3" y="3" width="9" height="3.5" rx="1.2" fill="currentColor" stroke="none"/>',
     fit: '<path d="M4 9V4h5M20 9V4h-5M4 15v5h5M20 15v5h-5"/>'
   };
   function icon(name) {
@@ -155,7 +160,12 @@
       h("button", { title: "Fit (F)", html: icon("fit"), onclick: function () { fit(); } })
     ]);
     var hint = h("div", { class: "dge-hint" });
-    var canvas = h("div", { class: "dge-canvas", tabindex: "0" }, [stage, zoomBar, hint]);
+    // floating tool bar, bottom centre (as in schema): pointer and hand, then the blocks
+    var tools = h("div", { class: "dge-tools", role: "toolbar", "aria-label": "Tools" });
+    [tools, zoomBar].forEach(function (bar) {
+      ["pointerdown", "dblclick", "contextmenu"].forEach(function (ev) { bar.addEventListener(ev, function (e) { e.stopPropagation(); }); });
+    });
+    var canvas = h("div", { class: "dge-canvas", tabindex: "0" }, [stage, tools, zoomBar, hint]);
     var inspector = h("div", { class: "dge-inspector" });
     var commentsEl = h("div", { class: "dge-comments" });
     var panel = h("aside", { class: "dge-panel" }, [inspector, commentsEl]);
@@ -167,17 +177,21 @@
     el.appendChild(body);
     el.appendChild(toast);
     el.appendChild(menu);
+    var bubble = h("div", { class: "dge-bubble", hidden: true });
+    el.appendChild(bubble);
     el.appendChild(modal);
 
     var narrow = el.clientWidth && el.clientWidth < 760;
-    var showCode = !view && opts.code !== false && !narrow;
-    var showPanel = opts.panel !== false && !narrow && !view;
+    // both sidebars are opt-in for now
+    var hasCode = opts.code === true, hasPanel = opts.panel === true;
+    var showCode = !view && hasCode && !narrow;
+    var showPanel = hasPanel && !narrow && !view;
 
     function applyChrome() {
       el.setAttribute("data-theme", st.dark ? "dark" : "light");
       codePane.hidden = !showCode;
       panel.hidden = !showPanel;
-      toolbar.querySelectorAll("[data-tool]").forEach(function (b) { b.classList.toggle("on", b.getAttribute("data-tool") === st.tool); });
+      tools.querySelectorAll("[data-tool]").forEach(function (b) { b.setAttribute("aria-pressed", String(b.getAttribute("data-tool") === st.tool)); });
       var cb = toolbar.querySelector("[data-act=code]");
       if (cb) cb.classList.toggle("on", showCode);
       var pb = toolbar.querySelector("[data-act=panel]");
@@ -193,12 +207,25 @@
 
     function buildToolbar() {
       toolbar.innerHTML = "";
+      tools.innerHTML = "";
+      tools.hidden = view;
       if (!view) {
-        var tools = h("div", { class: "dge-group" });
-        [["select", "Select & move (V)"], ["mindmap", "Add a mindmap (T) — then Tab adds a branch, Enter a sibling"], ["node", "Add a box (N)"], ["sticky", "Add a sticky note (S)"], ["connect", "Connect (C) — or drag a node's handle"], ["comment", "Comment (M)"]].forEach(function (t) {
-          tools.appendChild(btn({ "data-tool": t[0], title: t[1], onclick: function () { setTool(t[0]); } }, icon(t[0])));
+        [
+          [["select", "Select (V): click or drag a box around things; drag them to move them. Hold Space to pan."], ["hand", "Hand (H): drag anywhere to pan"]],
+          [["mindmap", "Mindmap (T): click to start one, then Tab adds a branch, Enter a sibling"], ["node", "Box (N): click to place one"], ["decision", "Decision (D): click to place a diamond"], ["sticky", "Sticky note (S): click to place one"], ["connect", "Connect (X): drag from one block to another, or drag a block's handle"]],
+          [["comment", "Comment (C): click a block to comment on it, or anywhere on the canvas"]]
+        ].forEach(function (set, i) {
+          if (i) tools.appendChild(h("span", { class: "dge-tools-sep" }));
+          set.forEach(function (t) {
+            tools.appendChild(btn({ class: "dge-tool", "data-tool": t[0], title: t[1], "aria-pressed": "false", onclick: function () { setTool(t[0]); canvas.focus({ preventScroll: true }); } }, icon(t[0])));
+          });
+          // sections and swimlanes sit with the blocks
+          if (i === 1) {
+            tools.appendChild(btn({ class: "dge-tool", "data-act": "lanes", title: "Swimlanes: lanes the flow runs across; the selected blocks go in the first lane. Drop blocks into a lane to move them there.", onclick: function () { canvas.focus({ preventScroll: true }); addSwimlanes(); } }, icon("lanes")));
+            tools.appendChild(btn({ class: "dge-tool", "data-act": "gantt", title: "Gantt chart: tasks on a timeline. Drag a bar to reschedule it; right-click a task to change its length or add one after it.", onclick: function () { canvas.focus({ preventScroll: true }); addGantt(); } }, icon("gantt")));
+            tools.appendChild(btn({ class: "dge-tool", "data-act": "section", title: "Section (" + MOD + "G): put the selected blocks in a titled section. Drag blocks in or out of a section to change what is in it.", onclick: function () { canvas.focus({ preventScroll: true }); groupSelection(); } }, icon("section")));
+          }
         });
-        toolbar.appendChild(tools);
         toolbar.appendChild(h("div", { class: "dge-group" }, [
           btn({ title: "Undo (" + MOD + "Z)", onclick: undo }, icon("undo")),
           btn({ title: "Redo (" + MOD + "⇧Z)", onclick: redo }, icon("redo"))
@@ -218,10 +245,9 @@
       toolbar.baseChip = h("span", { class: "dge-chip", hidden: true });
       toolbar.appendChild(toolbar.baseChip);
       var right = h("div", { class: "dge-group" });
-      right.appendChild(h("button", { class: "dge-primary", title: "Turn open comments into a prompt for an LLM", onclick: function () { openPrompt(); } }, ["Prompt"]));
       right.appendChild(h("button", { title: "Export and share", onclick: function (e) { openExport(e.currentTarget); } }, ["Export ▾"]));
-      if (!view && opts.code !== false) right.appendChild(btn({ "data-act": "code", title: "Code (" + MOD + "/)", onclick: function () { showCode = !showCode; applyChrome(); } }, icon("code")));
-      right.appendChild(btn({ "data-act": "panel", title: "Inspector & comments", onclick: function () { showPanel = !showPanel; applyChrome(); renderPanel(); } }, icon("panel")));
+      if (!view && hasCode) right.appendChild(btn({ "data-act": "code", title: "Code (" + MOD + "/)", onclick: function () { showCode = !showCode; applyChrome(); } }, icon("code")));
+      if (hasPanel) right.appendChild(btn({ "data-act": "panel", title: "Inspector & comments", onclick: function () { showPanel = !showPanel; applyChrome(); renderPanel(); } }, icon("panel")));
       right.appendChild(btn({ title: "Light / dark", onclick: function () { st.dark = !st.dark; applyChrome(); render(); } }, icon("theme")));
       toolbar.appendChild(right);
     }
@@ -244,6 +270,16 @@
     function comment(id) { return st.doc && (st.doc.comments || []).find(function (c) { return c.id === id; }); }
     function kindOf(id) { return node(id) ? "node" : edge(id) ? "edge" : group(id) ? "group" : null; }
     function idTaken(id) { return !!(node(id) || edge(id) || group(id)); }
+    /* Unused ids for things about to be made together (distinct from each other too). */
+    function freshIds(bases) {
+      var out = [];
+      bases.forEach(function (b) {
+        var x = b, i = 2;
+        while (idTaken(x) || out.indexOf(x) >= 0) x = b + "-" + i++;
+        out.push(x);
+      });
+      return out;
+    }
     function freshId(base) {
       if (!idTaken(base)) return base;
       for (var i = 2; ; i++) if (!idTaken(base + "-" + i)) return base + "-" + i;
@@ -457,6 +493,12 @@
       for (var i = 0; i < out.length; i++) kidsOf(out[i]).forEach(function (k) { if (out.indexOf(k) < 0) out.push(k); });
       return out;
     }
+    /* Topics of the map centred on `root` that were placed by hand. */
+    function placedTopics(root) { return subtreeOf(root).filter(function (id) { var n = node(id); return id !== root && n && n.x != null; }); }
+    function resetArrangement(root) {
+      var ops = placedTopics(root).map(function (id) { return { op: "unpin", id: id }; });
+      if (ops.length && applyOps(ops).ok) flash("Mindmap arrangement reset");
+    }
     /* The side a topic's own branches grow towards. */
     function outerSide(id) {
       var m = mapInfo(id);
@@ -501,6 +543,29 @@
       }
       return res.ok ? id : null;
     }
+    /* A new topic between `id` and its parent; above the centre it becomes the
+       new centre, in the same place, and the old centre its branch. */
+    function addParent(id) {
+      var n = node(id);
+      if (!n) return null;
+      var nid, add;
+      if (n.parent) {
+        nid = freshId("topic");
+        add = { op: "add_node", id: nid, label: "", parent: n.parent, index: kidsOf(n.parent).indexOf(id) };
+      } else {
+        nid = freshId("map");
+        add = { op: "add_node", id: nid, label: "", mindmap: n.mindmap || "right" };
+        var g = geom(id);
+        if (n.x != null || g) { add.x = n.x != null ? n.x : Math.round(g.x); add.y = n.y != null ? n.y : Math.round(g.y); }
+        if (n.group) add.group = n.group;
+      }
+      var res = applyOps([add, { op: "update_node", id: id, parent: nid }]);
+      if (res.ok) {
+        select([nid]);
+        editLabel(nid, true, false, id);
+      }
+      return res.ok ? nid : null;
+    }
     function addSibling(id, after) {
       var n = node(id);
       if (!n || !n.parent) return addTopic(id);
@@ -509,6 +574,7 @@
     }
     function outdent(id) {
       var n = node(id), p = n && n.parent && node(n.parent);
+      if (n && !n.parent) return addParent(id); // ⇧Tab on the centre: a new centre above it
       if (!p || !p.parent) return;
       applyOps([{ op: "update_node", id: id, parent: p.parent, index: kidsOf(p.parent).indexOf(p.id) + 1 }]);
     }
@@ -726,7 +792,7 @@
       st.drag = null;
       applyChrome();
       drawOverlay();
-      var tips = { mindmap: "Click to start a mindmap", node: "Click to place a box", sticky: "Click to place a sticky note", connect: "Drag from one node to another (or to empty space)", comment: "Click a node, edge, group or the canvas to comment" };
+      var tips = { mindmap: "Click to start a mindmap", node: "Click to place a box", decision: "Click to place a decision", sticky: "Click to place a sticky note", connect: "Drag from one node to another (or to empty space)", comment: "Click a block to comment on it, or anywhere on the canvas" };
       if (tips[t]) flash(tips[t]);
     }
 
@@ -782,7 +848,7 @@
       var sticky = shape === "sticky";
       var w = sticky ? 150 : 120, hgt = sticky ? 110 : 44;
       var id = freshId(sticky ? "note" : "node");
-      var op = { op: "add_node", id: id, label: sticky ? "Note" : "New box", x: Math.round(p.x - w / 2), y: Math.round(p.y - hgt / 2) };
+      var op = { op: "add_node", id: id, label: sticky ? "Note" : shape === "diamond" ? "Decision?" : "New box", x: Math.round(p.x - w / 2), y: Math.round(p.y - hgt / 2) };
       if (shape && shape !== "box") op.shape = shape;
       if (groupId) op.group = groupId;
       var res = applyOps([op]);
@@ -805,38 +871,110 @@
       });
     }
 
+    /* Right-click actions, by kind of block. */
+    function contextItems(t) {
+      var gr = t.type === "group" && group(t.id);
+      if (t.type === "node" && !view && chartOf(t.id)) {
+        var tk = node(t.id);
+        return [
+          ["Rename", function () { editLabel(t.id); }],
+          ["Longer (+1 day)", function () { taskDays(t.id, 1); }],
+          ["Shorter (−1 day)", function () { taskDays(t.id, -1); }],
+          tk.start ? ["Follow the task before", function () { applyOps([{ op: "update_node", id: t.id, start: "" }]); }, "Drop its fixed date"] : null,
+          ["Add task after", function () { addTask(tk.group, t.id); }],
+          "-",
+          ["Delete", function () { applyOps([{ op: "remove", id: t.id }]); select([]); }]
+        ].filter(Boolean);
+      }
+      if (gr && !view && gr.gantt) return [
+        ["Rename", function () { editLabel(t.id); }],
+        ["Add task", function () { addTask(t.id); }],
+        "-",
+        ["Remove chart", function () { applyOps([{ op: "remove", id: t.id, keep_members: true }]); select([]); }, "Its tasks stay, as boxes"]
+      ];
+      if (t.type === "node" && !mapInfo(t.id) && !view) return [
+        ["Rename", function () { editLabel(t.id); }],
+        ["Shape…", function () { shapeMenu(t.id); }],
+        "-",
+        ["Delete", function () { applyOps([{ op: "remove", id: t.id }]); select([]); }]
+      ];
+      if (t.type === "edge" && !view) {
+        var ed = edge(t.id);
+        return [
+          [ed.label ? "Edit label" : "Add label", function () { editLabel(t.id); }],
+          [ed.line === "dashed" ? "Solid line" : "Dashed line", function () { applyOps([{ op: "update_edge", id: t.id, line: ed.line === "dashed" ? "solid" : "dashed" }]); }],
+          ["Reverse direction", function () { applyOps([{ op: "update_edge", id: t.id, from: ed.to, to: ed.from }]); select([]); }],
+          "-",
+          ["Delete", function () { applyOps([{ op: "remove", id: t.id }]); select([]); }]
+        ];
+      }
+      if (gr && !view && gr.lanes) return [
+        ["Rename", function () { editLabel(t.id); }],
+        ["Add lane", function () { addLane(t.id); }],
+        "-",
+        ["Remove swimlanes", function () { applyOps([{ op: "remove", id: t.id, keep_members: true }]); select([]); }, "The lanes become sections; the blocks stay"]
+      ];
+      if (gr && !view && gr.parent && group(gr.parent) && group(gr.parent).lanes) return [
+        ["Rename", function () { editLabel(t.id); }],
+        ["Add lane after", function () { addLane(gr.parent, t.id); }],
+        "-",
+        ["Remove lane", function () { applyOps([{ op: "remove", id: t.id, keep_members: true }]); select([]); }, "Its blocks stay in the swimlanes"]
+      ];
+      if (t.type === "group") return view ? [] : [
+        ["Rename", function () { editLabel(t.id); }],
+        ["Remove section", function () { applyOps([{ op: "remove", id: t.id, keep_members: true }]); select([]); }, "The blocks stay where they are"]
+      ];
+      if (t.type === "node" && mapInfo(t.id)) return [
+        ["Add parent", function () { addParent(t.id); }, mapInfo(t.id).parent ? "A new topic between this one and its parent" : "A new centre above this one (⇧Tab)"],
+        "-",
+        ["Copy as prompt", function () { copyPrompt(t.id); }, "This topic and everything under it as Markdown: the topic is the title, its branches are sections"]
+      ].filter(function (it) { return !view || it[0] === "Copy as prompt"; });
+      return [];
+    }
+    /* Pick a shape for a box, at the spot of the menu that led here. */
+    function shapeMenu(id) {
+      var cur = node(id).shape || "box";
+      setTimeout(function () {
+        openMenu(st.menuAt, SHAPES.map(function (sh) {
+          return [(sh === cur ? "✓ " : "\u2003") + sh.charAt(0).toUpperCase() + sh.slice(1), function () { applyOps([{ op: "update_node", id: id, shape: sh }]); }];
+        }));
+      });
+    }
+    function copyPrompt(id) {
+      var n = node(id), label = n && (n.label || n.id);
+      copyText(st.session.markdown(id)).then(function () { flash("Prompt copied — “" + label + "” and everything under it"); });
+    }
+    canvas.addEventListener("contextmenu", function (e) {
+      var t = st.r && hit(e.target);
+      var items = t ? contextItems(t) : [];
+      if (!items.length) return;
+      e.preventDefault();
+      if ((t.type === "node" || t.type === "edge" || t.type === "group") && st.sel.indexOf(t.id) < 0) select([t.id]);
+      st.menuAt = { x: e.clientX, y: e.clientY };
+      openMenu(st.menuAt, items);
+    });
+
     canvas.addEventListener("pointerdown", function (e) {
       if (!st.r) return;
       canvas.focus({ preventScroll: true });
       closeMenu();
       var p = toDiagram(e.clientX, e.clientY);
       var t = hit(e.target);
-      if (e.button === 1 || st.space || (e.button === 0 && view && !(t && t.type === "pin"))) {
+      if (e.button === 1 || st.space || (e.button === 0 && (st.tool === "hand" || view) && !(t && t.type === "pin"))) {
         st.drag = { type: "pan", sx: e.clientX, sy: e.clientY, px: st.panX, py: st.panY };
         canvas.setPointerCapture(e.pointerId);
         canvas.classList.add("panning");
         return;
       }
       if (e.button !== 0) return;
-      if (t && t.type === "pin") {
-        st.comment = t.id;
-        st.sel = [];
-        showPanel = true;
-        applyChrome();
-        markSelection();
-        renderPanel();
-        var card = commentsEl.querySelector('[data-cid="' + cssEsc(t.id) + '"]');
-        if (card) card.scrollIntoView({ block: "nearest" });
-        return;
-      }
+      closeBubble();
+      // the popovers take the focus: keep the browser from handing it back to the canvas
+      if (t && t.type === "pin") { e.preventDefault(); openThread(t.id, e.clientX, e.clientY); return; }
       if (st.tool === "comment") {
-        st.composer = t && (t.type === "node" || t.type === "edge" || t.type === "group") ? { on: t.id } : { x: Math.round(p.x), y: Math.round(p.y) };
-        showPanel = true;
-        applyChrome();
-        renderPanel();
-        setTool("select");
-        var ta = commentsEl.querySelector(".dge-composer textarea");
-        if (ta) ta.focus();
+        var on = t && (t.type === "node" || t.type === "edge" || t.type === "group") ? t.id : null;
+        e.preventDefault();
+        if (on) select([on]);
+        openComposer(on ? { on: on } : { x: Math.round(p.x), y: Math.round(p.y) }, e.clientX, e.clientY);
         return;
       }
       if (t && t.type === "plus") { e.preventDefault(); addTopic(t.id); return; }
@@ -849,10 +987,10 @@
         if (mres.ok) { select([mid]); editLabel(mid, true, true); }
         return;
       }
-      if (st.tool === "node" || st.tool === "sticky") {
+      if (st.tool === "node" || st.tool === "sticky" || st.tool === "decision") {
         e.preventDefault();
         var gid = t && t.type === "group" ? t.id : t && t.type === "node" ? (node(t.id) || {}).group : null;
-        addNodeAt(p, st.tool === "sticky" ? "sticky" : "box", gid, true);
+        addNodeAt(p, { sticky: "sticky", decision: "diamond" }[st.tool] || "box", gid, true);
         setTool("select");
         return;
       }
@@ -873,18 +1011,20 @@
           return;
         }
         // everything selected moves; groups carry their members
-        var ids = [];
+        var ids = [], direct = [];
         st.sel.forEach(function (id) {
           if (isBranch(id)) return;
-          if (node(id)) ids.push(id);
+          if (node(id)) { ids.push(id); direct.push(id); }
           else if (group(id)) ids = ids.concat(membersOf(id));
         });
         var items = [];
         ids.forEach(function (id) {
           var g = geom(id);
-          if (g && !items.some(function (i) { return i.id === id; })) items.push({ id: id, x: g.x, y: g.y });
+          if (g && !items.some(function (i) { return i.id === id; })) items.push({ id: id, x: g.x, y: g.y, w: g.w, h: g.h, direct: direct.indexOf(id) >= 0 });
         });
-        st.drag = { type: "move", sx: p.x, sy: p.y, dx: 0, dy: 0, items: items, before: st.text, moved: false };
+        // sections as they are now: while dragging, they stretch around what moves
+        var sections = (st.r.groups || []).map(function (g) { return { id: g.id, x: g.x, y: g.y, w: g.w, h: g.h, lane: !!g.lane, gantt: g.gantt || null }; });
+        st.drag = { type: "move", sx: p.x, sy: p.y, dx: 0, dy: 0, items: items, sections: sections, before: st.text, moved: false };
         canvas.setPointerCapture(e.pointerId);
         return;
       }
@@ -921,6 +1061,7 @@
       } else if (d.type === "branch") {
         var bx = p.x - d.sx, by = p.y - d.sy;
         if (!d.moved && Math.abs(bx) + Math.abs(by) < 4) return;
+        d.bx = bx; d.by = by;
         d.moved = true;
         d.items.forEach(function (id) {
           stage.querySelectorAll('[data-id="' + cssEsc(id) + '"],[data-fold="' + cssEsc(id) + '"]').forEach(function (el2) {
@@ -972,13 +1113,32 @@
           if (d.target.mode === "child" && node(tid).collapsed) ops2.push({ op: "update_node", id: tid, collapsed: false });
           ops2.push(op);
           if (!applyOps(ops2).ok) render();
-        } else if (d.moved) render();
+        } else if (d.moved) {
+          // dropped on empty canvas: the topic stays there (relative to its centre)
+          var tg = geom(d.id), cg = geom(mapInfo(d.id).root);
+          if (!applyOps([{ op: "move", id: d.id, x: Math.round(tg.x + d.bx - cg.x), y: Math.round(tg.y + d.by - cg.y) }]).ok) render();
+        }
         drawOverlay();
         return;
       }
       if (d.type === "move" && d.moved) {
         if (raf) { cancelAnimationFrame(raf); raf = 0; }
         var ops = d.items.map(function (m) { return { op: "move", id: m.id, x: m.x + d.dx, y: m.y + d.dy }; });
+        d.items.forEach(function (m) {
+          if (!m.direct) return;
+          var into = sectionAt(d.sections, m.x + d.dx + m.w / 2, m.y + d.dy + m.h / 2), was = node(m.id).group || null;
+          if (into !== was) ops.push({ op: "update_node", id: m.id, group: into || "" });
+          // lanes and charts are laid out automatically: no pin inside one
+          var sec = d.sections.find(function (g) { return g.id === into; });
+          if (sec && (sec.lane || sec.gantt)) ops = ops.filter(function (o) { return !(o.op === "move" && o.id === m.id); }).concat([{ op: "unpin", id: m.id }]);
+          // a bar moved along its own chart starts on the day it was dropped at
+          if (sec && sec.gantt && into === was) {
+            var gt = sec.gantt, origin = gt.origin != null ? gt.origin : today();
+            var day = Math.round((m.x + d.dx - gt.left) / gt.day);
+            if (gt.origin == null) ops.push({ op: "update_group", id: into, start: isoDay(origin) });
+            ops.push({ op: "update_node", id: m.id, start: isoDay(origin + day) });
+          }
+        });
         st.session.set_source(d.before);
         st.text = d.before;
         applyOps(ops);
@@ -1016,8 +1176,10 @@
     canvas.addEventListener("pointerleave", function () { if (st.hover && !st.drag) { st.hover = null; drawOverlay(); } });
 
     canvas.addEventListener("dblclick", function (e) {
-      if (view || !st.r) return;
-      var t = hit(e.target);
+      if (view || !st.r || st.tool === "hand") return;
+      // the first click may have re-rendered what is under the pointer
+      var under = document.elementFromPoint(e.clientX, e.clientY) || e.target;
+      var t = hit(under);
       if (t && (t.type === "node" || t.type === "edge" || t.type === "group")) {
         editLabel(t.id);
         return;
@@ -1047,8 +1209,9 @@
       }
     }, { passive: false });
 
-    /* Inline label editor over a node, edge label or group title. */
-    function editLabel(id, isNew, flow) {
+    /* Inline label editor over a node, edge label or group title. `wrapped`:
+       the topic was just inserted above that one; left empty, the insert is undone. */
+    function editLabel(id, isNew, flow, wrapped) {
       var kind = kindOf(id);
       var topic = kind === "node" && !!mapInfo(id);
       if (!kind || !st.r) return;
@@ -1086,6 +1249,12 @@
         var v = ta.value.trim();
         ta.remove();
         canvas.focus({ preventScroll: true });
+        if (topic && isNew && wrapped && (!save || !v)) {
+          undo();
+          st.redo.pop();
+          select([wrapped]);
+          return null;
+        }
         if (topic && isNew && (!save || !v)) {
           // an empty new topic is dropped; its parent stays selected
           var par = node(id) && node(id).parent;
@@ -1102,7 +1271,12 @@
           if (isNew && v && nice !== id && !idTaken(nice)) ops.push({ op: "rename", id: id, to: nice });
           else if (isNew && v && nice !== id && !/^(node|note|topic|map)(-\d+)?$/.test(nice)) ops.push({ op: "rename", id: id, to: freshId(nice) });
         } else if (kind === "edge") ops = [{ op: "update_edge", id: id, label: v }];
-        else ops = [{ op: "update_group", id: id, label: v }];
+        else {
+          ops = [{ op: "update_group", id: id, label: v }];
+          // a section that was just made gets an id from its title
+          var gnice = slug(v);
+          if (isNew && v && gnice && gnice !== id) ops.push({ op: "rename", id: id, to: idTaken(gnice) ? freshId(gnice) : gnice });
+        }
         var res = applyOps(ops);
         if (res.ok && ops.length > 1) { select([ops[1].to]); return ops[1].to; }
         return id;
@@ -1142,15 +1316,98 @@
       select(up && node(up) ? [up] : []);
     }
 
+    /* A titled section (a group) around the selected blocks. */
     function groupSelection() {
-      var members = st.sel.filter(function (id) { return node(id) || group(id); });
-      if (!members.length) return;
-      var id = freshId("group");
-      var res = applyOps([{ op: "add_group", id: id, label: "Group", members: members }]);
+      var members = st.sel.filter(function (id) { return (node(id) && !node(id).parent) || group(id); });
+      if (!members.length) return flash("Select the blocks to put in a section (drag a box around them), then press Section");
+      var id = freshId("section");
+      var res = applyOps([{ op: "add_group", id: id, label: "Section", members: members }]);
       if (res.ok) {
         select([id]);
-        editLabel(id, false);
+        editLabel(id, true);
       }
+    }
+
+    /* Gantt charts: days since 1970 ↔ YYYY-MM-DD (UTC, like the core). */
+    function isoDay(days) { return new Date(days * 86400000).toISOString().slice(0, 10); }
+    function today() { var d = new Date(); return Date.UTC(d.getFullYear(), d.getMonth(), d.getDate()) / 86400000; }
+    function chartOf(id) { var n = node(id), g = n && n.group && group(n.group); return g && g.gantt ? g : null; }
+    /* A chart starting today with two tasks; its title is typed next. */
+    function addGantt() {
+      var ids = freshIds(["plan", "task-1", "task-2"]);
+      var res = applyOps([
+        { op: "add_group", id: ids[0], label: "Plan", gantt: true, start: isoDay(today()) },
+        { op: "add_node", id: ids[1], label: "Task 1", group: ids[0], days: 5 },
+        { op: "add_node", id: ids[2], label: "Task 2", group: ids[0], days: 3, after: [ids[1]] }
+      ]);
+      if (res.ok) {
+        select([ids[0]]);
+        reveal(ids[0]);
+        editLabel(ids[0], true);
+      }
+    }
+    function addTask(chart, after) {
+      var nid = freshId("task"), op = { op: "add_node", id: nid, label: "New task", group: chart, days: 3 };
+      if (after) op.after = [after];
+      if (applyOps([op]).ok) {
+        select([nid]);
+        editLabel(nid, true);
+      }
+    }
+    function taskDays(id, delta) {
+      var d = (node(id).days || 1) + delta;
+      if (d >= 1) applyOps([{ op: "update_node", id: id, days: d }]);
+    }
+
+    /* Swimlanes with two lanes; the selected blocks go in the first. */
+    function addSwimlanes() {
+      var members = st.sel.filter(function (id) { return (node(id) && !node(id).parent) || (group(id) && !group(id).lanes); });
+      var ids = freshIds(["swimlanes", "lane", "lane"]), id = ids[0], l1 = ids[1], l2 = ids[2];
+      var res = applyOps([
+        { op: "add_group", id: id, label: "Swimlanes", lanes: true },
+        { op: "add_group", id: l1, label: "Lane 1", parent: id, members: members },
+        { op: "add_group", id: l2, label: "Lane 2", parent: id }
+      ].concat(members.filter(function (m) { return node(m); }).map(function (m) { return { op: "unpin", id: m }; })));
+      if (res.ok) {
+        select([id]);
+        reveal(id);
+        editLabel(id, true);
+      }
+    }
+    function lanesOf(id) { return (st.doc.groups || []).filter(function (g) { return g.parent === id; }); }
+    function addLane(container, after) {
+      var lanes = lanesOf(container), nid = freshId("lane");
+      var res = applyOps([{ op: "add_group", id: nid, label: "Lane " + (lanes.length + 1), parent: container }]);
+      if (!res.ok) return;
+      // a new lane goes right after the one it was asked from (groups keep document order)
+      if (after) {
+        var gs = st.doc.groups.map(function (g) { return g.id; }).filter(function (x) { return x !== nid; });
+        gs.splice(gs.indexOf(after) + 1, 0, nid);
+        reorderGroups(gs);
+      }
+      select([nid]);
+      editLabel(nid, true);
+    }
+    /* Groups in the given order, by rewriting the DSL: the core keeps groups in document order. */
+    function reorderGroups(ids) {
+      var doc = JSON.parse(st.session.source("json"));
+      doc.groups.sort(function (a, b) { return ids.indexOf(a.id) - ids.indexOf(b.id); });
+      var before = st.text;
+      var res = JSON.parse(st.session.set_source(JSON.stringify(doc)));
+      if (res.errors && res.errors.length) { st.session.set_source(before); return; }
+      // part of the change that made the lane: no undo step of its own
+      st.text = st.session.source("dsl");
+      refreshDoc();
+      afterChange(true);
+    }
+
+    /* The innermost of `sections` under a point, if any. */
+    function sectionAt(sections, x, y) {
+      var best = null;
+      sections.forEach(function (g) {
+        if (x >= g.x && x <= g.x + g.w && y >= g.y && y <= g.y + g.h && (!best || g.w * g.h < best.w * best.h)) best = g;
+      });
+      return best ? best.id : null;
     }
 
     function duplicateSelection() {
@@ -1187,7 +1444,7 @@
         if (opts.onSave) { e.preventDefault(); opts.onSave(st.text, api); }
         return;
       }
-      if (mod && e.key === "/") { e.preventDefault(); showCode = !showCode; applyChrome(); syncCode(true); return; }
+      if (mod && e.key === "/" && hasCode) { e.preventDefault(); showCode = !showCode; applyChrome(); syncCode(true); return; }
       if (typing || !el.contains(document.activeElement) && document.activeElement !== document.body) return;
       if (e.key === " " && !st.space) { st.space = true; canvas.classList.add("space"); e.preventDefault(); return; }
       if (mod && e.key.toLowerCase() === "z") { e.preventDefault(); if (e.shiftKey) redo(); else undo(); return; }
@@ -1216,23 +1473,25 @@
       if (mod) return;
       switch (e.key) {
         case "v": case "V": setTool("select"); break;
+        case "h": case "H": setTool("hand"); break;
         case "t": case "T": setTool("mindmap"); break;
         case "n": case "N": case "r": setTool("node"); break;
         case "s": case "S": setTool("sticky"); break;
-        case "c": case "C": setTool("connect"); break;
-        case "m": case "M": setTool("comment"); break;
+        case "c": case "C": setTool("comment"); break;
+        case "x": case "X": setTool("connect"); break;
+        case "d": case "D": setTool("decision"); break;
         case "f": fit(); break;
         case "0": zoomTo(1); break;
         case "+": case "=": zoomTo(st.zoom * 1.2); break;
         case "-": zoomTo(st.zoom / 1.2); break;
         case "Enter": if (st.sel.length === 1) { e.preventDefault(); editLabel(st.sel[0]); } break;
         case "Delete": case "Backspace": e.preventDefault(); deleteSelection(); break;
-        case "Escape": if (st.tool !== "select") setTool("select"); else select([]); closeMenu(); break;
+        case "Escape": if (!bubble.hidden) closeBubble(); else if (st.tool !== "select") setTool("select"); else select([]); closeMenu(); break;
         case "ArrowLeft": e.preventDefault(); nudge(e.shiftKey ? -40 : -8, 0); break;
         case "ArrowRight": e.preventDefault(); nudge(e.shiftKey ? 40 : 8, 0); break;
         case "ArrowUp": e.preventDefault(); nudge(0, e.shiftKey ? -40 : -8); break;
         case "ArrowDown": e.preventDefault(); nudge(0, e.shiftKey ? 40 : 8); break;
-        case "?": flash("V select · T mindmap · N box · S sticky · C connect · M comment · double-click to add/edit · " + MOD + "G group · " + MOD + "D duplicate · F fit · space+drag pan. Mindmaps: Tab branch · Enter sibling · ⇧Tab outdent · F2 rename · . fold · arrows move · ⌥↑↓ reorder · paste a list", false, 9000); break;
+        case "?": flash("V select · H hand · T mindmap · N box · S sticky · X connect · C comment · double-click to add/edit · " + MOD + "G section · " + MOD + "D duplicate · F fit · space+drag pan. Mindmaps: Tab branch · Enter sibling · ⇧Tab outdent (on the centre: a new centre above it) · right-click for more · F2 rename · . fold · arrows move · ⌥↑↓ reorder · paste a list", false, 9000); break;
         default: return;
       }
     }
@@ -1289,7 +1548,7 @@
         inspector.appendChild(field("Description", textInput(d.description, function (v) { applyOps([{ op: "set", key: "description", value: v }]); })));
         inspector.appendChild(field("Layout", selectInput([["layered", "Flow (layered)"], ["grid", "Grid"]], s.layout || "layered", function (v) { applyOps([{ op: "set", key: "layout", value: v }]); })));
         inspector.appendChild(h("p", { class: "dge-muted" }, [d.nodes.length + " nodes · " + (d.edges || []).length + " edges · " + (d.groups || []).length + " groups"]));
-        var about = textInput("", function (v) { if (v.trim()) { newMap(v); } }, { placeholder: "e.g. Payments in France" });
+        var about = textInput("", function (v) { if (v.trim()) { newMap(v); } }, { placeholder: "e.g. Team offsite" });
         inspector.appendChild(field("✦ Mindmap about…", about));
         inspector.appendChild(h("p", { class: "dge-tip" }, ["Press T and click to start a mindmap, or paste a list. Double-click the canvas to add a box. Drag a box's dot onto another box to connect them. Press ? for shortcuts."]));
         return;
@@ -1302,7 +1561,7 @@
         })));
         if (nodes.length) inspector.appendChild(field("Shape", selectInput([""].concat(SHAPES), "", function (v) { if (v) applyOps(nodes.map(function (id) { return { op: "update_node", id: id, shape: v }; })); })));
         inspector.appendChild(h("div", { class: "dge-actions" }, [
-          h("button", { onclick: groupSelection }, ["Group (" + MOD + "G)"]),
+          h("button", { onclick: groupSelection }, ["Section (" + MOD + "G)"]),
           h("button", { onclick: function () { applyOps(nodes.map(function (id) { return { op: "unpin", id: id }; })); } }, ["Auto-place"]),
           h("button", { class: "danger", onclick: deleteSelection }, ["Delete"])
         ]));
@@ -1318,7 +1577,7 @@
         inspector.appendChild(field("Detail", textInput(n.detail, function (v) { applyOps([{ op: "update_node", id: id, detail: v }]); }, { placeholder: "e.g. Rust · Axum" })));
         inspector.appendChild(field("Shape", selectInput(SHAPES, n.shape || "box", function (v) { applyOps([{ op: "update_node", id: id, shape: v }]); })));
         inspector.appendChild(field("Colour", swatches(n.color, function (c) { applyOps([{ op: "update_node", id: id, color: c }]); })));
-        inspector.appendChild(field("Group", selectInput([["", "—"]].concat((st.doc.groups || []).map(function (g) { return [g.id, g.label || g.id]; })), n.group || "", function (v) { applyOps([{ op: "update_node", id: id, group: v }]); })));
+        inspector.appendChild(field("Section", selectInput([["", "—"]].concat((st.doc.groups || []).map(function (g) { return [g.id, g.label || g.id]; })), n.group || "", function (v) { applyOps([{ op: "update_node", id: id, group: v }]); })));
         inspector.appendChild(field("Link", textInput(n.link, function (v) { applyOps([{ op: "update_node", id: id, link: v }]); }, { placeholder: "https://…" })));
         inspector.appendChild(field("Tags", textInput((n.tags || []).join(" "), function (v) { applyOps([{ op: "update_node", id: id, tags: v.split(/\s+/).filter(Boolean) }]); }, { placeholder: "service team-a" })));
         inspector.appendChild(field("Id", textInput(id, function (v) { var res = applyOps([{ op: "rename", id: id, to: v.trim() }]); if (res.ok) select([v.trim()]); })));
@@ -1340,13 +1599,13 @@
         ]));
       } else {
         var g = group(id);
-        inspector.appendChild(h("h3", {}, ["Group ", h("code", {}, [id])]));
+        inspector.appendChild(h("h3", {}, ["Section ", h("code", {}, [id])]));
         inspector.appendChild(field("Label", textInput(g.label || g.id, function (v) { applyOps([{ op: "update_group", id: id, label: v }]); })));
         inspector.appendChild(field("Colour", swatches(g.color, function (c) { applyOps([{ op: "update_group", id: id, color: c }]); })));
         inspector.appendChild(field("Inside", selectInput([["", "—"]].concat((st.doc.groups || []).filter(function (x) { return x.id !== id; }).map(function (x) { return [x.id, x.label || x.id]; })), g.parent || "", function (v) { applyOps([{ op: "update_group", id: id, parent: v }]); })));
         inspector.appendChild(h("div", { class: "dge-actions" }, [
           commentBtn,
-          h("button", { onclick: function () { applyOps([{ op: "remove", id: id, keep_members: true }]); select([]); } }, ["Ungroup"]),
+          h("button", { onclick: function () { applyOps([{ op: "remove", id: id, keep_members: true }]); select([]); } }, ["Remove section"]),
           h("button", { class: "danger", onclick: function () { applyOps([{ op: "remove", id: id, keep_members: false }]); select([]); } }, ["Delete with contents"])
         ]));
       }
@@ -1372,7 +1631,11 @@
         askIn,
         h("button", { class: "dge-primary", title: "Ask the model for subtopics (" + MOD + "↵)", onclick: function () { expandTopic(id, askIn.value); } }, [st.thinking[id] ? "✦ Thinking…" : "✦ Grow this topic"])
       ]));
-      var root = m.root;
+      var root = m.root, placed = placedTopics(root).length;
+      if (placed) inspector.appendChild(h("div", { class: "dge-actions" }, [
+        n.parent && n.x != null ? h("button", { title: "Put this topic back in the automatic layout", onclick: function () { applyOps([{ op: "unpin", id: id }]); } }, ["Auto-place"]) : null,
+        h("button", { title: "Put every topic of this map back in the automatic layout", onclick: function () { resetArrangement(root); } }, ["Reset arrangement" + (placed > 1 ? " (" + placed + ")" : "")])
+      ]));
       inspector.appendChild(h("div", { class: "dge-actions" }, [
         h("button", { title: "The branch as an indented outline (" + MOD + "C)", onclick: function () { copyText(st.session.outline(id)).then(function () { flash("Outline copied"); }); } }, ["Copy outline"]),
         h("button", { title: "The whole map as Markdown: the centre is the title, branches are sections. Paste it as a prompt.", onclick: function () { copyText(st.session.markdown(root)).then(function () { flash("Markdown copied — use it as a prompt"); }); } }, ["Copy as prompt"])
@@ -1382,7 +1645,7 @@
         n.parent ? h("button", { title: "Make this branch a mindmap of its own", onclick: function () { var g = geom(id); applyOps([{ op: "update_node", id: id, parent: "" }, { op: "move", id: id, x: Math.round(g.x + 40), y: Math.round(g.y + 80) }]); } }, ["Detach"]) : null,
         h("button", { class: "danger", onclick: deleteSelection }, [centre ? "Delete map" : "Delete branch"])
       ]));
-      inspector.appendChild(h("p", { class: "dge-tip" }, ["Tab: branch · Enter: sibling · ⇧Tab: outdent · F2: rename · arrows: move around · ⌥↑↓: reorder · drag a topic onto another to move it."]));
+      inspector.appendChild(h("p", { class: "dge-tip" }, ["Tab: branch · Enter: sibling · ⇧Tab: outdent (on the centre: a new centre above it) · F2: rename · arrows: move around · ⌥↑↓: reorder · drag a topic onto another to move it, or anywhere to place it by hand."]));
     }
 
     function renderComments() {
@@ -1489,15 +1752,84 @@
     }
 
     function closeMenu() { menu.hidden = true; }
+
+    /* Comment popovers: a box to write a comment, or a thread with replies. */
+    function closeBubble() { if (!bubble.hidden) { bubble.hidden = true; bubble.innerHTML = ""; st.comment = null; markSelection(); } }
+    function placeBubble(cx, cy) {
+      var host = el.getBoundingClientRect();
+      bubble.hidden = false;
+      var x = cx - host.left + 14, y = cy - host.top + 14;
+      bubble.style.left = Math.max(8, Math.min(x, host.width - bubble.offsetWidth - 8)) + "px";
+      // stay clear of the floating tool bar at the bottom
+      bubble.style.top = Math.max(8, Math.min(y, host.height - bubble.offsetHeight - 68)) + "px";
+    }
+    function commentBox(placeholder, onSend, label) {
+      var ta = h("textarea", { rows: 2, placeholder: placeholder });
+      var send = function () { var v = ta.value.trim(); if (v) onSend(v); };
+      ta.addEventListener("keydown", function (e) {
+        e.stopPropagation();
+        if (e.key === "Enter" && !e.shiftKey) { e.preventDefault(); send(); }
+        if (e.key === "Escape") { e.preventDefault(); closeBubble(); canvas.focus({ preventScroll: true }); }
+      });
+      return { ta: ta, el: h("div", { class: "dge-bubble-box" }, [ta, h("button", { class: "dge-primary", title: "Enter (⇧Enter for a new line)", onclick: send }, [label])]) };
+    }
+    function openComposer(target, cx, cy) {
+      bubble.innerHTML = "";
+      var box = commentBox(target.on ? "Comment on " + labelOf(target.on) + "…" : "Add a comment…", function (text) {
+        var op = { op: "add_comment", text: text };
+        if (target.on) op.on = target.on; else { op.x = target.x; op.y = target.y; }
+        if (st.author) op.author = st.author;
+        closeBubble();
+        setTool("select");
+        applyOps([op]);
+        canvas.focus({ preventScroll: true });
+      }, "Comment");
+      bubble.appendChild(box.el);
+      placeBubble(cx, cy);
+      setTimeout(function () { box.ta.focus(); });
+    }
+    function openThread(cid, cx, cy) {
+      var all = st.doc.comments || [], c = all.find(function (x) { return x.id === cid; });
+      if (!c) return;
+      st.comment = cid;
+      markSelection();
+      bubble.innerHTML = "";
+      var resolved = c.status === "resolved";
+      var head = h("div", { class: "dge-bubble-head" }, [
+        h("span", { class: "dge-num" + (resolved ? " done" : "") }, [String(all.indexOf(c) + 1)]),
+        h("span", { class: "dge-muted" }, [c.on ? "on " + labelOf(c.on) : "on the board"]),
+        h("span", { class: "dge-spacer" }),
+        view ? null : h("button", { title: resolved ? "Reopen" : "Resolve", onclick: function () { applyOps([{ op: resolved ? "reopen_comment" : "resolve_comment", id: cid }]); closeBubble(); } }, [resolved ? "Reopen" : "✓ Resolve"]),
+        view ? null : h("button", { class: "danger", title: "Delete the thread", onclick: function () { applyOps([{ op: "remove", id: cid }]); closeBubble(); } }, ["Delete"])
+      ]);
+      bubble.appendChild(head);
+      [{ author: c.author, text: c.text }].concat(c.replies || []).forEach(function (m) {
+        bubble.appendChild(h("div", { class: "dge-msg" }, [h("b", {}, [m.author || "anonymous"]), h("div", {}, [m.text])]));
+      });
+      if (c.resolution) bubble.appendChild(h("div", { class: "dge-resolution" }, ["✓ " + c.resolution]));
+      if (!view) {
+        var box = commentBox("Reply…", function (text) {
+          var op = { op: "reply", id: cid, text: text };
+          if (st.author) op.author = st.author;
+          applyOps([op]);
+          openThread(cid, cx, cy);
+        }, "Reply");
+        bubble.appendChild(box.el);
+        setTimeout(function () { box.ta.focus(); });
+      }
+      placeBubble(cx, cy);
+    }
+    document.addEventListener("pointerdown", function (e) { if (!bubble.hidden && !bubble.contains(e.target) && !canvas.contains(e.target)) closeBubble(); });
+    /* `anchor`: an element (the menu drops below it) or a {x, y} client point. */
     function openMenu(anchor, items) {
       menu.innerHTML = "";
       items.forEach(function (it) {
         if (it === "-") return menu.appendChild(h("hr"));
-        menu.appendChild(h("button", { onclick: function () { closeMenu(); it[1](); } }, [it[0]]));
+        menu.appendChild(h("button", { title: it[2] || "", onclick: function () { closeMenu(); it[1](); } }, [it[0]]));
       });
-      var r = anchor.getBoundingClientRect(), host = el.getBoundingClientRect();
+      var r = anchor.getBoundingClientRect ? anchor.getBoundingClientRect() : { left: anchor.x, bottom: anchor.y - 4 }, host = el.getBoundingClientRect();
       menu.hidden = false;
-      menu.style.top = (r.bottom - host.top + 4) + "px";
+      menu.style.top = Math.max(8, Math.min(r.bottom - host.top + 4, host.height - menu.offsetHeight - 8)) + "px";
       menu.style.left = Math.max(8, Math.min(r.left - host.left, host.width - menu.offsetWidth - 8)) + "px";
     }
     document.addEventListener("pointerdown", function (e) { if (!menu.hidden && !menu.contains(e.target) && !e.target.closest(".dge-toolbar")) closeMenu(); });

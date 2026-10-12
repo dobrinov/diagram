@@ -370,7 +370,7 @@ pub fn import(src: &str) -> Result<Document, Vec<Diagnostic>> {
                         id: id.clone(),
                         label: if label == id { String::new() } else { label },
                         parent: stack.last().cloned(),
-                        color: None,
+                        ..Default::default()
                     });
                 }
                 stack.push(id);

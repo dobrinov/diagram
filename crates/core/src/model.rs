@@ -139,6 +139,15 @@ pub struct Node {
     /// The branches under this topic are folded away.
     #[serde(skip_serializing_if = "std::ops::Not::not")]
     pub collapsed: bool,
+    /// Gantt task: start date (`YYYY-MM-DD`).
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub start: Option<String>,
+    /// Gantt task: duration in days.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub days: Option<f64>,
+    /// Gantt task: the tasks it starts after.
+    #[serde(skip_serializing_if = "Vec::is_empty")]
+    pub after: Vec<String>,
 }
 
 impl Node {
@@ -188,6 +197,16 @@ pub struct Group {
     /// Enclosing group, for nested groups.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub parent: Option<String>,
+    /// Swimlanes: the groups inside are lanes, laid out as bands the flow
+    /// runs across.
+    #[serde(skip_serializing_if = "std::ops::Not::not")]
+    pub lanes: bool,
+    /// Gantt chart: the nodes inside are tasks on a timeline.
+    #[serde(skip_serializing_if = "std::ops::Not::not")]
+    pub gantt: bool,
+    /// Gantt chart: its first day (`YYYY-MM-DD`).
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub start: Option<String>,
 }
 
 impl Group {
@@ -615,6 +634,14 @@ impl Document {
     }
 
     /// Members of a group (nodes and direct child groups), in document order.
+    /// A lane: a group directly inside a swimlanes group.
+    pub fn is_lane(&self, g: &Group) -> bool {
+        g.parent
+            .as_deref()
+            .and_then(|p| self.group(p))
+            .is_some_and(|p| p.lanes)
+    }
+
     pub fn members(&self, group: Option<&str>) -> (Vec<&Node>, Vec<&Group>) {
         let nodes = self
             .nodes

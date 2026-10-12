@@ -1,9 +1,10 @@
 //! Colours. Everything is resolved to literal values at render time so the
 //! SVG needs no CSS (resvg, image viewers and e-mail clients all agree).
 //!
-//! The look follows FigJam (and SpecDeck's board): white cards with hairline
-//! borders and soft shadows on a dotted canvas, sections with a solid accent
-//! title pill, saturated stickies.
+//! The look follows FigJam: white cards with hairline borders and soft
+//! shadows on a dotted canvas, sections with a solid accent title pill,
+//! saturated stickies. The neutrals, edges and diff colours are schema's
+//! (`../schema`), so both tools look like one product.
 use crate::model::Theme;
 
 #[derive(Debug, Clone)]
@@ -16,6 +17,8 @@ pub struct Palette {
     pub node_stroke: &'static str,
     pub edge: &'static str,
     pub group_fill: &'static str,
+    /// Title strips (swimlanes): schema's table header.
+    pub header: &'static str,
     pub group_accent: &'static str,
     /// Text on an accent fill (title pills, avatars).
     pub on_accent: &'static str,
@@ -33,49 +36,51 @@ pub struct Palette {
 }
 
 pub const LIGHT: Palette = Palette {
-    bg: "#f5f5f5",
-    dot: "#d6d6d6",
-    fg: "#1e1e1e",
-    muted: "#757575",
+    bg: "#f4f5f7",
+    dot: "#d3d8de",
+    fg: "#1c2026",
+    muted: "#5b636e",
     node_fill: "#ffffff",
-    node_stroke: "#e3e3e3",
-    edge: "#8c8c8c",
+    node_stroke: "#cfd4db",
+    edge: "#9aa2ad",
     group_fill: "#ffffff",
-    group_accent: "#1e1e1e",
+    header: "#f7f8fa",
+    group_accent: "#1c2026",
     on_accent: "#ffffff",
-    sticky_fg: "#1e1e1e",
-    shadow_opacity: 0.12,
-    pin: "#0d99ff",
-    pin_resolved: "#9e9e9e",
-    add: "#14ae5c",
-    add_bg: "#e3f7eb",
-    del: "#f24822",
-    del_bg: "#ffe9e4",
-    chg: "#e5a000",
-    chg_bg: "#fff4d1",
+    sticky_fg: "#1c2026",
+    shadow_opacity: 0.1,
+    pin: "#6f45d6",
+    pin_resolved: "#858d98",
+    add: "#1b7f3a",
+    add_bg: "#e6f5ea",
+    del: "#c62a31",
+    del_bg: "#fcebec",
+    chg: "#935f00",
+    chg_bg: "#fcf2d9",
 };
 
 pub const DARK: Palette = Palette {
-    bg: "#1e1e1e",
-    dot: "#3a3a3a",
-    fg: "#f5f5f5",
-    muted: "#a3a3a3",
-    node_fill: "#2c2c2c",
-    node_stroke: "#444444",
-    edge: "#8c8c8c",
-    group_fill: "#262626",
-    group_accent: "#e3e3e3",
+    bg: "#0f1114",
+    dot: "#242930",
+    fg: "#e3e7ec",
+    muted: "#9ba4af",
+    node_fill: "#181b21",
+    node_stroke: "#353c46",
+    edge: "#5f6873",
+    group_fill: "#16191e",
+    header: "#1d2127",
+    group_accent: "#e3e7ec",
     on_accent: "#ffffff",
-    sticky_fg: "#1e1e1e",
-    shadow_opacity: 0.45,
-    pin: "#0d99ff",
-    pin_resolved: "#6e6e6e",
-    add: "#3ccf7e",
-    add_bg: "#14301f",
-    del: "#ff6b4a",
-    del_bg: "#3a1a14",
-    chg: "#f2b630",
-    chg_bg: "#33280c",
+    sticky_fg: "#1c2026",
+    shadow_opacity: 0.4,
+    pin: "#ab91f8",
+    pin_resolved: "#6c757f",
+    add: "#5cc47a",
+    add_bg: "#13281b",
+    del: "#f07a7f",
+    del_bg: "#33181b",
+    chg: "#e3ae4c",
+    chg_bg: "#2d2311",
 };
 
 pub fn palette(t: Theme) -> &'static Palette {
@@ -119,7 +124,8 @@ pub const AVATARS: [&str; 8] = [
 
 pub fn tint(name: &str, t: Theme) -> Option<Tint> {
     let dark = t == Theme::Dark;
-    let (accent, frame, soft) = if let Some(&(_, a, f, s)) = NAMED.iter().find(|(n, ..)| *n == name) {
+    let (accent, frame, soft) = if let Some(&(_, a, f, s)) = NAMED.iter().find(|(n, ..)| *n == name)
+    {
         if dark {
             (a.to_string(), format!("{a}1a"), format!("{a}33"))
         } else {
@@ -159,7 +165,9 @@ pub fn sticky(name: Option<&str>) -> String {
 
 /// A stable avatar colour for an id.
 pub fn avatar(id: &str) -> &'static str {
-    let h = id.bytes().fold(0u32, |h, b| h.wrapping_mul(31).wrapping_add(b as u32));
+    let h = id
+        .bytes()
+        .fold(0u32, |h, b| h.wrapping_mul(31).wrapping_add(b as u32));
     AVATARS[h as usize % AVATARS.len()]
 }
 

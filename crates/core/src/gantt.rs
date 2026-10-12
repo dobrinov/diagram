@@ -1,0 +1,239 @@
+//! Gantt charts: a group whose nodes are tasks on a timeline.
+//!
+//! A task has a start date, a duration (`days`) and the tasks it waits for
+//! (`after`). Each of these is optional: a task without a date starts when
+//! the tasks it follows end, or else when the previous task ends; the first
+//! one starts on the chart's `start`. In the DSL a chart is an outline:
+//!
+//! ```text
+//! gantt launch: Launch plan [start: 2026-10-12] {
+//!   Design [5d]
+//!   Build [10d, after: design]
+//!   Beta [2026-11-03, 1w]
+//! }
+//! ```
+//!
+//! Days are calendar days. Dates are `YYYY-MM-DD`.
+use crate::model::Document;
+
+/// Days since 1970-01-01 for a `YYYY-MM-DD` date.
+pub fn parse_date(s: &str) -> Option<i64> {
+    let mut it = s.trim().splitn(3, '-');
+    let y: i64 = it.next()?.parse().ok()?;
+    let m: i64 = it.next()?.parse().ok()?;
+    let d: i64 = it.next()?.parse().ok()?;
+    if !(1..=12).contains(&m) || d < 1 || d > days_in_month(y, m) || !(1000..=9999).contains(&y) {
+        return None;
+    }
+    // Howard Hinnant's days_from_civil
+    let y = if m <= 2 { y - 1 } else { y };
+    let era = y.div_euclid(400);
+    let yoe = y - era * 400;
+    let mp = (m + 9) % 12;
+    let doy = (153 * mp + 2) / 5 + d - 1;
+    let doe = yoe * 365 + yoe / 4 - yoe / 100 + doy;
+    Some(era * 146097 + doe - 719468)
+}
+
+/// (year, month, day) of days since 1970-01-01.
+pub fn civil(z: i64) -> (i64, i64, i64) {
+    let z = z + 719468;
+    let era = z.div_euclid(146097);
+    let doe = z - era * 146097;
+    let yoe = (doe - doe / 1460 + doe / 36524 - doe / 146096) / 365;
+    let y = yoe + era * 400;
+    let doy = doe - (365 * yoe + yoe / 4 - yoe / 100);
+    let mp = (5 * doy + 2) / 153;
+    let d = doy - (153 * mp + 2) / 5 + 1;
+    let m = if mp < 10 { mp + 3 } else { mp - 9 };
+    (if m <= 2 { y + 1 } else { y }, m, d)
+}
+
+fn days_in_month(y: i64, m: i64) -> i64 {
+    match m {
+        2 if (y % 4 == 0 && y % 100 != 0) || y % 400 == 0 => 29,
+        2 => 28,
+        4 | 6 | 9 | 11 => 30,
+        _ => 31,
+    }
+}
+
+pub fn format_date(z: i64) -> String {
+    let (y, m, d) = civil(z);
+    format!("{y:04}-{m:02}-{d:02}")
+}
+
+/// "Oct 12": a tick on the timeline.
+pub fn short_date(z: i64) -> String {
+    const MONTHS: [&str; 12] = [
+        "Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec",
+    ];
+    let (_, m, d) = civil(z);
+    format!("{} {d}", MONTHS[(m - 1) as usize])
+}
+
+/// 0 = Monday.
+pub fn weekday(z: i64) -> i64 {
+    (z + 3).rem_euclid(7)
+}
+
+/// A duration: `5d`, `2w`, `5` (days).
+pub fn parse_days(s: &str) -> Option<f64> {
+    let s = s.trim();
+    let (num, mul) = if let Some(n) = s.strip_suffix('w') {
+        (n, 7.0)
+    } else if let Some(n) = s.strip_suffix('d') {
+        (n, 1.0)
+    } else {
+        (s, 1.0)
+    };
+    let v: f64 = num.trim().parse().ok()?;
+    (v > 0.0 && v.is_finite()).then_some(v * mul)
+}
+
+pub fn format_days(d: f64) -> String {
+    if d >= 7.0 && d % 7.0 == 0.0 {
+        return format!("{}w", (d / 7.0) as i64);
+    }
+    let v = if d.fract() == 0.0 {
+        format!("{}", d as i64)
+    } else {
+        format!("{d}")
+    };
+    format!("{v}d")
+}
+
+/// A task without a duration takes this long.
+pub const DEFAULT_DAYS: f64 = 1.0;
+
+/// When each task of the chart `group` starts and how long it takes, in days
+/// from the chart's first day (`origin`, days since 1970 when the chart has
+/// dates). Tasks in document order.
+#[derive(Debug, Clone, Default)]
+pub struct Schedule {
+    pub origin: Option<i64>,
+    /// (node index, start offset, days)
+    pub tasks: Vec<(usize, f64, f64)>,
+    /// Days from the first day to the end of the last task.
+    pub span: f64,
+}
+
+pub fn schedule(doc: &Document, group: &str) -> Schedule {
+    let g = doc.group(group);
+    let idx: Vec<usize> = (0..doc.nodes.len())
+        .filter(|&i| doc.nodes[i].group.as_deref() == Some(group))
+        .collect();
+    let dated: Vec<i64> = idx
+        .iter()
+        .filter_map(|&i| doc.nodes[i].start.as_deref().and_then(parse_date))
+        .collect();
+    let origin = g
+        .and_then(|g| g.start.as_deref())
+        .and_then(parse_date)
+        .or_else(|| dated.iter().copied().min());
+    let mut tasks = Vec::new();
+    // `after` can point forward; settle a few rounds so order does not matter
+    let mut starts: Vec<f64> = vec![0.0; idx.len()];
+    for _ in 0..idx.len().clamp(1, 32) {
+        let mut end: std::collections::HashMap<&str, f64> = Default::default();
+        let mut prev_end = 0.0f64;
+        for (k, &i) in idx.iter().enumerate() {
+            let n = &doc.nodes[i];
+            let days = n.days.unwrap_or(DEFAULT_DAYS);
+            let start = match (n.start.as_deref().and_then(parse_date), origin) {
+                (Some(d), Some(o)) => (d - o) as f64,
+                _ if !n.after.is_empty() => n
+                    .after
+                    .iter()
+                    .map(|a| {
+                        end.get(a.as_str()).copied().unwrap_or_else(|| {
+                            // not placed yet this round: use the last round's
+                            idx.iter()
+                                .position(|&j| doc.nodes[j].id == *a)
+                                .map(|p| starts[p] + doc.nodes[idx[p]].days.unwrap_or(DEFAULT_DAYS))
+                                .unwrap_or(0.0)
+                        })
+                    })
+                    .fold(0.0, f64::max),
+                _ => prev_end,
+            };
+            starts[k] = start;
+            end.insert(n.id.as_str(), start + days);
+            prev_end = start + days;
+        }
+    }
+    for (k, &i) in idx.iter().enumerate() {
+        tasks.push((i, starts[k], doc.nodes[i].days.unwrap_or(DEFAULT_DAYS)));
+    }
+    let lo = tasks.iter().map(|t| t.1).fold(0.0, f64::min);
+    if lo < 0.0 {
+        // a task dated before the chart's start moves the first day back
+        for t in &mut tasks {
+            t.1 -= lo;
+        }
+    }
+    let origin = origin.map(|o| o + lo.floor() as i64);
+    let span = tasks.iter().map(|t| t.1 + t.2).fold(0.0, f64::max);
+    Schedule {
+        origin,
+        tasks,
+        span,
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn dates_round_trip() {
+        for s in ["1970-01-01", "2026-10-12", "2024-02-29", "2000-12-31"] {
+            assert_eq!(format_date(parse_date(s).unwrap()), s);
+        }
+        assert_eq!(parse_date("2026-02-30"), None);
+        assert_eq!(parse_date("2026-10-12").map(weekday), Some(0)); // a Monday
+        assert_eq!(short_date(parse_date("2026-10-12").unwrap()), "Oct 12");
+        assert_eq!(
+            (parse_days("2w"), parse_days("5d"), parse_days("0d")),
+            (Some(14.0), Some(5.0), None)
+        );
+    }
+
+    #[test]
+    fn tasks_follow_each_other() {
+        let d = crate::dsl::parse(
+            "gantt g: Plan [start: 2026-10-12] {\n  Design [5d]\n  Build [10d, after: design]\n  Docs [2d, after: design]\n  Beta [2026-11-03, 1w]\n  Launch\n}",
+        )
+        .unwrap();
+        let s = schedule(&d, "g");
+        let at = |id: &str| {
+            let t = s.tasks.iter().find(|t| d.nodes[t.0].id == id).unwrap();
+            (t.1, t.2)
+        };
+        assert_eq!(s.origin, parse_date("2026-10-12"));
+        assert_eq!(at("design"), (0.0, 5.0));
+        assert_eq!(at("build"), (5.0, 10.0));
+        assert_eq!(at("docs"), (5.0, 2.0));
+        assert_eq!(at("beta"), (22.0, 7.0));
+        assert_eq!(at("launch"), (29.0, 1.0));
+        assert_eq!(s.span, 30.0);
+    }
+
+    #[test]
+    fn charts_round_trip_and_lay_out_as_a_timeline() {
+        let src =
+            "gantt g: Plan [start: 2026-10-12] {\n  Design [5d]\n  Build [2w, after: design]\n}\n";
+        let d = crate::dsl::parse(src).unwrap();
+        assert_eq!(crate::dsl::print(&d), src);
+        let l = crate::layout::layout(&d);
+        let (a, b) = (l.rect("design").unwrap(), l.rect("build").unwrap());
+        let gb = l.group("g").unwrap().gantt.clone().unwrap();
+        // bars: one row each, as long as the task, the next starting where the first ends
+        assert!(l.node("design").unwrap().task);
+        assert_eq!(b.y - a.y, crate::layout::GANTT_ROW);
+        assert!((a.w - 5.0 * gb.day).abs() < 1e-6 && (b.w - 14.0 * gb.day).abs() < 1e-6);
+        assert!((b.x - a.right()).abs() < 1e-6);
+        assert_eq!(gb.rows, vec!["design", "build"]);
+        assert_eq!(gb.origin, parse_date("2026-10-12"));
+    }
+}

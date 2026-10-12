@@ -52,6 +52,15 @@ pub enum Op {
         /// Start a mindmap here: right, left, both or down.
         #[serde(default, skip_serializing_if = "Option::is_none")]
         mindmap: Option<String>,
+        /// Gantt task: start date (`YYYY-MM-DD`; "" clears it).
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        start: Option<String>,
+        /// Gantt task: duration in days (0 clears it).
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        days: Option<f64>,
+        /// Gantt task: the tasks it starts after.
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        after: Option<Vec<String>>,
     },
     UpdateNode {
         id: String,
@@ -86,6 +95,15 @@ pub enum Op {
         /// Fold or unfold the branches under a topic.
         #[serde(default, skip_serializing_if = "Option::is_none")]
         collapsed: Option<bool>,
+        /// Gantt task: start date (`YYYY-MM-DD`; "" clears it).
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        start: Option<String>,
+        /// Gantt task: duration in days (0 clears it).
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        days: Option<f64>,
+        /// Gantt task: the tasks it starts after.
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        after: Option<Vec<String>>,
     },
     /// Add topics from an indented outline (or a Markdown list) under
     /// `parent`; without `parent` the first line becomes a new mindmap.
@@ -114,7 +132,8 @@ pub enum Op {
         #[serde(default, skip_serializing_if = "Option::is_none")]
         keep_members: Option<bool>,
     },
-    /// Pin a node at a position (top-left corner).
+    /// Pin a node at a position (top-left corner). For a mindmap topic the
+    /// position is relative to its centre's top-left.
     Move {
         id: String,
         x: f64,
@@ -172,6 +191,15 @@ pub enum Op {
         /// Nodes (or groups) to move into the new group.
         #[serde(default, skip_serializing_if = "Vec::is_empty")]
         members: Vec<String>,
+        /// Swimlanes: the groups inside are lanes.
+        #[serde(default, skip_serializing_if = "std::ops::Not::not")]
+        lanes: bool,
+        /// Gantt chart: the nodes inside are tasks.
+        #[serde(default, skip_serializing_if = "std::ops::Not::not")]
+        gantt: bool,
+        /// Gantt chart: its first day (`YYYY-MM-DD`).
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        start: Option<String>,
     },
     UpdateGroup {
         id: String,
@@ -181,6 +209,13 @@ pub enum Op {
         color: Option<String>,
         #[serde(default, skip_serializing_if = "Option::is_none")]
         parent: Option<String>,
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        lanes: Option<bool>,
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        gantt: Option<bool>,
+        /// Gantt chart: its first day (`YYYY-MM-DD`; "" clears it).
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        start: Option<String>,
     },
     AddComment {
         #[serde(default, skip_serializing_if = "Option::is_none")]
@@ -254,6 +289,45 @@ pub fn apply(doc: &mut Document, ops: &[Op]) -> Result<Applied, OpError> {
     Ok(applied)
 }
 
+/// A chart's start: None leaves it, Some(None) clears it.
+fn chart_start(v: &Option<String>) -> Result<Option<Option<String>>, String> {
+    opt(v)
+        .map(|s| {
+            s.map(|s| {
+                crate::gantt::parse_date(&s)
+                    .map(crate::gantt::format_date)
+                    .ok_or_else(|| format!("`{s}` is not a date (YYYY-MM-DD)"))
+            })
+            .transpose()
+        })
+        .transpose()
+}
+
+/// Gantt fields of a node: "" clears the start, 0 the duration, [] `after`.
+fn task(
+    n: &mut Node,
+    start: &Option<String>,
+    days: &Option<f64>,
+    after: &Option<Vec<String>>,
+) -> Result<(), String> {
+    if let Some(s) = opt(start) {
+        n.start = s
+            .map(|s| {
+                crate::gantt::parse_date(&s)
+                    .map(crate::gantt::format_date)
+                    .ok_or_else(|| format!("`{s}` is not a date (YYYY-MM-DD)"))
+            })
+            .transpose()?;
+    }
+    if let Some(d) = days {
+        n.days = Some(*d).filter(|d| *d > 0.0);
+    }
+    if let Some(a) = after {
+        n.after = a.iter().filter(|s| !s.is_empty()).cloned().collect();
+    }
+    Ok(())
+}
+
 fn opt(v: &Option<String>) -> Option<Option<String>> {
     v.as_ref()
         .map(|s| if s.is_empty() { None } else { Some(s.clone()) })
@@ -323,6 +397,9 @@ fn apply_one(doc: &mut Document, op: &Op, created: &mut Vec<String>) -> Result<(
             parent,
             index,
             mindmap,
+            start,
+            days,
+            after,
         } => {
             let id = new_id(doc, id.as_deref(), label)?;
             let parent = parent.as_deref().filter(|p| !p.is_empty());
@@ -354,6 +431,7 @@ fn apply_one(doc: &mut Document, op: &Op, created: &mut Vec<String>) -> Result<(
             if let Some(m) = mindmap.as_deref().filter(|m| !m.is_empty()) {
                 n.mindmap = Some(map_layout(m)?);
             }
+            task(&mut n, start, days, after)?;
             doc.nodes.push(n);
             if let Some(p) = parent {
                 doc.set_parent(&id, Some(p), *index)?;
@@ -375,6 +453,9 @@ fn apply_one(doc: &mut Document, op: &Op, created: &mut Vec<String>) -> Result<(
             index,
             mindmap,
             collapsed,
+            start,
+            days,
+            after,
         } => {
             if let Some(Some(g)) = opt(group) {
                 need_container(doc, &g)?;
@@ -430,6 +511,7 @@ fn apply_one(doc: &mut Document, op: &Op, created: &mut Vec<String>) -> Result<(
             if let Some(c) = collapsed {
                 n.collapsed = *c;
             }
+            task(n, start, days, after)?;
         }
         Op::AddOutline {
             parent,
@@ -466,6 +548,14 @@ fn apply_one(doc: &mut Document, op: &Op, created: &mut Vec<String>) -> Result<(
             }
             if let Some(n) = doc.node_mut(id) {
                 n.id = to.clone();
+                // gantt tasks that start after it
+                for n in &mut doc.nodes {
+                    for a in &mut n.after {
+                        if a == id {
+                            *a = to.clone();
+                        }
+                    }
+                }
                 for n in &mut doc.nodes {
                     if n.parent.as_deref() == Some(id) {
                         n.parent = Some(to.clone());
@@ -648,12 +738,8 @@ fn apply_one(doc: &mut Document, op: &Op, created: &mut Vec<String>) -> Result<(
             }
         }
         Op::Move { id, x, y } => {
+            // a mindmap topic's x/y are relative to its map's centre
             let n = doc.node_mut(id).ok_or_else(|| format!("no node `{id}`"))?;
-            if n.parent.is_some() {
-                return Err(format!(
-                    "`{id}` is a mindmap branch: move its map's centre, or give it another parent"
-                ));
-            }
             n.x = Some(x.round());
             n.y = Some(y.round());
         }
@@ -744,12 +830,27 @@ fn apply_one(doc: &mut Document, op: &Op, created: &mut Vec<String>) -> Result<(
                 }
             }
             let e = doc.edge_mut(id).ok_or_else(|| format!("no edge `{id}`"))?;
+            // an automatic id (`from->to`) follows the edge's new ends
+            let auto = *id == format!("{}->{}", e.from, e.to);
             if let Some(f) = from {
                 e.from = f.clone();
             }
             if let Some(t) = to {
                 e.to = t.clone();
             }
+            let (f, t) = (e.from.clone(), e.to.clone());
+            let mut cur = id.clone();
+            if auto && *id != format!("{f}->{t}") {
+                let fresh = doc.fresh_edge_id(&f, &t);
+                for c in &mut doc.comments {
+                    if c.on.as_deref() == Some(id.as_str()) {
+                        c.on = Some(fresh.clone());
+                    }
+                }
+                doc.edge_mut(id).unwrap().id = fresh.clone();
+                cur = fresh;
+            }
+            let e = doc.edge_mut(&cur).unwrap();
             if let Some(l) = opt(label) {
                 e.label = l;
             }
@@ -771,6 +872,9 @@ fn apply_one(doc: &mut Document, op: &Op, created: &mut Vec<String>) -> Result<(
             color: c,
             parent,
             members,
+            lanes,
+            gantt,
+            start,
         } => {
             let id = new_id(
                 doc,
@@ -788,6 +892,9 @@ fn apply_one(doc: &mut Document, op: &Op, created: &mut Vec<String>) -> Result<(
                     label.clone()
                 },
                 parent: parent.clone().filter(|p| !p.is_empty()),
+                lanes: *lanes,
+                gantt: *gantt,
+                start: chart_start(start)?.flatten(),
                 ..Default::default()
             };
             if let Some(c) = c.as_deref().filter(|c| !c.is_empty()) {
@@ -810,6 +917,9 @@ fn apply_one(doc: &mut Document, op: &Op, created: &mut Vec<String>) -> Result<(
             label,
             color: c,
             parent,
+            lanes,
+            gantt,
+            start,
         } => {
             if let Some(Some(p)) = opt(parent) {
                 need_container(doc, &p)?;
@@ -828,6 +938,15 @@ fn apply_one(doc: &mut Document, op: &Op, created: &mut Vec<String>) -> Result<(
             }
             if let Some(p) = opt(parent) {
                 g.parent = p;
+            }
+            if let Some(l) = lanes {
+                g.lanes = *l;
+            }
+            if let Some(v) = gantt {
+                g.gantt = *v;
+            }
+            if let Some(s) = chart_start(start)? {
+                g.start = s;
             }
         }
         Op::AddComment {
@@ -1077,6 +1196,44 @@ mod tests {
     }
 
     #[test]
+    fn reversing_an_edge_keeps_its_id_automatic() {
+        let mut d = crate::dsl::parse("a: A\nb: B\na -> b\ncomment on a->b: why?").unwrap();
+        apply(
+            &mut d,
+            &parse_ops(r#"{"op":"update_edge","id":"a->b","from":"b","to":"a"}"#).unwrap(),
+        )
+        .unwrap();
+        assert_eq!(d.edges[0].id, "b->a");
+        assert_eq!(d.comments[0].on.as_deref(), Some("b->a"));
+        assert!(crate::dsl::print(&d).contains("b -> a\n"));
+    }
+
+    #[test]
+    fn gantt_ops() {
+        let mut d =
+            crate::dsl::parse("gantt g: Plan [start: 2026-10-12] {\n  Design [5d]\n}").unwrap();
+        apply(
+            &mut d,
+            &parse_ops(
+                r#"[{"op":"add_node","label":"Build","group":"g","days":10,"after":["design"]},
+              {"op":"update_group","id":"g","start":"2026-10-19"},
+              {"op":"rename","id":"design","to":"ux"}]"#,
+            )
+            .unwrap(),
+        )
+        .unwrap();
+        assert_eq!(
+            crate::dsl::print(&d),
+            "gantt g: Plan [start: 2026-10-19] {\n  Design [id: ux, 5d]\n  Build [10d, after: ux]\n}\n"
+        );
+        assert!(apply(
+            &mut d,
+            &parse_ops(r#"{"op":"update_node","id":"build","start":"2026-13-01"}"#).unwrap()
+        )
+        .is_err());
+    }
+
+    #[test]
     fn mindmap_ops() {
         let mut d =
             dsl::parse("mindmap m: Map {\n  A\n    a1\n  B\n}\ncomment on a1: why?").unwrap();
@@ -1106,11 +1263,13 @@ mod tests {
             &parse_ops(r#"{"op":"update_node","id":"first","parent":"deep"}"#).unwrap()
         )
         .is_err());
-        assert!(apply(
+        // a topic placed by hand (relative to its centre)
+        apply(
             &mut d,
-            &parse_ops(r#"{"op":"move","id":"a1","x":1,"y":2}"#).unwrap()
+            &parse_ops(r#"{"op":"move","id":"a1","x":1,"y":2}"#).unwrap(),
         )
-        .is_err());
+        .unwrap();
+        assert_eq!(d.node("a1").unwrap().x, Some(1.0));
         // removing a topic takes its branch; feedback stays
         apply(&mut d, &parse_ops(r#"{"op":"remove","id":"a"}"#).unwrap()).unwrap();
         assert!(d.node("a1").is_none());

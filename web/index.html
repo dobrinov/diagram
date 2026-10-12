@@ -7,30 +7,36 @@
 <link rel="icon" type="image/svg+xml" href="favicon.svg">
 <link rel="stylesheet" href="editor.css">
 <style>
-  :root { color-scheme: light dark; }
-  html, body { margin: 0; height: 100%; }
-  body { display: flex; flex-direction: column; font: 13px/1.4 -apple-system, BlinkMacSystemFont, "Segoe UI", Helvetica, Arial, sans-serif; background: #fff; color: #1f2328; }
-  .app-bar { display: flex; align-items: center; gap: 10px; padding: 6px 12px; border-bottom: 1px solid #d0d7de; background: #f6f8fa; flex: none; }
-  .app-bar .brand { display: flex; align-items: center; gap: 8px; font-weight: 700; color: inherit; text-decoration: none; }
-  .app-bar .file { font-family: ui-monospace, "SF Mono", Menlo, monospace; color: #656d76; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-  .app-bar .status { margin-left: auto; color: #656d76; font-size: 12px; white-space: nowrap; }
-  .app-bar .status.dirty { color: #9a6700; }
-  .app-bar .status.error { color: #cf222e; }
-  .app-bar select, .app-bar button, .app-bar label.btn { font: inherit; min-height: 26px; padding: 0 8px; border: 1px solid #d0d7de; border-radius: 6px; background: #fff; color: inherit; cursor: pointer; display: inline-flex; align-items: center; }
-  #editor { flex: 1; min-height: 0; }
-  @media (max-width: 640px) { .app-bar .file, .app-bar .status { display: none; } .app-bar { overflow-x: auto; } }
-  #boot { margin: auto; color: #656d76; }
+  /* the shell around the editor: schema's top bar (../schema/web/app.css) */
+  :root { color-scheme: light dark;
+    --bg: #ffffff; --line: #e1e4e8; --line-strong: #c9ced5; --fg: #1c2026; --muted: #5b636e; --bg-hover: #eef0f3;
+    --mod: #935f00; --del: #c62a31;
+    --font-ui: -apple-system, BlinkMacSystemFont, "Segoe UI", "Noto Sans", Helvetica, Arial, sans-serif;
+    --font-mono: ui-monospace, SFMono-Regular, "SF Mono", Menlo, Consolas, "Liberation Mono", monospace; }
   @media (prefers-color-scheme: dark) {
-    body { background: #0d1117; color: #e6edf3; }
-    .app-bar { background: #161b22; border-color: #30363d; }
-    .app-bar .file, .app-bar .status { color: #8d96a0; }
-    .app-bar select, .app-bar button, .app-bar label.btn { background: #0d1117; border-color: #30363d; }
+    :root { --bg: #16191e; --line: #262b32; --line-strong: #3a414b; --fg: #e3e7ec; --muted: #9ba4af; --bg-hover: #1f232a; --mod: #e3ae4c; --del: #f07a7f; }
   }
+  html, body { margin: 0; height: 100%; }
+  body { display: flex; flex-direction: column; font: 13px/1.45 var(--font-ui); background: var(--bg); color: var(--fg); }
+  .app-bar { height: 44px; display: flex; align-items: center; gap: 12px; padding: 0 12px; border-bottom: 1px solid var(--line); background: var(--bg); flex: none; }
+  .app-bar .brand { display: flex; align-items: center; gap: 8px; font-weight: 700; font-size: 14px; letter-spacing: -.01em; flex: none; }
+  .app-bar .brand img { display: block; }
+  .app-bar .vsep { width: 1px; height: 20px; background: var(--line); flex: none; }
+  .app-bar .file { font: 600 12px var(--font-mono); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; min-width: 0; }
+  .app-bar .status { margin-left: auto; color: var(--muted); font-size: 12px; white-space: nowrap; }
+  .app-bar .status.dirty { color: var(--mod); }
+  .app-bar .status.error { color: var(--del); }
+  .app-bar select, .app-bar button, .app-bar label.btn { font: inherit; height: 28px; padding: 0 10px; border: 1px solid var(--line-strong); border-radius: 5px; background: var(--bg); color: inherit; cursor: pointer; display: inline-flex; align-items: center; gap: 6px; }
+  .app-bar button:hover, .app-bar label.btn:hover { background: var(--bg-hover); }
+  #editor { flex: 1; min-height: 0; }
+  @media (max-width: 640px) { .app-bar .file, .app-bar .status, .app-bar .vsep { display: none; } .app-bar { overflow-x: auto; } }
+  #boot { margin: auto; color: var(--muted); }
 </style>
 </head>
 <body>
 <header class="app-bar">
-  <a class="brand" href="https://github.com/dobrinov/diagram" target="_blank" rel="noopener"><img src="favicon.svg" width="20" height="20" alt="">diagram</a>
+  <div class="brand"><img src="favicon.svg" width="20" height="20" alt="">diagram</div>
+  <div class="vsep"></div>
   <span class="file" id="file"></span>
   <span id="app-actions" style="display:flex;gap:6px"></span>
   <span class="status" id="status"></span>

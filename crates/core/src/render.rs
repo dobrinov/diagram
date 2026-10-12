@@ -38,7 +38,8 @@ pub struct RenderOptions {
     /// Overrides the document's theme.
     pub theme: Option<Theme>,
     pub comments: CommentMode,
-    /// Draw the title above the diagram.
+    /// Draw the document's title above the diagram (off by default: the title
+    /// is metadata, used by briefs and export names).
     pub title: Option<bool>,
     /// Transparent instead of the theme's background.
     pub transparent: bool,
@@ -119,7 +120,7 @@ pub fn render(doc: &Document, opts: &RenderOptions) -> Rendered {
             h: 24.0,
         });
     }
-    let show_title = opts.title.unwrap_or(true) && doc.title.is_some();
+    let show_title = opts.title.unwrap_or(false) && doc.title.is_some();
     let pad = opts.padding.unwrap_or(32.0);
     let mut view = bounds.grow(pad);
     if doc.nodes.is_empty() && doc.groups.is_empty() {
@@ -206,6 +207,57 @@ pub fn render(doc: &Document, opts: &RenderOptions) -> Rendered {
         }
         let r = gb.rect;
         let label = g.display();
+        if let Some(kind) = gb.lane {
+            // a swimlane: a band with its title in a strip at the side (rows) or on top
+            let head_fill = tint
+                .as_ref()
+                .map(|k| k.soft.clone())
+                .unwrap_or_else(|| p.header.to_string());
+            let (hw, hh, tx, ty, line) = if kind == "row" {
+                (
+                    gb.head,
+                    r.h,
+                    r.x + 14.0,
+                    r.y + r.h / 2.0 + 5.0,
+                    (r.x + gb.head, r.y, r.x + gb.head, r.bottom()),
+                )
+            } else {
+                (
+                    r.w,
+                    gb.head,
+                    r.x + 14.0,
+                    r.y + gb.head / 2.0 + 5.0,
+                    (r.x, r.y + gb.head, r.right(), r.y + gb.head),
+                )
+            };
+            let _ = write!(
+                s,
+                r#"<g class="dg-group dg-lane" data-id="{}"><rect class="dg-shape" x="{}" y="{}" width="{}" height="{}" fill="{}" stroke="{}"{}/><rect x="{}" y="{}" width="{}" height="{}" fill="{}"/><line x1="{}" y1="{}" x2="{}" y2="{}" stroke="{}" stroke-width="1"/><text x="{}" y="{}" font-size="13" font-weight="700" fill="{}">{}</text></g>"#,
+                esc(&g.id),
+                n(r.x),
+                n(r.y),
+                n(r.w),
+                n(r.h),
+                fill,
+                stroke,
+                attrs,
+                n(r.x + 0.5),
+                n(r.y + 0.5),
+                n(hw - 1.0),
+                n(hh - 1.0),
+                head_fill,
+                n(line.0),
+                n(line.1),
+                n(line.2),
+                n(line.3),
+                stroke,
+                n(tx),
+                n(ty),
+                p.fg,
+                esc(label)
+            );
+            continue;
+        }
         let pill_w = layout::group_label_w(label) - 2.0 * layout::GROUP_PILL_X;
         let on_accent = if tint.is_none() && t == Theme::Dark {
             p.bg
@@ -232,6 +284,9 @@ pub fn render(doc: &Document, opts: &RenderOptions) -> Rendered {
             on_accent,
             esc(label)
         );
+        if let Some(gb_t) = &gb.gantt {
+            gantt_svg(&mut s, doc, gb, gb_t, &lay, p);
+        }
     }
     s.push_str("</g>");
 
@@ -343,6 +398,7 @@ pub fn render(doc: &Document, opts: &RenderOptions) -> Rendered {
         let node = doc.node(&nb.id).unwrap();
         let change = opts.changes.get(&node.id).copied();
         match nb.map.as_ref().and_then(|m| m.style) {
+            _ if nb.task => task_svg(&mut s, node, nb, p, t, change),
             Some(st) => map_node_svg(&mut s, node, nb, st, p, t, change),
             None => node_svg(&mut s, node, nb, p, t, change),
         }
@@ -508,6 +564,171 @@ fn branch_svg(
         width,
         dash
     );
+}
+
+/// A gantt chart's date header, week lines, task names and dependencies
+/// (drawn with the chart's frame, under the bars).
+fn gantt_svg(
+    s: &mut String,
+    doc: &Document,
+    gb: &layout::GroupBox,
+    g: &layout::GanttBox,
+    lay: &Layout,
+    p: &Palette,
+) {
+    let (ox, oy) = (
+        gb.rect.x + layout::GROUP_PAD,
+        gb.rect.y + layout::GROUP_HEAD,
+    );
+    let top = oy + layout::GANTT_HEAD;
+    let bottom = top + g.rows.len().max(1) as f64 * layout::GANTT_ROW;
+    let right = ox + g.x0 + g.days * g.day;
+    s.push_str(r#"<g class="dg-gantt">"#);
+    // rows
+    for k in 0..=g.rows.len().max(1) {
+        let y = top + k as f64 * layout::GANTT_ROW;
+        let _ = write!(
+            s,
+            r#"<line x1="{}" y1="{y}" x2="{}" y2="{y}" stroke="{}" stroke-width="1"/>"#,
+            n(ox),
+            n(right),
+            p.node_stroke,
+            y = n(y)
+        );
+    }
+    // a line and a date at each week (Mondays when the chart has dates)
+    let first = match g.origin {
+        Some(o) => (7 - crate::gantt::weekday(o)) % 7,
+        None => 0,
+    };
+    let mut d = first;
+    while (d as f64) <= g.days {
+        let x = ox + g.x0 + d as f64 * g.day;
+        let label = match g.origin {
+            Some(o) => crate::gantt::short_date(o + d),
+            None => format!("Week {}", d / 7 + 1),
+        };
+        let _ = write!(
+            s,
+            r#"<line x1="{x}" y1="{}" x2="{x}" y2="{}" stroke="{}" stroke-width="1"/>"#,
+            n(top - 6.0),
+            n(bottom),
+            p.node_stroke,
+            x = n(x)
+        );
+        if (d as f64) < g.days {
+            let _ = write!(
+                s,
+                r#"<text x="{}" y="{}" font-size="11" fill="{}">{}</text>"#,
+                n(x + 4.0),
+                n(top - 10.0),
+                p.muted,
+                esc(&label)
+            );
+        }
+        d += 7;
+    }
+    // task names
+    for (k, id) in g.rows.iter().enumerate() {
+        let Some(node) = doc.node(id) else { continue };
+        let _ = write!(
+            s,
+            r#"<text x="{}" y="{}" font-size="13" fill="{}">{}</text>"#,
+            n(ox),
+            n(top + k as f64 * layout::GANTT_ROW + layout::GANTT_ROW / 2.0 + 4.5),
+            p.fg,
+            esc(node.display())
+        );
+    }
+    // dependencies: from the end of a task to the start of the one after it
+    for id in &g.rows {
+        let (Some(node), Some(to)) = (doc.node(id), lay.rect(id)) else {
+            continue;
+        };
+        for a in &node.after {
+            let Some(from) = lay.rect(a) else { continue };
+            let (x1, y1, x2, y2) = (from.right(), from.cy(), to.x, to.cy());
+            let mid = x1 + 6.0;
+            let path = if x2 - x1 >= 12.0 {
+                format!(
+                    "M{},{} H{} V{} H{}",
+                    n(x1),
+                    n(y1),
+                    n(mid),
+                    n(y2),
+                    n(x2 - 3.0)
+                )
+            } else {
+                // the next task starts before this one ends: go round
+                let below = (y1 + y2) / 2.0;
+                format!(
+                    "M{},{} H{} V{} H{} V{} H{}",
+                    n(x1),
+                    n(y1),
+                    n(x1 + 6.0),
+                    n(below),
+                    n(x2 - 8.0),
+                    n(y2),
+                    n(x2 - 3.0)
+                )
+            };
+            let _ = write!(
+                s,
+                r#"<path d="{path}" fill="none" stroke="{}" stroke-width="1.5"/><path d="M{},{} l-5,-3.5 v7 z" fill="{}"/>"#,
+                p.edge,
+                n(x2),
+                n(y2),
+                p.edge
+            );
+        }
+    }
+    s.push_str("</g>");
+}
+
+/// A gantt task: a bar, with its duration inside when it fits.
+fn task_svg(
+    s: &mut String,
+    node: &Node,
+    nb: &layout::NodeBox,
+    p: &Palette,
+    t: Theme,
+    change: Option<Change>,
+) {
+    let r = nb.rect;
+    let k = theme::tint(node.color.as_deref().unwrap_or("blue"), t);
+    let (mut fill, mut stroke) = match &k {
+        Some(k) => (k.accent.clone(), k.accent.clone()),
+        None => (p.edge.to_string(), p.edge.to_string()),
+    };
+    if let Some(c) = change {
+        let (_, st, _) = change_colors(c, p);
+        stroke = st.clone();
+        fill = st;
+    }
+    let days = node.days.unwrap_or(crate::gantt::DEFAULT_DAYS);
+    let _ = write!(
+        s,
+        r#"<g class="dg-node dg-task" data-id="{}"><rect class="dg-shape" x="{}" y="{}" width="{}" height="{}" rx="5" fill="{}" stroke="{}" stroke-width="1"/>"#,
+        esc(&node.id),
+        n(r.x),
+        n(r.y),
+        n(r.w),
+        n(r.h),
+        fill,
+        stroke
+    );
+    let label = crate::gantt::format_days(days);
+    if r.w >= text::width(&label, 11.0) + 12.0 {
+        let _ = write!(
+            s,
+            r#"<text x="{}" y="{}" font-size="11" font-weight="600" fill="{}">{}</text>"#,
+            n(r.x + 6.0),
+            n(r.cy() + 4.0),
+            p.on_accent,
+            esc(&label)
+        );
+    }
+    s.push_str("</g>");
 }
 
 fn map_node_svg(
@@ -1022,7 +1243,7 @@ fn node_svg(
     let block = label_h + detail_h;
     let sticky = node.shape == Shape::Sticky;
     let (fg, detail_fg) = if sticky {
-        (p.sticky_fg, "#1e1e1e99")
+        (p.sticky_fg, "#1c202699")
     } else {
         (p.fg, p.muted)
     };
@@ -1158,7 +1379,13 @@ mod tests {
             Shape::ALL.len()
         );
         assert_eq!(r.pins.len(), 1);
-        assert!(r.svg.contains(">Shapes</text>"));
+        // the title is metadata: drawn only when asked for
+        assert!(!r.svg.contains(">Shapes</text>"));
+        let titled = RenderOptions {
+            title: Some(true),
+            ..RenderOptions::default()
+        };
+        assert!(render(&d, &titled).svg.contains(">Shapes</text>"));
     }
 
     #[test]

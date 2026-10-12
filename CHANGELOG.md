@@ -1,5 +1,30 @@
 # Changelog
 
+## 0.3.0 — 2026-10-12
+
+Flowcharts, swimlanes, gantt charts and comments on the board; a simpler editor that looks like schema; tidier mindmaps.
+
+- **Comments:** C (or the Comment button) is comment mode, with a speech-bubble cursor. Click a block to comment on it, or anywhere on the canvas for a free comment; a comment box opens where you clicked. Pins open their thread in a popover: reply, resolve, delete.
+- **Flowcharts:** a Decision tool (D, a diamond) next to Box. Right-click a box → Rename, *Shape…* (all 13 shapes), Delete; right-click an arrow → label, dashed / solid, reverse, delete. Connect moved to X. `update_edge` with new ends keeps an automatic id (`a->b`) in step, comments included.
+- **Swimlanes:** `lanes id: Title { lane a: A { … } … }` (a group with `"lanes": true`). Lanes are bands (rows when the flow runs right, columns when it runs down) with their titles at the side; everything in them is ranked together, so the flow lines up across lanes. In the editor: the Swimlanes button (selected blocks go in the first lane), drop a block into a lane to move it there, right-click a lane to rename it, add one after it or remove it.
+- **Gantt charts:** `gantt id: Title [start: 2026-10-12] { Design [5d]  Build [2w, after: design] … }` (a group with `"gantt": true`; tasks are nodes with `start`, `days`, `after`). Drawn as a timeline: week dates, task names, bars and dependency arrows. In the editor: the Gantt button (a chart starting today), drag a bar to reschedule it, right-click a task to make it longer or shorter or add one after it.
+- **Examples:** `examples/swimlanes.diagram`, `examples/gantt.diagram`.
+
+- **Layout:** every level of a side lines up in one column (one row in org charts), so sub-topics sit at the same distance whatever the width of their branch, and each fan of sub-topics is centred on the branch it grows from. Subtrees reserve only the space they use above and below, so maps stay compact.
+- **Placed by hand:** drop a topic on empty canvas and it stays there (saved as `x`/`y` relative to the map's centre); its branches follow it and grow away from the centre, and its siblings close up. The `move` op now works on topics.
+- **Reset:** *Auto-place* (one topic) and *Reset arrangement* (the whole map) in the topic inspector put topics back in the automatic layout; *Tidy up* still resets everything.
+- **Editor, simpler:** the code pane and the inspector / comments panel are off for now (`code: true` / `panel: true`, or `?sidebars` in the local editor, bring them back). The Prompt and Compare buttons are gone from the toolbar.
+- **Floating tool bar** at the bottom centre: Select (V) and Hand (H), then the blocks: Mindmap, Box, Sticky, Connect.
+- **Context menus:** right-click a mindmap topic → *Copy as prompt* copies that topic and everything under it as Markdown.
+- **Title:** double-click the board's title on the canvas to rename it.
+- **Design aligned with schema:** schema's colours, control sizes, radii, menus, toasts, zoom control and top bar, in the editor and in rendered SVG / PNG (canvas, cards, edges, diff colours, comment pins).
+- **Sections:** the Section button in the tool bar (or ⌘G) puts the selected blocks in a titled section (a `group`); drop a block into a section to add it, drag it out to take it out; right-click a section to rename or remove it.
+- **No title on the board:** `title:` is metadata now (briefs, export names). It is not drawn; `--title` draws it in exports. New files start without one.
+- **Mindmaps:** right-click a topic → *Add parent* (⇧Tab on the centre): a new topic above it; above the centre it becomes the new centre. Branches are spaced symmetrically, so a middle branch runs straight out.
+- **Fixed:** an undo within the autosave delay was overwritten by the pending save.
+- The logo no longer links to the repo.
+- `diagram` with no FILE starts a new `untitled.diagram` (`untitled-2.diagram`, … when taken) instead of reopening `diagram.diagram`.
+
 ## 0.2.0 — 2026-10-11
 
 Mindmaps, as the first FigJam-style building block of the board.

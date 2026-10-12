@@ -19,11 +19,23 @@ pub const DETAIL_SIZE: f64 = 12.0;
 pub const LINE_H: f64 = 1.3;
 const NODE_GAP: f64 = 36.0;
 const LAYER_GAP: f64 = 64.0;
-const GROUP_PAD: f64 = 24.0;
+pub const GROUP_PAD: f64 = 24.0;
 /// Room above a group's members for its title pill.
-const GROUP_HEAD: f64 = 56.0;
+pub const GROUP_HEAD: f64 = 56.0;
 /// Left inset of a group's title pill.
 pub const GROUP_PILL_X: f64 = 16.0;
+/// Padding inside a swimlane, around its members.
+const LANE_PAD: f64 = 24.0;
+/// Height of a lane's title strip when lanes are columns (flow down / up).
+pub const LANE_HEAD: f64 = 40.0;
+/// Cross-axis size of an empty lane.
+const LANE_MIN: f64 = 72.0;
+/// Gantt charts: a task's row, its bar, the date header.
+pub const GANTT_ROW: f64 = 36.0;
+pub const GANTT_BAR: f64 = 22.0;
+pub const GANTT_HEAD: f64 = 30.0;
+/// Gantt charts: space between the task names and the timeline.
+pub const GANTT_GAP: f64 = 16.0;
 
 /// Width a group needs for its title pill (bold 14px label + padding).
 pub fn group_label_w(label: &str) -> f64 {
@@ -89,6 +101,9 @@ pub struct NodeBox {
     /// of its parent it grows on.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub map: Option<MapInfo>,
+    /// A gantt task: drawn as a bar on its chart's timeline.
+    #[serde(skip_serializing_if = "std::ops::Not::not")]
+    pub task: bool,
 }
 
 #[derive(Debug, Clone, Serialize)]
@@ -116,6 +131,42 @@ pub struct GroupBox {
     #[serde(flatten)]
     pub rect: Rect,
     pub depth: usize,
+    /// Swimlanes: this group holds lanes.
+    #[serde(skip_serializing_if = "std::ops::Not::not")]
+    pub lanes: bool,
+    /// A lane: "row" (title strip on the left) or "column" (title strip on top).
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub lane: Option<&'static str>,
+    /// A lane's title strip: its width (rows) or height (columns).
+    #[serde(skip_serializing_if = "is_zero")]
+    pub head: f64,
+    /// A gantt chart's timeline.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub gantt: Option<GanttBox>,
+}
+
+/// Where a gantt chart's timeline is drawn (offsets from the chart's content
+/// origin, which is `GROUP_PAD`, `GROUP_HEAD` from its top-left).
+#[derive(Debug, Clone, Serialize)]
+pub struct GanttBox {
+    /// Width of the task-name column.
+    pub names: f64,
+    /// Where day 0 starts.
+    pub x0: f64,
+    pub day: f64,
+    /// Days shown.
+    pub days: f64,
+    /// The first day (days since 1970), when the chart has dates.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub origin: Option<i64>,
+    /// Tasks, top to bottom.
+    pub rows: Vec<String>,
+    /// Where day 0 is on the board (x).
+    pub left: f64,
+}
+
+fn is_zero(v: &f64) -> bool {
+    *v == 0.0
 }
 
 #[derive(Debug, Clone, Default)]
@@ -136,6 +187,9 @@ impl Layout {
     }
     pub fn node(&self, id: &str) -> Option<&NodeBox> {
         self.nodes.iter().find(|n| n.id == id)
+    }
+    pub fn group(&self, id: &str) -> Option<&GroupBox> {
+        self.groups.iter().find(|g| g.id == id)
     }
 }
 
@@ -201,6 +255,11 @@ struct Ctx<'a> {
     forest: &'a Forest,
     sizes: Vec<(f64, f64)>,
     group_sizes: Vec<(f64, f64)>,
+    /// Where a group's members start, from its top-left.
+    inset: Vec<(f64, f64)>,
+    /// Lanes: (row or column, title strip size).
+    lane: Vec<Option<(&'static str, f64)>>,
+    gantt: Vec<Option<GanttBox>>,
     /// Position of each node / group relative to its parent block.
     node_pos: Vec<(f64, f64)>,
     group_pos: Vec<(f64, f64)>,
@@ -230,10 +289,16 @@ pub fn layout(doc: &Document) -> Layout {
     // each mindmap is laid out on its own; its centre then stands for the
     // whole map (sized to it) in the layout of the rest
     let own_sizes = sizes.clone();
+    // a topic's x/y: placed by hand, relative to its centre's top-left
+    let pins: Vec<Option<(f64, f64)>> = doc
+        .nodes
+        .iter()
+        .map(|n| n.parent.as_ref().and(n.x.zip(n.y)))
+        .collect();
     let mut map_rel: Vec<Option<Rect>> = vec![None; doc.nodes.len()];
     for r in 0..doc.nodes.len() {
         if forest.root[r] == Some(r) {
-            let (rects, bbox) = mindmap::layout_tree(&forest, r, &own_sizes);
+            let (rects, bbox) = mindmap::layout_tree(&forest, r, &own_sizes, &styles, &pins);
             for (i, rect) in rects {
                 map_rel[i] = Some(rect);
             }
@@ -245,6 +310,9 @@ pub fn layout(doc: &Document) -> Layout {
         forest: &forest,
         sizes,
         group_sizes: vec![(0.0, 0.0); doc.groups.len()],
+        inset: vec![(GROUP_PAD, GROUP_HEAD); doc.groups.len()],
+        lane: vec![None; doc.groups.len()],
+        gantt: vec![None; doc.groups.len()],
         node_pos: vec![(0.0, 0.0); doc.nodes.len()],
         group_pos: vec![(0.0, 0.0); doc.groups.len()],
         group_index: doc
@@ -304,7 +372,7 @@ pub fn layout(doc: &Document) -> Layout {
         let (ox, oy) = match parents[i] {
             Some(p) => {
                 let pr = abs_of_group(p, ctx, parents, memo);
-                (pr.x + GROUP_PAD, pr.y + GROUP_HEAD)
+                (pr.x + ctx.inset[p].0, pr.y + ctx.inset[p].1)
             }
             None => (0.0, 0.0),
         };
@@ -328,7 +396,7 @@ pub fn layout(doc: &Document) -> Layout {
         let (ox, oy) = match parent_of_node[i] {
             Some(g) => {
                 let r = abs_group[g].unwrap();
-                (r.x + GROUP_PAD, r.y + GROUP_HEAD)
+                (r.x + ctx.inset[g].0, r.y + ctx.inset[g].1)
             }
             None => (0.0, 0.0),
         };
@@ -336,7 +404,9 @@ pub fn layout(doc: &Document) -> Layout {
         if forest.root[i] == Some(i) {
             // a pinned centre pins its map
             let rel = map_rel[i].unwrap_or_default();
-            if let (Some(px), Some(py)) = (n.x, n.y) {
+            let in_lane =
+                parent_of_node[i].is_some_and(|g| ctx.lane[g].is_some() || ctx.gantt[g].is_some());
+            if let (Some(px), Some(py), false) = (n.x, n.y, in_lane) {
                 (x, y) = (px - rel.x, py - rel.y);
             }
             map_origin[i] = (x, y);
@@ -387,13 +457,15 @@ pub fn layout(doc: &Document) -> Layout {
             let (ox, oy) = match parent_of_node[i] {
                 Some(g) => {
                     let r = abs_group[g].unwrap();
-                    (r.x + GROUP_PAD, r.y + GROUP_HEAD)
+                    (r.x + ctx.inset[g].0, r.y + ctx.inset[g].1)
                 }
                 None => (0.0, 0.0),
             };
             let (w, h) = ctx.sizes[i];
             let (mut x, mut y) = (ox + ctx.node_pos[i].0, oy + ctx.node_pos[i].1);
-            if let (Some(px), Some(py)) = (n.x, n.y) {
+            let in_lane =
+                parent_of_node[i].is_some_and(|g| ctx.lane[g].is_some() || ctx.gantt[g].is_some());
+            if let (Some(px), Some(py), false) = (n.x, n.y, in_lane) {
                 (x, y) = (px, py);
             }
             Rect { x, y, w, h }
@@ -406,6 +478,7 @@ pub fn layout(doc: &Document) -> Layout {
             shape: n.shape,
             font: mindmap::font_size(styles[i]),
             map,
+            task: parent_of_node[i].is_some_and(|g| ctx.gantt[g].is_some()),
         });
     }
 
@@ -424,6 +497,9 @@ pub fn layout(doc: &Document) -> Layout {
     let mut rects: Vec<Rect> = abs_group.iter().map(|r| r.unwrap()).collect();
     if doc.nodes.iter().any(|n| n.pinned() && n.parent.is_none()) {
         for &g in &order {
+            if doc.groups[g].lanes || ctx.lane[g].is_some() || ctx.gantt[g].is_some() {
+                continue; // laid out as bands or a timeline
+            }
             let mut bb: Option<Rect> = None;
             for nb in &nodes {
                 let i = ctx.node_index[nb.id.as_str()];
@@ -455,6 +531,13 @@ pub fn layout(doc: &Document) -> Layout {
             id: g.id.clone(),
             rect: rects[i],
             depth: depth(i),
+            lanes: g.lanes,
+            lane: ctx.lane[i].map(|l| l.0),
+            head: ctx.lane[i].map_or(0.0, |l| l.1),
+            gantt: ctx.gantt[i].clone().map(|mut gb| {
+                gb.left = rects[i].x + GROUP_PAD + gb.x0;
+                gb
+            }),
         })
         .collect();
     let bounds = nodes
@@ -478,28 +561,7 @@ fn block(
     pn: &[Option<usize>],
     pg: &[Option<usize>],
 ) -> (f64, f64) {
-    let mut items: Vec<Item> = Vec::new();
-    for (i, p) in pn.iter().enumerate() {
-        if *p == group && ctx.forest.root[i].is_none_or(|r| r == i) {
-            items.push(Item::Node(i));
-        }
-    }
-    for (i, p) in pg.iter().enumerate() {
-        if *p == group {
-            let (w, h) = block(ctx, Some(i), pn, pg);
-            let label_w = group_label_w(ctx.doc.groups[i].display());
-            let (gw, gh) = if w == 0.0 {
-                (label_w.max(180.0), GROUP_HEAD + 40.0)
-            } else {
-                (
-                    (w + 2.0 * GROUP_PAD).max(label_w),
-                    h + GROUP_HEAD + GROUP_PAD,
-                )
-            };
-            ctx.group_sizes[i] = (gw, gh);
-            items.push(Item::Group(i));
-        }
-    }
+    let items = members(ctx, group, pn, pg);
     if items.is_empty() {
         return (0.0, 0.0);
     }
@@ -526,6 +588,69 @@ fn block(
         }
         None
     };
+    let edges = item_edges(ctx, &|ctx, id| item_of(ctx, id));
+    let sizes: Vec<(f64, f64)> = items.iter().map(|&it| size(ctx, it)).collect();
+    let pos = match ctx.doc.settings.layout {
+        LayoutKind::Grid => grid(&sizes, &(0..items.len()).collect::<Vec<_>>()),
+        LayoutKind::Layered => layered(&sizes, &edges, ctx.doc.settings.direction),
+    };
+    let (mut w, mut h) = (0.0f64, 0.0f64);
+    for (k, it) in items.iter().enumerate() {
+        let (x, y) = pos[k];
+        w = w.max(x + sizes[k].0);
+        h = h.max(y + sizes[k].1);
+        match *it {
+            Item::Node(i) => ctx.node_pos[i] = (x, y),
+            Item::Group(i) => ctx.group_pos[i] = (x, y),
+        }
+    }
+    (w, h)
+}
+
+/// The items laid out together in `group` (None = top level): its nodes
+/// (a mindmap through its centre) and its child groups, which are sized here.
+fn members(
+    ctx: &mut Ctx,
+    group: Option<usize>,
+    pn: &[Option<usize>],
+    pg: &[Option<usize>],
+) -> Vec<Item> {
+    let mut items: Vec<Item> = Vec::new();
+    for (i, p) in pn.iter().enumerate() {
+        if *p == group && ctx.forest.root[i].is_none_or(|r| r == i) {
+            items.push(Item::Node(i));
+        }
+    }
+    for (i, p) in pg.iter().enumerate() {
+        if *p == group {
+            let (w, h) = if ctx.doc.groups[i].lanes {
+                lanes_block(ctx, i, pn, pg)
+            } else if ctx.doc.groups[i].gantt {
+                gantt_block(ctx, i)
+            } else {
+                block(ctx, Some(i), pn, pg)
+            };
+            let label_w = group_label_w(ctx.doc.groups[i].display());
+            let (gw, gh) = if w == 0.0 {
+                (label_w.max(180.0), GROUP_HEAD + 40.0)
+            } else {
+                (
+                    (w + 2.0 * GROUP_PAD).max(label_w),
+                    h + GROUP_HEAD + GROUP_PAD,
+                )
+            };
+            ctx.group_sizes[i] = (gw, gh);
+            items.push(Item::Group(i));
+        }
+    }
+    items
+}
+
+/// Edges between items (deduplicated), with the width of their labels.
+fn item_edges(
+    ctx: &Ctx,
+    item_of: &dyn Fn(&Ctx, &str) -> Option<usize>,
+) -> Vec<(usize, usize, f64)> {
     let mut edges: Vec<(usize, usize, f64)> = Vec::new();
     for e in &ctx.doc.edges {
         if let (Some(a), Some(b)) = (item_of(ctx, &e.from), item_of(ctx, &e.to)) {
@@ -544,22 +669,235 @@ fn block(
             }
         }
     }
-    let sizes: Vec<(f64, f64)> = items.iter().map(|&it| size(ctx, it)).collect();
-    let pos = match ctx.doc.settings.layout {
-        LayoutKind::Grid => grid(&sizes, &(0..items.len()).collect::<Vec<_>>()),
-        LayoutKind::Layered => layered(&sizes, &edges, ctx.doc.settings.direction),
-    };
-    let (mut w, mut h) = (0.0f64, 0.0f64);
-    for (k, it) in items.iter().enumerate() {
-        let (x, y) = pos[k];
-        w = w.max(x + sizes[k].0);
-        h = h.max(y + sizes[k].1);
-        match *it {
-            Item::Node(i) => ctx.node_pos[i] = (x, y),
-            Item::Group(i) => ctx.group_pos[i] = (x, y),
+    edges
+}
+
+/// Swimlanes: the lanes inside group `g` are bands (rows when the flow runs
+/// right or left, columns when it runs down or up). Everything in all lanes is
+/// ranked together, so the flow lines up across lanes; inside a lane, members
+/// that would overlap stack. Members of `g` outside any lane get a band of their
+/// own at the end. Returns the content size of `g`.
+fn lanes_block(ctx: &mut Ctx, g: usize, pn: &[Option<usize>], pg: &[Option<usize>]) -> (f64, f64) {
+    let rows = matches!(
+        ctx.doc.settings.direction,
+        Direction::Right | Direction::Left
+    );
+    let lanes: Vec<usize> = (0..pg.len()).filter(|&i| pg[i] == Some(g)).collect();
+    // bands: each lane, then the loose members of `g`
+    let mut owners: Vec<Option<usize>> = lanes.iter().map(|&l| Some(l)).collect();
+    let mut band_items: Vec<Vec<Item>> = Vec::new();
+    for &l in &lanes {
+        ctx.lane[l] = Some((if rows { "row" } else { "column" }, 0.0));
+        let mut items: Vec<Item> = Vec::new();
+        for (i, p) in pn.iter().enumerate() {
+            if *p == Some(l) && ctx.forest.root[i].is_none_or(|r| r == i) {
+                items.push(Item::Node(i));
+            }
         }
+        for c in (0..pg.len()).filter(|&c| pg[c] == Some(l)) {
+            let (w, h) = if ctx.doc.groups[c].lanes {
+                lanes_block(ctx, c, pn, pg)
+            } else if ctx.doc.groups[c].gantt {
+                gantt_block(ctx, c)
+            } else {
+                block(ctx, Some(c), pn, pg)
+            };
+            let label_w = group_label_w(ctx.doc.groups[c].display());
+            ctx.group_sizes[c] = if w == 0.0 {
+                (label_w.max(180.0), GROUP_HEAD + 40.0)
+            } else {
+                (
+                    (w + 2.0 * GROUP_PAD).max(label_w),
+                    h + GROUP_HEAD + GROUP_PAD,
+                )
+            };
+            items.push(Item::Group(c));
+        }
+        band_items.push(items);
     }
-    (w, h)
+    let loose: Vec<Item> = (0..pn.len())
+        .filter(|&i| pn[i] == Some(g) && ctx.forest.root[i].is_none_or(|r| r == i))
+        .map(Item::Node)
+        .collect();
+    if !loose.is_empty() {
+        owners.push(None);
+        band_items.push(loose);
+    }
+    if band_items.is_empty() {
+        return (0.0, 0.0);
+    }
+    let all: Vec<(usize, Item)> = band_items
+        .iter()
+        .enumerate()
+        .flat_map(|(b, its)| its.iter().map(move |&it| (b, it)))
+        .collect();
+    let size = |ctx: &Ctx, it: Item| match it {
+        Item::Node(i) => ctx.sizes[i],
+        Item::Group(i) => ctx.group_sizes[i],
+    };
+    let sizes: Vec<(f64, f64)> = all.iter().map(|&(_, it)| size(ctx, it)).collect();
+    // which item of the lanes contains a node or group id
+    let item_of = |ctx: &Ctx, id: &str| -> Option<usize> {
+        let mut cand = if let Some(&n) = ctx.node_index.get(id) {
+            let n = ctx.forest.root[n].unwrap_or(n);
+            (Item::Node(n), pn[n])
+        } else {
+            let gi = *ctx.group_index.get(id)?;
+            (Item::Group(gi), pg[gi])
+        };
+        loop {
+            let owner = cand.1;
+            if owners.contains(&owner) || owner == Some(g) {
+                return all.iter().position(|&(_, it)| it == cand.0);
+            }
+            let up = owner?;
+            cand = (Item::Group(up), pg[up]);
+        }
+    };
+    let edges = item_edges(ctx, &item_of);
+    let pos = layered(&sizes, &edges, ctx.doc.settings.direction);
+    let main = |k: usize| if rows { pos[k].0 } else { pos[k].1 };
+    let msize = |k: usize| if rows { sizes[k].0 } else { sizes[k].1 };
+    let csize = |k: usize| if rows { sizes[k].1 } else { sizes[k].0 };
+    let lo = (0..all.len()).map(main).fold(f64::INFINITY, f64::min);
+    let lo = if lo.is_finite() { lo } else { 0.0 };
+    let extent = (0..all.len())
+        .map(|k| main(k) - lo + msize(k))
+        .fold(0.0, f64::max);
+    // inside each band, members that overlap along the flow stack
+    let mut cross = vec![0.0f64; all.len()];
+    let mut band_size = vec![LANE_MIN; band_items.len()];
+    for b in 0..band_items.len() {
+        let mut ks: Vec<usize> = (0..all.len()).filter(|&k| all[k].0 == b).collect();
+        ks.sort_by(|&x, &y| main(x).total_cmp(&main(y)));
+        let mut placed: Vec<(f64, f64, f64, f64)> = Vec::new();
+        for &k in &ks {
+            let (m0, m1) = (main(k), main(k) + msize(k));
+            let mut c = 0.0;
+            while let Some(o) = placed.iter().find(|o| {
+                m0 < o.1 + NODE_GAP && o.0 < m1 + NODE_GAP && c < o.3 && o.2 < c + csize(k)
+            }) {
+                c = o.3 + NODE_GAP;
+            }
+            cross[k] = c;
+            placed.push((m0, m1, c, c + csize(k)));
+        }
+        let content = placed.iter().map(|o| o.3).fold(0.0, f64::max);
+        if placed.iter().all(|o| o.2 == 0.0) {
+            // one row: centre each member in the band
+            for &k in &ks {
+                cross[k] = (content - csize(k)) / 2.0;
+            }
+        }
+        band_size[b] = (content + 2.0 * LANE_PAD).max(LANE_MIN);
+    }
+    // the title strip: as wide as the longest lane title (rows), or a fixed height (columns)
+    let head = if rows {
+        lanes
+            .iter()
+            .map(|&l| text::width(ctx.doc.groups[l].display(), 13.0) * 1.06 + 28.0)
+            .fold(96.0, f64::max)
+            .min(220.0)
+    } else {
+        LANE_HEAD
+    };
+    let length = head + 2.0 * LANE_PAD + extent.max(120.0);
+    let mut at = 0.0;
+    for (b, owner) in owners.iter().enumerate() {
+        let band = band_size[b];
+        // where this band's members start, relative to `g`'s content (loose
+        // members) or to the lane (lane members)
+        let (bx, by) = if rows { (0.0, at) } else { (at, 0.0) };
+        let content_at = if rows {
+            (head + LANE_PAD, LANE_PAD)
+        } else {
+            (LANE_PAD, head + LANE_PAD)
+        };
+        let (ox, oy) = match owner {
+            Some(l) => {
+                ctx.group_pos[*l] = (bx, by);
+                ctx.group_sizes[*l] = if rows { (length, band) } else { (band, length) };
+                ctx.inset[*l] = content_at;
+                ctx.lane[*l] = Some((if rows { "row" } else { "column" }, head));
+                (0.0, 0.0)
+            }
+            None => (bx + content_at.0, by + content_at.1),
+        };
+        for k in (0..all.len()).filter(|&k| all[k].0 == b) {
+            let (m, c) = (
+                main(k) - lo,
+                cross[k] + (band - 2.0 * LANE_PAD - band_content(&cross, &all, b, &csize)) / 2.0,
+            );
+            let (x, y) = if rows {
+                (ox + m, oy + c)
+            } else {
+                (ox + c, oy + m)
+            };
+            match all[k].1 {
+                Item::Node(i) => ctx.node_pos[i] = (x, y),
+                Item::Group(i) => ctx.group_pos[i] = (x, y),
+            }
+        }
+        at += band;
+    }
+    if rows {
+        (length, at)
+    } else {
+        (at, length)
+    }
+}
+
+/// A gantt chart: task names on the left, one row per task, a bar from its
+/// start for its duration. Returns the chart's content size.
+fn gantt_block(ctx: &mut Ctx, g: usize) -> (f64, f64) {
+    let sched = crate::gantt::schedule(ctx.doc, &ctx.doc.groups[g].id);
+    let names = sched
+        .tasks
+        .iter()
+        .map(|t| text::width(ctx.doc.nodes[t.0].display(), 13.0) + 8.0)
+        .fold(80.0, f64::max)
+        .min(260.0);
+    // whole weeks, at least two; long charts get narrower days
+    let days = (sched.span.ceil().max(14.0) / 7.0).ceil() * 7.0;
+    let day = (840.0 / days).clamp(8.0, 32.0);
+    let x0 = names + GANTT_GAP;
+    for (k, &(i, start, len)) in sched.tasks.iter().enumerate() {
+        ctx.sizes[i] = ((len * day).max(4.0), GANTT_BAR);
+        ctx.node_pos[i] = (
+            x0 + start * day,
+            GANTT_HEAD + k as f64 * GANTT_ROW + (GANTT_ROW - GANTT_BAR) / 2.0,
+        );
+    }
+    ctx.gantt[g] = Some(GanttBox {
+        names,
+        x0,
+        day,
+        days,
+        origin: sched.origin,
+        rows: sched
+            .tasks
+            .iter()
+            .map(|t| ctx.doc.nodes[t.0].id.clone())
+            .collect(),
+        left: 0.0,
+    });
+    (
+        x0 + days * day,
+        GANTT_HEAD + sched.tasks.len().max(1) as f64 * GANTT_ROW,
+    )
+}
+
+/// Cross-axis size of what band `b` holds.
+fn band_content(
+    cross: &[f64],
+    all: &[(usize, Item)],
+    b: usize,
+    csize: &dyn Fn(usize) -> f64,
+) -> f64 {
+    (0..all.len())
+        .filter(|&k| all[k].0 == b)
+        .map(|k| cross[k] + csize(k))
+        .fold(0.0, f64::max)
 }
 
 fn grid(sizes: &[(f64, f64)], which: &[usize]) -> Vec<(f64, f64)> {
@@ -931,5 +1269,26 @@ mod tests {
         assert_eq!(l.rect("c").unwrap().x, 500.0);
         let g = l.rect("g").unwrap();
         assert!(g.x < 500.0 && g.right() > 500.0);
+    }
+
+    #[test]
+    fn swimlanes_are_bands_the_flow_runs_across() {
+        let src = "lanes o: Order {\n  lane c: Customer {\n    a: Place [x: 900, y: 900]\n    d: Pay\n  }\n  lane s: Sales {\n    b: Check\n  }\n}\na -> b -> d";
+        let d = crate::dsl::parse(src).unwrap();
+        // the DSL round-trips
+        assert_eq!(crate::dsl::parse(&crate::dsl::print(&d)).unwrap(), d);
+        assert!(crate::dsl::print(&d).contains("lanes o: Order {\n  lane c: Customer {"));
+        let l = layout(&d);
+        let (c, s) = (l.group("c").unwrap(), l.group("s").unwrap());
+        // rows of the same length, stacked without a gap
+        assert_eq!((c.lane, s.lane), (Some("row"), Some("row")));
+        assert_eq!((c.rect.x, c.rect.w), (s.rect.x, s.rect.w));
+        assert_eq!(c.rect.bottom(), s.rect.y);
+        // ranked together: a, then b (another lane), then d
+        let r = |id: &str| l.rect(id).unwrap();
+        assert!(r("a").right() < r("b").x && r("b").right() < r("d").x);
+        // members sit in their lane, past its title strip; pins are ignored there
+        assert!(r("a").x > c.rect.x + c.head && r("a").bottom() <= c.rect.bottom());
+        assert!(r("b").y >= s.rect.y);
     }
 }

@@ -34,14 +34,14 @@ diagram png docs/checkout.diagram --base main      # PNG of what this branch cha
 
 ## Mindmaps
 
-Press **T** and click, type the central topic, then keep typing: **Tab** adds a branch, **Enter** a sibling, **⇧Tab** outdents, arrows walk the map, **⌥↑/↓** reorders, **.** folds. Drag a topic onto another to move its branch. Paste a Markdown list to get a map. Maps sit on the same board as boxes, stickies and arrows, and topics can be linked and commented on like anything else.
+Press **T** and click, type the central topic, then keep typing: **Tab** adds a branch, **Enter** a sibling, **⇧Tab** outdents (on the centre it adds a new centre above it), arrows walk the map, **⌥↑/↓** reorders, **.** folds. Drag a topic onto another to move its branch. Paste a Markdown list to get a map. Maps sit on the same board as boxes, stickies and arrows, and topics can be linked and commented on like anything else.
 
 ```diagram
-mindmap pf: Payments France [layout: both] {
-  Discovery
-    Who pays today?
-  Regulations [red]
-    PSD2 / SCA
+mindmap offsite: Team offsite [layout: both] {
+  Venue
+    Who books it?
+  Budget [red]
+    Travel and hotels
   Prompt: build checkout
     Context
     Constraints
@@ -63,11 +63,15 @@ Whiteboard tools are great for talking. Their output, though, ends up in a forma
 - **A real editor.**
   - Double-click to add a box.
   - Drag a node's dot onto another node to connect them, or onto empty space to create a new connected node.
-  - Sticky notes, groups (`⌘G`), multi-select, duplicate, arrow-key nudging, an inspector, undo and redo.
+  - Sticky notes, titled sections (`⌘G`; drag blocks in or out), multi-select, duplicate, arrow-key nudging, an inspector, undo and redo.
   - A live code pane (DSL, JSON or Mermaid) that stays in sync with the canvas both ways.
   - Light and dark themes, plus pan and zoom.
+- **Flowcharts, swimlanes and gantt charts.**
+  - Boxes, decisions and 11 more shapes, with labelled, dashed or reversed arrows (right-click a block or an arrow).
+  - Swimlanes (`lanes { lane … }`): bands the flow runs across, lined up step by step.
+  - Gantt charts (`gantt { Design [5d]  Build [2w, after: design] }`): a timeline with dependencies; drag a bar to reschedule it.
 - **Comments become prompts.**
-  - Press **M** and click a node, an edge, a group or empty canvas to start a thread. Threads support replies, resolving and reopening.
+  - Press **C** and click a block (or empty canvas) to start a thread, right where you clicked. Threads support replies, resolving and reopening.
   - **Prompt** builds a task from the open threads. You choose what the agent should do: *update the diagram*, *change the code* or *discuss*. You also choose the reply format: ops or a whole diagram.
   - **Apply reply** takes the LLM's answer as it is (fenced JSON or a ```` ```diagram ```` block), applies it atomically and resolves the comments with a note on what was done.
 - **Export anywhere.**
@@ -98,7 +102,7 @@ diagram [FILE]                     open FILE in the editor (created if missing;
                                    no FILE starts a new untitled.diagram)
 diagram new FILE [--template flow|architecture|board]
 
-diagram svg  FILE [-o out.svg]     static SVG       ┐ --dark --transparent --no-title
+diagram svg  FILE [-o out.svg]     static SVG       ┐ --dark --transparent --title
 diagram png  FILE [-o out.png]     PNG (--scale 2)  │ --comments open|all|none
 diagram html FILE [-o out.html]    interactive page ┘ --base FILE|GIT_REF  (highlight changes)
 diagram convert FILE --to dsl|json|mermaid|brief
@@ -126,7 +130,7 @@ diagram spec [--json-schema]   diagram embed [-o diagram.embed.js]   diagram ski
 | `Tab` · `Enter` · `⇧Tab` · `F2` · `.` | mindmap: branch · sibling · outdent · rename · fold |
 | double-click | add a box / edit a label |
 | drag a node's dot | connect, or drop on empty space to create a connected node |
-| `⌘G` · `⌘D` · `⌘A` | group · duplicate · select all |
+| `⌘G` · `⌘D` · `⌘A` | section · duplicate · select all |
 | `Enter` · `Delete` · arrows | edit label · delete · nudge (`⇧` for ×5) |
 | `⌘Z` · `⇧⌘Z` | undo · redo |
 | `F` · `0` · `+` `-` · space+drag | fit · 100% · zoom · pan |

@@ -1,0 +1,14 @@
+description: A launch plan as a gantt chart; tasks follow each other unless they say otherwise
+
+gantt launch: Launch plan [start: 2026-10-12] {
+  Design [5d]
+  Build [2w, after: design]
+  Docs [3d, after: design, purple]
+  Beta [1w, after: build, orange]
+  Launch day [after: beta docs, green]
+}
+
+risk: Payments team is busy until Oct 20 [sticky]
+risk ..> build
+
+comment on beta: Do we need a second week?

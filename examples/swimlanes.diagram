@@ -1,0 +1,28 @@
+description: A flowchart in swimlanes: each lane is who does the step, the flow runs across them
+
+lanes order: Order to cash {
+  lane customer: Customer {
+    place: Place order [pill, green]
+    pay: Pay invoice
+  }
+  lane sales: Sales {
+    check: Credit OK? [diamond]
+    confirm: Confirm order
+  }
+  lane finance: Finance [blue] {
+    invoice: Send invoice
+    book: Book payment [pill]
+  }
+}
+
+crm: CRM [cylinder]
+
+place -> check
+check -> confirm: yes
+check -> place: no
+confirm -> invoice
+invoice -> pay
+pay -> book
+confirm ..> crm
+
+comment on check: Who sets the credit limit?
