@@ -122,6 +122,25 @@ impl Diagram {
         diagram_core::prompt::selection(&self.inner.doc, &ids)
     }
 
+    /// Part of the board as diagram language: `selectors` is a JSON array
+    /// (`["group:back", "near:api"]`, see `diagram help`). Returns
+    /// `{source, ids}` or `{error}`.
+    pub fn query(&self, selectors: &str) -> String {
+        let sels: Vec<String> = match serde_json::from_str(selectors) {
+            Ok(s) => s,
+            Err(e) => return err(format!("selectors: {e}")),
+        };
+        let sels: Vec<&str> = sels.iter().map(|s| s.as_str()).collect();
+        match diagram_core::query::select(&self.inner.doc, &sels) {
+            Ok(ids) => json!({
+                "source": diagram_core::dsl::print(&diagram_core::query::subset(&self.inner.doc, &ids)),
+                "ids": ids,
+            })
+            .to_string(),
+            Err(e) => err(e),
+        }
+    }
+
     /// A small prompt asking a model to grow the topic `id`.
     /// Options: `{instructions, count, levels}`. Returns `{prompt}` or `{error}`.
     pub fn expand_prompt(&self, id: &str, options: &str) -> String {

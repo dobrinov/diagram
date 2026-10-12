@@ -1,5 +1,17 @@
 # Changelog
 
+## 0.9.0 — 2026-10-12
+
+Tools for agents that drive boards:
+
+- **`diagram add FILE [DSL|-]`** and the **`merge` op**: statements in the diagram language added to a board as if written at its end. New elements are created; one written again by its id gets the attributes given (`api [red]`); a group written again keeps its place. The cheapest way for a model to add a lot at once.
+- **`diagram query FILE SELECTOR…`**: just part of a board, as diagram language with the sections around it: `group:`/`chart:`, `map:`, `near:`, `label~`, `kind:`, `owner:`, `tag:`, `color:`, `comments:open` (`--ids` for ids). Also `Board.query()` / `Board.select()` in the JS package and `query()` in WASM.
+- **Inline ops:** `diagram apply FILE '{"op":…}'`.
+- **`--focus ID,ID`** crops `svg`/`png`/`html` (and the `focus` render option) to some elements.
+- **"Did you mean …?"** on ops with a mistyped id.
+- `diff` (and the summary `apply` prints) now shows changes to gantt tasks and charts (dates, durations, dependencies, milestones, progress, owners, scale) and topic moves.
+- `Board.merge(dsl)` in the JS package.
+
 ## 0.8.0 — 2026-10-12
 
 - **JavaScript / TypeScript package** in `js/` (`make js`): an ES module for Node ≥ 18 and browsers with `index.d.ts` types. `await init()`, then `Board.parse(src)` / `Board.empty()` with `apply(ops | {ops} | model reply)` (atomic; throws `DiagramError` with the failing op's `index`), `source()`, `document()`, `render()`, `prompt()`, `brief()`, `outline()`, `markdown()`, `selection(ids)`, `diff(base)`, `expandPrompt()`; one-shot `parse`, `render`, `convert`, `spec`, `jsonSchema`, `version`, `mindmapPrompt`, `replyOutline`. Objects in and out, camelCase options; `Op` is a typed union of every op. `make test` runs its tests once `js/pkg` is built. Marked private for now: the npm name `diagram` is taken.

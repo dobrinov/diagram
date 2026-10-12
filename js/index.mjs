@@ -81,8 +81,8 @@ function parseResult(text) {
 }
 
 function renderOptions(o = {}) {
-  const { theme, comments, title, transparent, padding, today } = o;
-  return { theme, comments, title, transparent, padding, today };
+  const { theme, comments, title, transparent, padding, today, focus } = o;
+  return { theme, comments, title, transparent, padding, today, focus };
 }
 
 function promptOptions(o = {}) {
@@ -200,6 +200,21 @@ export class Board {
   /** The selected elements as Markdown to paste into a prompt. */
   selection(ids) {
     return this.#live().selection_markdown(JSON.stringify(ids ?? []));
+  }
+
+  /** Part of the board as diagram language, picked by selectors (`group:back`, `near:api`, `label~ledger`, …). */
+  query(...selectors) {
+    return parseResult(this.#live().query(JSON.stringify(selectors.flat()))).source;
+  }
+
+  /** The ids the selectors pick, in document order. */
+  select(...selectors) {
+    return parseResult(this.#live().query(JSON.stringify(selectors.flat()))).ids;
+  }
+
+  /** Add statements in the diagram language (an element written again by its id gets the attributes given). */
+  merge(dsl) {
+    return this.apply([{ op: "merge", dsl: String(dsl) }]);
   }
 
   #base(base) {

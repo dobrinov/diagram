@@ -275,6 +275,13 @@ pub enum Op {
         key: String,
         value: String,
     },
+    /// Statements in the diagram language, added to the board as if they
+    /// were written at its end: new elements are created, and a box, group
+    /// or arrow written again by its id gets the attributes given (`api
+    /// [red]`). The cheapest way to add a lot at once.
+    Merge {
+        dsl: String,
+    },
 }
 
 /// What a batch did.
@@ -303,12 +310,60 @@ pub fn apply(doc: &mut Document, ops: &[Op]) -> Result<Applied, OpError> {
     let mut work = doc.clone();
     let mut applied = Applied::default();
     for (index, op) in ops.iter().enumerate() {
-        apply_one(&mut work, op, &mut applied.created)
-            .map_err(|message| OpError { index, message })?;
+        apply_one(&mut work, op, &mut applied.created).map_err(|message| OpError {
+            index,
+            message: suggest(&work, message),
+        })?;
         applied.count += 1;
     }
     *doc = work;
     Ok(applied)
+}
+
+/// "no node `apii`" → "no node `apii` (did you mean `api`?)": the closest
+/// id on the board, when one is close.
+fn suggest(doc: &Document, message: String) -> String {
+    let Some(start) = message
+        .find("no ")
+        .and_then(|i| message[i..].find('`').map(|j| i + j + 1))
+    else {
+        return message;
+    };
+    let Some(len) = message[start..].find('`') else {
+        return message;
+    };
+    let wrong = &message[start..start + len];
+    let ids = doc
+        .nodes
+        .iter()
+        .map(|n| n.id.as_str())
+        .chain(doc.groups.iter().map(|g| g.id.as_str()))
+        .chain(doc.edges.iter().map(|e| e.id.as_str()))
+        .chain(doc.comments.iter().map(|c| c.id.as_str()));
+    let best = ids
+        .map(|id| (distance(wrong, id), id))
+        .filter(|(d, id)| *d <= (wrong.len().max(id.len()) / 3).max(1))
+        .min();
+    match best {
+        Some((_, id)) => format!("{message} (did you mean `{id}`?)"),
+        None => message,
+    }
+}
+
+/// Edit distance between two ids.
+fn distance(a: &str, b: &str) -> usize {
+    let b: Vec<char> = b.chars().collect();
+    let mut row: Vec<usize> = (0..=b.len()).collect();
+    for (i, ca) in a.chars().enumerate() {
+        let mut prev = row[0];
+        row[0] = i + 1;
+        for (j, cb) in b.iter().enumerate() {
+            let cur = row[j + 1];
+            row[j + 1] = (prev + usize::from(ca != *cb)).min(row[j] + 1).min(cur + 1);
+            prev = cur;
+        }
+    }
+    row[b.len()]
 }
 
 /// A chart's start: None leaves it, Some(None) clears it.
@@ -1103,6 +1158,41 @@ fn apply_one(doc: &mut Document, op: &Op, created: &mut Vec<String>) -> Result<(
                 .ok_or_else(|| format!("no comment `{id}`"))?;
             c.status = Status::Open;
         }
+        Op::Merge { dsl } => {
+            let base = crate::dsl::print(doc);
+            // where the merged statements start in the text that is read
+            let offset = base.lines().count() + 1;
+            let merged = crate::dsl::parse(&format!("{base}\n{dsl}\n")).map_err(|errs| {
+                errs.iter()
+                    .map(|e| match e.line {
+                        l if l > offset => format!("line {}: {}", l - offset, e.message),
+                        _ => e.message.clone(),
+                    })
+                    .collect::<Vec<_>>()
+                    .join("; ")
+            })?;
+            for n in &merged.nodes {
+                if doc.node(&n.id).is_none() {
+                    created.push(n.id.clone());
+                }
+            }
+            for g in &merged.groups {
+                if doc.group(&g.id).is_none() {
+                    created.push(g.id.clone());
+                }
+            }
+            for e in &merged.edges {
+                if doc.edge(&e.id).is_none() {
+                    created.push(e.id.clone());
+                }
+            }
+            for c in &merged.comments {
+                if doc.comment(&c.id).is_none() {
+                    created.push(c.id.clone());
+                }
+            }
+            *doc = merged;
+        }
         Op::Set { key, value } => {
             let v = value.trim();
             let s = &mut doc.settings;
@@ -1403,5 +1493,44 @@ mod tests {
         assert_eq!(r.created[0], "ideas");
         assert_eq!(d.node("ideas").unwrap().mindmap, Some(MapLayout::Right));
         assert_eq!(d.node("ideas").unwrap().x, Some(500.0));
+    }
+
+    #[test]
+    fn merge_adds_and_changes_with_statements() {
+        let mut d = crate::dsl::parse("group back: Backend {\n  api: Orders API\n}\n").unwrap();
+        let r = apply(
+            &mut d,
+            &parse_ops(r#"{"ops":[{"op":"merge","dsl":"group back {\n  db: Postgres [cylinder]\n}\napi [red]\napi -> db: SQL"}]}"#).unwrap(),
+        )
+        .unwrap();
+        assert_eq!(r.created, ["db", "api->db"]);
+        assert_eq!(d.node("db").unwrap().group.as_deref(), Some("back"));
+        assert_eq!(d.node("api").unwrap().color.as_deref(), Some("red"));
+        // errors point at the merged lines
+        let e = apply(
+            &mut d,
+            &parse_ops(r#"{"ops":[{"op":"merge","dsl":"x\ny [shape: blob]"}]}"#).unwrap(),
+        )
+        .unwrap_err();
+        assert!(
+            e.message.starts_with("line 2: unknown shape"),
+            "{}",
+            e.message
+        );
+    }
+
+    #[test]
+    fn unknown_ids_get_a_suggestion() {
+        let mut d = crate::dsl::parse("orders-api: Orders\ndb").unwrap();
+        let e = apply(
+            &mut d,
+            &parse_ops(r#"{"op":"update_node","id":"order-api","color":"red"}"#).unwrap(),
+        )
+        .unwrap_err();
+        assert!(
+            e.message.ends_with("(did you mean `orders-api`?)"),
+            "{}",
+            e.message
+        );
     }
 }

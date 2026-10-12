@@ -607,15 +607,20 @@ impl Parser {
             return Err(format!("`{id}` is already a node"));
         }
         let parent = self.group();
-        if self.doc.group(&id).is_none() {
+        let again = self.doc.group(&id).is_some();
+        if !again {
             self.doc.groups.push(Group {
                 id: id.clone(),
                 ..Default::default()
             });
         }
         let g = self.doc.group_mut(&id).unwrap();
-        g.parent = parent;
-        g.lanes = lanes;
+        // a group written again at the top level keeps its place (and a
+        // lane stays a lane): `lane platform { … }` adds to it
+        if !again || parent.is_some() {
+            g.parent = parent;
+        }
+        g.lanes = lanes || (again && g.lanes);
         if let Some(l) = label.or(qlabel) {
             g.label = l;
         }

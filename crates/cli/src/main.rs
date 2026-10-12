@@ -28,6 +28,7 @@ EXPORT
   diagram png  FILE [-o out.png]     PNG image (--scale N, default 2)
   diagram html FILE [-o out.html]    self-contained interactive page (viewer + WASM)
     render options: --dark --transparent --title --comments open|all|none --today
+                    --focus ID,ID   crop to these elements (look at one block)
                     --base FILE|GIT_REF   highlight what changed since then
   diagram convert FILE --to dsl|json|mermaid|brief [-o OUT]
                                      FILE may be DSL, JSON or Mermaid (detected)
@@ -49,7 +50,16 @@ REVIEW
   diagram prompt   FILE [--target diagram|code|discuss] [--reply ops|dsl]
                    [--comment c1,c2] [--all] [--instructions TEXT]
                                      turn open comments into a prompt for an agent
-  diagram apply    FILE [PATCH|-] [--dry-run]     apply ops JSON (or an LLM reply containing it)
+  diagram apply    FILE [PATCH|-|'{"op":…}'] [--dry-run]   apply ops JSON (a file, stdin, inline,
+                                     or an LLM reply containing it)
+
+FOR AGENTS
+  diagram query FILE SELECTOR...     just part of the board, as diagram language (--ids: ids only)
+                                     ID · group:ID · chart:ID · map:ID · near:ID · label~TEXT
+                                     kind:box|topic|task|milestone|sticky|decision|group|edge|comment
+                                     owner:NAME · tag:NAME · color:NAME · comments:open
+  diagram add   FILE [DSL|-] [--dry-run]   add statements (new elements; one written again by its
+                                     id gets the attributes given: `api [red]`)
 
 CHECK
   diagram check FILE...              validate (exit 1 on errors)
@@ -92,6 +102,7 @@ const VALUE_FLAGS: &[&str] = &[
     "--count",
     "--levels",
     "--new",
+    "--focus",
 ];
 
 struct Args {
@@ -122,7 +133,7 @@ impl Args {
         const COMMANDS: &[&str] = &[
             "new", "open", "svg", "png", "html", "convert", "brief", "comments", "comment",
             "reply", "resolve", "prompt", "apply", "check", "fmt", "diff", "spec", "embed",
-            "skills", "version", "help", "outline", "expand",
+            "skills", "version", "help", "outline", "expand", "query", "add",
         ];
         let cmd = match pos.first() {
             Some(c) if COMMANDS.contains(&c.as_str()) => pos.remove(0),
@@ -351,6 +362,13 @@ fn render_opts(args: &Args) -> Result<RenderOptions, String> {
     }
     if args.flag("--title") {
         o.title = Some(true);
+    }
+    if let Some(f) = args.val("--focus") {
+        o.focus = f
+            .split(',')
+            .map(|s| s.trim().to_string())
+            .filter(|s| !s.is_empty())
+            .collect();
     }
     o.comments = match args.val("--comments").unwrap_or("open") {
         "open" => CommentMode::Open,
@@ -702,7 +720,11 @@ fn run(args: Args) -> Result<ExitCode, String> {
         "apply" => {
             let file = args.file(0)?;
             let mut doc = load(file)?;
-            let patch = read_text(args.pos.get(1).map(|s| s.as_str()).unwrap_or("-"))?;
+            let patch = match args.pos.get(1).map(|s| s.as_str()).unwrap_or("-") {
+                // ops right on the command line
+                inline if inline.trim_start().starts_with(['{', '[']) => inline.to_string(),
+                path => read_text(path)?,
+            };
             // a reply may also be a whole new diagram in a ```diagram block
             let ops = match diagram_core::ops::parse_ops(&patch) {
                 Ok(ops) => ops,
@@ -738,6 +760,48 @@ fn run(args: Args) -> Result<ExitCode, String> {
             } else {
                 save(file, &doc)?;
                 eprintln!("applied {} ops to {file}", r.count);
+            }
+            ok
+        }
+        "query" => {
+            let file = args.file(0)?;
+            let doc = load(file)?;
+            let sels: Vec<&str> = args.pos[1..].iter().map(|s| s.as_str()).collect();
+            if sels.is_empty() {
+                return Err("usage: diagram query FILE SELECTOR... (see `diagram help`)".into());
+            }
+            if args.flag("--ids") {
+                for id in diagram_core::query::select(&doc, &sels)? {
+                    println!("{id}");
+                }
+            } else {
+                print!("{}", diagram_core::query::query(&doc, &sels)?);
+            }
+            ok
+        }
+        "add" => {
+            let file = args.file(0)?;
+            let mut doc = load(file)?;
+            let dsl = match args.pos.get(1).map(|s| s.as_str()).unwrap_or("-") {
+                "-" => read_text("-")?,
+                text => text.to_string(),
+            };
+            let before = doc.clone();
+            let r =
+                diagram_core::ops::apply(&mut doc, &[Op::Merge { dsl }]).map_err(|e| e.message)?;
+            print!(
+                "{}",
+                diagram_core::diff::markdown(
+                    &diagram_core::diff::diff(&before, &doc),
+                    &before,
+                    &doc
+                )
+            );
+            if args.flag("--dry-run") {
+                eprintln!("dry run: {file} not changed");
+            } else {
+                save(file, &doc)?;
+                eprintln!("added to {file} ({} new)", r.created.len());
             }
             ok
         }

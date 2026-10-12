@@ -204,4 +204,10 @@ An ops batch changes a diagram without rewriting it, and it is the safest format
 
 OPS_REFERENCE
 
-`diagram apply FILE reply.md` accepts a chat reply as it is: it uses the first ```json block in the text.
+`diagram apply FILE reply.md` accepts a chat reply as it is: it uses the first ```json block in the text. One op can go inline: `diagram apply FILE '{"op":"remove","id":"cache"}'`. A mistyped id gets a suggestion (`no node `apii` (did you mean `api`?)`).
+
+### Writing and reading parts of a board
+
+- **`merge` / `diagram add FILE`** take statements in the diagram language and add them as if they were written at the end of the file: new elements are created, and an element written again by its id gets the attributes given (`api [red]`, `build [3w, done: 50%]`). A group written again keeps its place, so `lane platform {` … `}` adds to that lane. This is the cheapest way for a model to add a lot at once. (Topics and tasks written in a repeated `mindmap` / `gantt` block are added as new ones; change existing ones by id.)
+- **`diagram query FILE SELECTOR…`** prints just part of the board, as diagram language with the sections it sits in: `ID`, `group:ID` (also `chart:`, `lanes:`), `map:ID` (a topic and its branches), `near:ID` (a box, its arrows and their other ends), `label~TEXT`, `kind:box|topic|task|milestone|sticky|decision|group|edge|comment`, `owner:NAME`, `tag:NAME`, `color:NAME`, `comments:open`. Several selectors give everything any of them picks; `--ids` prints only ids.
+- **`--focus ID,ID`** on `svg` / `png` / `html` crops the picture to those elements.

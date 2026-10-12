@@ -28,6 +28,7 @@ pub mod model;
 pub mod ops;
 pub mod patch;
 pub mod prompt;
+pub mod query;
 pub mod render;
 pub mod route;
 pub mod text;

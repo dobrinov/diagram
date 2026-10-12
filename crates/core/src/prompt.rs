@@ -59,6 +59,7 @@ pub const OPS_REFERENCE: &str = r#"Operations (fields in [] are optional; ids ar
 - {"op":"add_comment","text":"…",["on":"api","author"]}  {"op":"reply","id":"c1","text":"…",["author"]}
 - {"op":"resolve_comment","id":"c1",["resolution":"what was done"]}  {"op":"reopen_comment","id":"c1"}
 - {"op":"set","key":"title|description|direction|layout|routing|theme","value":"…"}
+- {"op":"merge","dsl":"cache: Redis [cylinder]\napi -> cache: reads\napi [red]"}   (statements in the diagram language, as if written at the end of the file: adds new elements; one written again by its id gets the attributes given. Cheapest for many changes)
 - Gantt: a chart is {"op":"add_group","id":"plan","label":"Plan","gantt":true,["start":"YYYY-MM-DD","scale":"day|week|month|quarter"]}; its tasks are add_node / update_node with "group":"plan" and ["start","days","after":["id"],"milestone":true,"done":60,"owner":"ana"] (after may name tasks in other charts)
 Shapes: box, rounded, pill, circle, diamond, hexagon, cylinder, parallelogram, document, person, cloud, sticky, text.
 Colours: gray, blue, green, yellow, orange, red, purple, pink, teal or #rrggbb.

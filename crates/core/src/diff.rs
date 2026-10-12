@@ -50,6 +50,20 @@ fn fields_node(a: &Node, b: &Node) -> Vec<(String, String, String)> {
     cmp("group", opt(&a.group), opt(&b.group));
     cmp("link", opt(&a.link), opt(&b.link));
     cmp("tags", a.tags.join(" "), b.tags.join(" "));
+    // mindmap topics and gantt tasks
+    cmp("parent", opt(&a.parent), opt(&b.parent));
+    let days = |n: &Node| n.days.map(crate::gantt::format_days).unwrap_or_default();
+    cmp("start", opt(&a.start), opt(&b.start));
+    cmp("days", days(a), days(b));
+    cmp("after", a.after.join(" "), b.after.join(" "));
+    cmp(
+        "milestone",
+        (a.milestone as u8).to_string(),
+        (b.milestone as u8).to_string(),
+    );
+    let done = |n: &Node| n.done.map(|d| format!("{d}%")).unwrap_or_default();
+    cmp("done", done(a), done(b));
+    cmp("owner", opt(&a.owner), opt(&b.owner));
     f
 }
 
@@ -75,6 +89,12 @@ fn fields_group(a: &Group, b: &Group) -> Vec<(String, String, String)> {
         ("label", a.display().to_string(), b.display().to_string()),
         ("color", opt(&a.color), opt(&b.color)),
         ("parent", opt(&a.parent), opt(&b.parent)),
+        ("start", opt(&a.start), opt(&b.start)),
+        (
+            "scale",
+            a.scale.map(|s| s.as_str().to_string()).unwrap_or_default(),
+            b.scale.map(|s| s.as_str().to_string()).unwrap_or_default(),
+        ),
     ] {
         if x != y {
             f.push((name.to_string(), x, y));

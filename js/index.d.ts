@@ -362,11 +362,17 @@ export interface SetOp {
   value: string;
 }
 
+/** Statements in the diagram language, added as if written at the end of the file; an element written again by its id gets the attributes given. */
+export interface MergeOp {
+  op: "merge";
+  dsl: string;
+}
+
 /** One edit. A batch of ops is applied atomically. */
 export type Op =
   | AddNodeOp | UpdateNodeOp | AddOutlineOp | RenameOp | RemoveOp | MoveOp | NudgeOp | UnpinOp
   | AddEdgeOp | UpdateEdgeOp | AddGroupOp | UpdateGroupOp
-  | AddCommentOp | ReplyOp | EditCommentOp | ResolveCommentOp | ReopenCommentOp | SetOp;
+  | AddCommentOp | ReplyOp | EditCommentOp | ResolveCommentOp | ReopenCommentOp | SetOp | MergeOp;
 
 /** What Board.apply() accepts: ops, `{ops}`, one op, or a model's reply text containing that JSON. */
 export type OpsInput = Op[] | { ops: Op[] } | Op | string;
@@ -392,6 +398,8 @@ export interface RenderOptions {
   transparent?: boolean;
   /** Today (`YYYY-MM-DD`): dated gantt charts mark it with a line. */
   today?: string;
+  /** Crop the view to these elements (nodes or groups). */
+  focus?: string[];
   padding?: number;
 }
 
@@ -600,6 +608,20 @@ export class Board {
 
   /** The selected elements as Markdown to paste into a prompt. */
   selection(ids: string[]): string;
+
+  /**
+   * Part of the board as diagram language, picked by selectors: `ID`, `group:ID`, `chart:ID`,
+   * `map:ID`, `near:ID`, `label~TEXT`, `kind:box|topic|task|milestone|sticky|decision|group|edge|comment`,
+   * `owner:NAME`, `tag:NAME`, `color:NAME`, `comments:open`. Several selectors: everything any picks.
+   * @throws DiagramError when a selector is unknown or picks nothing
+   */
+  query(...selectors: (string | string[])[]): string;
+
+  /** The ids the selectors pick (see query), in document order. */
+  select(...selectors: (string | string[])[]): string[];
+
+  /** Add statements in the diagram language (op `merge`). */
+  merge(dsl: string): ApplyResult;
 
   /**
    * What changed since `base` (any format). Setting a base also makes

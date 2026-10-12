@@ -46,6 +46,9 @@ pub struct RenderOptions {
     pub padding: Option<f64>,
     /// Today (`YYYY-MM-DD`): gantt charts mark it with a line.
     pub today: Option<String>,
+    /// Only show these elements (nodes, groups): the view is cropped to them.
+    #[serde(default)]
+    pub focus: Vec<String>,
     /// Diff status per element id (see `diff::merge`).
     #[serde(skip)]
     pub changes: HashMap<String, Change>,
@@ -132,6 +135,15 @@ pub fn render(doc: &Document, opts: &RenderOptions) -> Rendered {
             w: 320.0,
             h: 160.0,
         };
+    }
+    // a crop around some elements, e.g. to look at one block
+    if let Some(r) = opts
+        .focus
+        .iter()
+        .filter_map(|id| lay.rect(id))
+        .reduce(|a, b| a.union(&b))
+    {
+        view = r.grow(pad);
     }
     let title_h = if show_title { 44.0 } else { 0.0 };
     view.y -= title_h;

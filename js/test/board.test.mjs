@@ -186,3 +186,16 @@ test("gantt fields, today, and edits that keep the file as written", () => {
   assert.match(b.selection(["g"]), /- GA: 2026-10-17, milestone, after Build\n/);
   b.free();
 });
+
+test("tools for agents: query, select, merge, focus, suggestions", () => {
+  const b = Board.parse("web: Web\ngroup back: Backend {\n  api: Orders API\n  db: Postgres\n}\nweb -> api\napi -> db\n");
+  assert.deepEqual(b.select("near:api"), ["web", "api", "db", "web->api", "api->db"]);
+  assert.match(b.query("group:back"), /group back: Backend \{\n  api: Orders API\n  db: Postgres\n\}\n\napi -> db\n/);
+  assert.throws(() => b.query("label~nothing"), DiagramError);
+  assert.deepEqual(b.merge("group back {\n  cache: Redis\n}\napi -> cache\napi [red]").created, ["cache", "api->cache"]);
+  assert.match(b.source(), /  db: Postgres\n  cache: Redis\n\}/);
+  const full = b.render().view, crop = b.render({ focus: ["db"] }).view;
+  assert.ok(crop.w < full.w);
+  assert.throws(() => b.apply({ op: "update_node", id: "dbb", color: "red" }), /did you mean `db`/);
+  b.free();
+});
