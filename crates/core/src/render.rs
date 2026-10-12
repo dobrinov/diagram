@@ -76,7 +76,10 @@ pub struct Rendered {
 }
 
 pub fn render(doc: &Document, opts: &RenderOptions) -> Rendered {
-    let lay = layout::layout(doc);
+    let lay = layout::layout_at(
+        doc,
+        opts.today.as_deref().and_then(crate::gantt::parse_date),
+    );
     let edges = route::route(doc, &lay);
     let t = opts.theme.unwrap_or(doc.settings.theme);
     let p = theme::palette(t);
@@ -691,6 +694,58 @@ fn gantt_svg(
                 n(top - 4.0),
                 x = n(x)
             );
+        }
+    }
+    // the forecast: where late work (and what waits for it) will end
+    if let (Some(t), Some(o)) = (today, g.origin) {
+        let gid = &gb.id;
+        let plan = crate::gantt::schedule(doc, gid);
+        let fc = crate::gantt::schedule_at(doc, gid, Some(t));
+        if let (Some(po), Some(fo)) = (plan.origin, fc.origin) {
+            let shift = (fo - o) as f64; // the chart's first day can move back
+            for (&(i, ps, pd), &(_, fs, fd)) in plan.tasks.iter().zip(&fc.tasks) {
+                let node = &doc.nodes[i];
+                let Some(r) = lay.rect(&node.id) else {
+                    continue;
+                };
+                let (pend, fend) = ((po - o) as f64 + ps + pd, fs + fd + shift);
+                if fend - pend < 0.5 {
+                    continue;
+                }
+                let x = |d: f64| ox + g.x0 + d * g.day;
+                let label = format!("+{}d", (fend - pend).round());
+                if node.milestone {
+                    let cx = x(fs + shift);
+                    let h = r.h / 2.0;
+                    let _ = write!(
+                        s,
+                        r##"<g class="dg-slip" data-node="{}"><line x1="{}" y1="{cy}" x2="{}" y2="{cy}" stroke="#e03131" stroke-width="1.5" stroke-dasharray="3 3"/><path d="M{cx},{} L{},{cy} L{cx},{} L{},{cy} Z" fill="none" stroke="#e03131" stroke-width="1.5"/><text x="{}" y="{}" font-size="11" font-weight="600" fill="#e03131">{label}</text></g>"##,
+                        esc(&node.id),
+                        n(r.right()),
+                        n(cx - h),
+                        n(r.y),
+                        n(cx + h),
+                        n(r.y + r.h),
+                        n(cx - h),
+                        n(cx + h + 4.0),
+                        n(r.cy() + 4.0),
+                        cy = n(r.cy()),
+                        cx = n(cx)
+                    );
+                } else {
+                    let _ = write!(
+                        s,
+                        r##"<g class="dg-slip" data-node="{}"><rect x="{}" y="{}" width="{}" height="{}" rx="5" fill="none" stroke="#e03131" stroke-width="1.5" stroke-dasharray="4 3"/><text x="{}" y="{}" font-size="11" font-weight="600" fill="#e03131">{label}</text></g>"##,
+                        esc(&node.id),
+                        n(r.x),
+                        n(r.y),
+                        n(x(fend) - r.x),
+                        n(r.h),
+                        n(x(fend) + 4.0),
+                        n(r.cy() + 4.0)
+                    );
+                }
+            }
         }
     }
     // task names, and who does each

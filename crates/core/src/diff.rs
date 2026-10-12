@@ -296,6 +296,73 @@ pub fn markdown(d: &Diff, old: &Document, new: &Document) -> String {
         }
         out.push('\n');
     }
+    let moves = schedule_moves(old, new);
+    if !moves.is_empty() {
+        out.push_str("\n**Schedule**\n\n");
+        for m in moves {
+            out.push_str(&format!("- {m}\n"));
+        }
+    }
+    out
+}
+
+/// What a change does to the plan: milestones and chart ends that move
+/// (`milestone `M1` moves 2026-11-05 → 2026-11-12 (+7d)`).
+pub fn schedule_moves(old: &Document, new: &Document) -> Vec<String> {
+    let mut out = Vec::new();
+    // the last day of each task, and of each chart
+    let ends = |doc: &Document| {
+        let mut m: HashMap<String, i64> = HashMap::new();
+        for g in doc.groups.iter().filter(|g| g.gantt) {
+            let s = crate::gantt::schedule(doc, &g.id);
+            let Some(o) = s.origin else { continue };
+            let mut last = None;
+            for (i, start, days) in s.tasks {
+                let end = o + (start + days).ceil() as i64 - i64::from(days > 0.0);
+                m.insert(doc.nodes[i].id.clone(), end);
+                last = last.max(Some(end));
+            }
+            if let Some(l) = last {
+                m.insert(format!("{}#end", g.id), l);
+            }
+        }
+        m
+    };
+    let (a, b) = (ends(old), ends(new));
+    let date = crate::gantt::format_date;
+    for g in new.groups.iter().filter(|g| g.gantt) {
+        for n in new
+            .nodes
+            .iter()
+            .filter(|n| n.milestone && n.group.as_deref() == Some(&g.id))
+        {
+            if let (Some(x), Some(y)) = (a.get(&n.id), b.get(&n.id)) {
+                if x != y {
+                    out.push(format!(
+                        "milestone `{}` (\"{}\") moves {} → {} ({:+}d)",
+                        n.id,
+                        n.display(),
+                        date(*x),
+                        date(*y),
+                        y - x
+                    ));
+                }
+            }
+        }
+        let k = format!("{}#end", g.id);
+        if let (Some(x), Some(y)) = (a.get(&k), b.get(&k)) {
+            if x != y {
+                out.push(format!(
+                    "chart `{}` (\"{}\") ends {} → {} ({:+}d)",
+                    g.id,
+                    g.display(),
+                    date(*x),
+                    date(*y),
+                    y - x
+                ));
+            }
+        }
+    }
     out
 }
 
@@ -320,5 +387,13 @@ mod tests {
         let md = markdown(&d, &a, &b);
         assert!(md.contains("label: `` → `calls`"), "{md}");
         assert!(diff(&b, &b).is_empty());
+    }
+
+    #[test]
+    fn plan_changes_report_moved_milestones() {
+        let a = dsl::parse("gantt g: Plan [start: 2026-10-12] {\n  Build [5d]\n  M1 [after: build, milestone]\n}\n").unwrap();
+        let b = dsl::parse("gantt g: Plan [start: 2026-10-12] {\n  Build [1w]\n  M1 [after: build, milestone]\n}\n").unwrap();
+        let md = markdown(&diff(&a, &b), &a, &b);
+        assert!(md.contains("**Schedule**\n\n- milestone `m1` (\"M1\") moves 2026-10-17 → 2026-10-19 (+2d)\n- chart `g` (\"Plan\") ends 2026-10-17 → 2026-10-19 (+2d)\n"), "{md}");
     }
 }

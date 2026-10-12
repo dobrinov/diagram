@@ -241,7 +241,7 @@ pub fn task_days(n: &Node) -> f64 {
 
 /// The day each task on the board ends (days since 1970, dated charts
 /// only), with tasks that wait for tasks in other charts placed after them.
-pub fn board_ends(doc: &Document) -> HashMap<String, f64> {
+pub fn board_ends(doc: &Document, today: Option<i64>) -> HashMap<String, f64> {
     let charts: Vec<&str> = doc
         .groups
         .iter()
@@ -253,7 +253,7 @@ pub fn board_ends(doc: &Document) -> HashMap<String, f64> {
     for _ in 0..charts.len().clamp(1, 8) {
         let mut next = HashMap::new();
         for c in &charts {
-            let s = schedule_with(doc, c, &ends);
+            let s = schedule_with(doc, c, &ends, today);
             if let Some(o) = s.origin {
                 for (i, start, days) in s.tasks {
                     next.insert(doc.nodes[i].id.clone(), o as f64 + start + days);
@@ -281,6 +281,14 @@ pub struct Schedule {
 }
 
 pub fn schedule(doc: &Document, group: &str) -> Schedule {
+    schedule_at(doc, group, None)
+}
+
+/// The plan (`today` None), or the forecast as of `today` (days since 1970):
+/// an unfinished task that has started takes until today plus the part not
+/// done yet (by its `done`), and what waits for it moves with it (in other
+/// charts too, and past fixed start dates).
+pub fn schedule_at(doc: &Document, group: &str, today: Option<i64>) -> Schedule {
     // waits for a task in another chart: place the whole board first
     let elsewhere = doc.nodes.iter().any(|n| {
         n.group.as_deref() == Some(group)
@@ -290,14 +298,19 @@ pub fn schedule(doc: &Document, group: &str) -> Schedule {
             })
     });
     if elsewhere {
-        schedule_with(doc, group, &board_ends(doc))
+        schedule_with(doc, group, &board_ends(doc, today), today)
     } else {
-        schedule_with(doc, group, &HashMap::new())
+        schedule_with(doc, group, &HashMap::new(), today)
     }
 }
 
-/// [`schedule`], with when tasks in other charts end (days since 1970).
-fn schedule_with(doc: &Document, group: &str, ends: &HashMap<String, f64>) -> Schedule {
+/// [`schedule_at`], with when tasks in other charts end (days since 1970).
+fn schedule_with(
+    doc: &Document,
+    group: &str,
+    ends: &HashMap<String, f64>,
+    today: Option<i64>,
+) -> Schedule {
     let g = doc.group(group);
     let idx: Vec<usize> = (0..doc.nodes.len())
         .filter(|&i| doc.nodes[i].group.as_deref() == Some(group))
@@ -311,40 +324,66 @@ fn schedule_with(doc: &Document, group: &str, ends: &HashMap<String, f64>) -> Sc
         .and_then(parse_date)
         .or_else(|| dated.iter().copied().min());
     let mut tasks = Vec::new();
+    // today, in days from the first day: only a dated chart has a forecast
+    let now = today.zip(origin).map(|(t, o)| (t - o) as f64);
+    // how long a task takes from `start`: in a forecast, a late one takes
+    // until today plus what is not done yet
+    let length = |n: &Node, start: f64| {
+        let days = task_days(n);
+        match now {
+            Some(t) if !n.milestone && t > start => {
+                let left = days * (1.0 - n.done.unwrap_or(0.0).clamp(0.0, 100.0) / 100.0);
+                if left <= 0.0 {
+                    days
+                } else {
+                    days.max(t + left - start)
+                }
+            }
+            _ => days,
+        }
+    };
     // `after` can point forward; settle a few rounds so order does not matter
     let mut starts: Vec<f64> = vec![0.0; idx.len()];
+    let mut lengths: Vec<f64> = idx.iter().map(|&i| task_days(&doc.nodes[i])).collect();
     for _ in 0..idx.len().clamp(1, 32) {
         let mut end: std::collections::HashMap<&str, f64> = Default::default();
         let mut prev_end = 0.0f64;
         for (k, &i) in idx.iter().enumerate() {
             let n = &doc.nodes[i];
-            let days = task_days(n);
-            let start = match (n.start.as_deref().and_then(parse_date), origin) {
-                (Some(d), Some(o)) => (d - o) as f64,
-                _ if !n.after.is_empty() => n
-                    .after
+            let waits = |end: &std::collections::HashMap<&str, f64>| {
+                n.after
                     .iter()
                     .map(|a| {
                         end.get(a.as_str()).copied().unwrap_or_else(|| {
                             // not placed yet this round: use the last round's
                             idx.iter()
                                 .position(|&j| doc.nodes[j].id == *a)
-                                .map(|p| starts[p] + task_days(&doc.nodes[idx[p]]))
+                                .map(|p| starts[p] + lengths[p])
                                 // in another chart: when it ends there
                                 .or_else(|| Some(ends.get(a.as_str())? - origin? as f64))
                                 .unwrap_or(0.0)
                         })
                     })
-                    .fold(0.0, f64::max),
+                    .fold(0.0, f64::max)
+            };
+            let start = match (n.start.as_deref().and_then(parse_date), origin) {
+                // a fixed date; in a forecast, later if what it waits for is late
+                (Some(d), Some(o)) if now.is_some() && !n.after.is_empty() => {
+                    ((d - o) as f64).max(waits(&end))
+                }
+                (Some(d), Some(o)) => (d - o) as f64,
+                _ if !n.after.is_empty() => waits(&end),
                 _ => prev_end,
             };
+            let days = length(n, start);
             starts[k] = start;
+            lengths[k] = days;
             end.insert(n.id.as_str(), start + days);
             prev_end = start + days;
         }
     }
     for (k, &i) in idx.iter().enumerate() {
-        tasks.push((i, starts[k], task_days(&doc.nodes[i])));
+        tasks.push((i, starts[k], lengths[k]));
     }
     let lo = tasks.iter().map(|t| t.1).fold(0.0, f64::min);
     if lo < 0.0 {
@@ -360,6 +399,76 @@ fn schedule_with(doc: &Document, group: &str, ends: &HashMap<String, f64>) -> Sc
         tasks,
         span,
     }
+}
+
+/// A task's plan against its forecast, as of a day.
+#[derive(Debug, Clone, PartialEq, serde::Serialize)]
+pub struct Track {
+    pub id: String,
+    /// Planned start and end (`YYYY-MM-DD`; the end is the last day).
+    pub start: String,
+    pub end: String,
+    pub days: f64,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub done: Option<f64>,
+    #[serde(skip_serializing_if = "std::ops::Not::not")]
+    pub milestone: bool,
+    /// Forecast start and end, and how many days later than planned it ends.
+    pub forecast_start: String,
+    pub forecast_end: String,
+    pub slip: i64,
+    /// done, late (should have ended), behind (less done than time gone),
+    /// in progress, on track, upcoming.
+    pub status: &'static str,
+}
+
+/// The plan and the forecast as of `today` for every task of chart `group`
+/// (a dated chart; empty otherwise).
+pub fn track(doc: &Document, group: &str, today: i64) -> Vec<Track> {
+    let (plan, fc) = (schedule(doc, group), schedule_at(doc, group, Some(today)));
+    let (Some(o), Some(fo)) = (plan.origin, fc.origin) else {
+        return Vec::new();
+    };
+    let last =
+        |o: i64, start: f64, days: f64| o + (start + days).ceil() as i64 - i64::from(days > 0.0);
+    plan.tasks
+        .iter()
+        .zip(&fc.tasks)
+        .map(|(&(i, s, d), &(_, fs, fd))| {
+            let n = &doc.nodes[i];
+            let (end, fend) = (last(o, s, d), last(fo, fs, fd));
+            let done = n.done.unwrap_or(0.0);
+            let begun = (today - (o + s.floor() as i64)) as f64;
+            let status = if done >= 100.0 {
+                "done"
+            } else if end < today {
+                "late"
+            } else if begun >= 0.0 && !n.milestone && d > 0.0 {
+                // less done than the share of its time that has gone
+                if done + 10.0 < (begun + 1.0) / d * 100.0 {
+                    "behind"
+                } else {
+                    "in progress"
+                }
+            } else if fend > end {
+                "pushed back"
+            } else {
+                "upcoming"
+            };
+            Track {
+                id: n.id.clone(),
+                start: format_date(o + s.floor() as i64),
+                end: format_date(end),
+                days: d,
+                done: n.done,
+                milestone: n.milestone,
+                forecast_start: format_date(fo + fs.floor() as i64),
+                forecast_end: format_date(fend),
+                slip: fend - end,
+                status,
+            }
+        })
+        .collect()
 }
 
 #[cfg(test)]
@@ -508,5 +617,42 @@ mod tests {
         assert!((b.x - a.right()).abs() < 1e-6);
         assert_eq!(gb.rows, vec!["design", "build"]);
         assert_eq!(gb.origin, parse_date("2026-10-12"));
+    }
+
+    #[test]
+    fn late_work_pushes_what_waits_for_it() {
+        let d = crate::dsl::parse(
+            "gantt a: A [start: 2026-10-12] {\n  Build [10d, done: 20%]\n  Test [5d, after: build]\n  Ship [after: test, milestone]\n}\ngantt b: B [start: 2026-10-12] {\n  Launch [3d, after: ship]\n  Docs [2d, done]\n}\n",
+        )
+        .unwrap();
+        // planned: Build 12–21, Test 22–26, Ship on the 27th
+        let today = parse_date("2026-10-20").unwrap();
+        let t = track(&d, "a", today);
+        let at = |id: &str| t.iter().find(|x| x.id == id).unwrap().clone();
+        assert_eq!(
+            (at("build").end.as_str(), at("ship").start.as_str()),
+            ("2026-10-21", "2026-10-27")
+        );
+        // on the 20th Build is 20% done: 8 days of work left, so it ends on the
+        // 27th, six days late, and Test and Ship move with it
+        assert_eq!(
+            (
+                at("build").forecast_end.as_str(),
+                at("build").slip,
+                at("build").status
+            ),
+            ("2026-10-27", 6, "behind")
+        );
+        assert_eq!(
+            (at("ship").forecast_start.as_str(), at("ship").slip),
+            ("2026-11-02", 6)
+        );
+        assert_eq!(at("test").status, "pushed back");
+        // and so does Launch, in the other chart
+        let l = track(&d, "b", today);
+        assert_eq!(l[0].slip, 6);
+        assert_eq!(l[1].status, "done");
+        // the plan itself does not change
+        assert_eq!(schedule(&d, "b").tasks[0].1, 15.0);
     }
 }

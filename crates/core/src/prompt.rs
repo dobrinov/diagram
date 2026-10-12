@@ -194,6 +194,29 @@ pub fn selected<'a>(doc: &'a Document, opts: &PromptOptions) -> Vec<&'a Comment>
         .collect()
 }
 
+thread_local! {
+    /// The day prompts forecast gantt charts from (see [`selection_at`]).
+    static TODAY: std::cell::Cell<Option<i64>> = const { std::cell::Cell::new(None) };
+}
+
+fn with_today<T>(today: Option<i64>, f: impl FnOnce() -> T) -> T {
+    let before = TODAY.with(|t| t.replace(today));
+    let out = f();
+    TODAY.with(|t| t.set(before));
+    out
+}
+
+/// [`selection`] as of `today` (days since 1970): gantt tasks also say when
+/// they are forecast to end and whether they are late or behind.
+pub fn selection_at(doc: &Document, ids: &[String], today: Option<i64>) -> String {
+    with_today(today, || selection(doc, ids))
+}
+
+/// [`brief`] as of `today`, with gantt forecasts (see [`selection_at`]).
+pub fn brief_at(doc: &Document, today: Option<i64>) -> String {
+    with_today(today, || brief(doc))
+}
+
 /// A description of the diagram for pasting into a chat or giving an agent
 /// context: title and counts, what the source does not spell out (gantt
 /// dates, swimlane steps in order), then the DSL source with every id.
@@ -609,6 +632,10 @@ fn selection_core(doc: &Document, ids: &[String], titled: bool) -> String {
         }
         if g.gantt {
             let s = crate::gantt::schedule(doc, &g.id);
+            let forecast = TODAY
+                .with(|t| t.get())
+                .map(|t| crate::gantt::track(doc, &g.id, t))
+                .unwrap_or_default();
             for (i, start, days) in s.tasks {
                 let n = &doc.nodes[i];
                 let when = match s.origin {
@@ -651,6 +678,22 @@ fn selection_core(doc: &Document, ids: &[String], titled: bool) -> String {
                 } else {
                     crate::gantt::format_days(days)
                 };
+                // as of today: the forecast, when it is not the plan
+                if let Some(t) = forecast.iter().find(|t| t.id == n.id) {
+                    if t.slip > 0 {
+                        let what = if n.milestone {
+                            "forecast"
+                        } else {
+                            "forecast end"
+                        };
+                        more.push_str(&format!(
+                            ", {what} {} (+{}d, {})",
+                            t.forecast_end, t.slip, t.status
+                        ));
+                    } else if matches!(t.status, "late" | "behind") {
+                        more.push_str(&format!(", {}", t.status));
+                    }
+                }
                 seen.push(n.id.clone());
                 out.push_str(&format!(
                     "- {}: {when}{length}{after}{more}\n",

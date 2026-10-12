@@ -418,8 +418,8 @@ export interface RenderOptions {
   title?: boolean;
   /** No background. */
   transparent?: boolean;
-  /** Today (`YYYY-MM-DD`): dated gantt charts mark it with a line. */
-  today?: string;
+  /** Today: dated gantt charts mark it with a line and show the forecast (late work and what it pushes back). */
+  today?: Date | string;
   /** Crop the view to these elements (nodes or groups). */
   focus?: string[];
   padding?: number;
@@ -640,7 +640,7 @@ export class Board {
   prompt(options?: PromptOptions): string;
 
   /** A Markdown description of the board, for LLM context. */
-  brief(): string;
+  brief(options?: { today?: Date | string }): string;
 
   /** The mindmap under topic `id` as an indented outline (`id` first). @throws DiagramError if there is no such node */
   outline(id: string): string;
@@ -648,8 +648,11 @@ export class Board {
   /** The mindmap under topic `id` as Markdown (title, sections, bullets). @throws DiagramError if there is no such node */
   markdown(id: string): string;
 
-  /** The selected elements as Markdown to paste into a prompt. */
-  selection(ids: string[]): string;
+  /** The selected elements as Markdown to paste into a prompt; with `today`, gantt tasks also get their forecast. */
+  selection(ids: string[], options?: { today?: Date | string }): string;
+
+  /** Every gantt chart's tasks, planned against the forecast as of `today` (default: now). */
+  schedule(options?: { today?: Date | string }): Schedule;
 
   /**
    * Part of the board as diagram language, picked by selectors: `ID`, `group:ID`, `chart:ID`,
@@ -707,3 +710,26 @@ export function mindmapPrompt(topic: string, options?: ExpandOptions): string;
 
 /** A model's reply (bullets, numbering, code fences…) as a clean two-space outline for `add_outline`. */
 export function replyOutline(reply: string): string;
+
+
+// ------------------------------------------------------------------ schedule
+
+/** A gantt task's plan against its forecast. Dates are `YYYY-MM-DD`; an end is the task's last day. */
+export interface Track {
+  id: string;
+  start: string;
+  end: string;
+  days: number;
+  done?: number;
+  milestone?: boolean;
+  forecast_start: string;
+  forecast_end: string;
+  /** Days later than planned that it is forecast to end. */
+  slip: number;
+  status: "done" | "late" | "behind" | "in progress" | "pushed back" | "upcoming";
+}
+
+export interface Schedule {
+  today: string;
+  charts: { id: string; label: string; tasks: Track[] }[];
+}

@@ -302,9 +302,17 @@ struct Ctx<'a> {
     group_pos: Vec<(f64, f64)>,
     group_index: HashMap<&'a str, usize>,
     node_index: HashMap<&'a str, usize>,
+    /// Today (days since 1970): gantt timelines reach to forecast ends.
+    today: Option<i64>,
 }
 
 pub fn layout(doc: &Document) -> Layout {
+    layout_at(doc, None)
+}
+
+/// [`layout`], with gantt timelines long enough for the forecast as of
+/// `today` (days since 1970).
+pub fn layout_at(doc: &Document, today: Option<i64>) -> Layout {
     let forest = Forest::new(doc);
     let mut sizes = Vec::new();
     let mut texts = Vec::new();
@@ -344,6 +352,7 @@ pub fn layout(doc: &Document) -> Layout {
     }
     let mut ctx = Ctx {
         doc,
+        today,
         forest: &forest,
         sizes,
         group_sizes: vec![(0.0, 0.0); doc.groups.len()],
@@ -992,7 +1001,20 @@ fn gantt_block(ctx: &mut Ctx, g: usize) -> (f64, f64) {
         .fold(80.0, f64::max)
         .min(260.0);
     let scale = ctx.doc.groups[g].scale.unwrap_or_default();
-    let days = crate::gantt::axis_days(scale, sched.origin, sched.span);
+    // room for the forecast when it runs past the plan
+    let span = match ctx.today {
+        Some(t) => {
+            let fc = crate::gantt::schedule_at(ctx.doc, &ctx.doc.groups[g].id, Some(t)).span;
+            // and for the "+5d" after the last slip
+            if fc > sched.span {
+                fc + 3.0
+            } else {
+                sched.span
+            }
+        }
+        None => sched.span,
+    };
+    let days = crate::gantt::axis_days(scale, sched.origin, span);
     let day = crate::gantt::day_width(scale, days);
     let x0 = names + GANTT_GAP;
     for (k, &(i, start, len)) in sched.tasks.iter().enumerate() {

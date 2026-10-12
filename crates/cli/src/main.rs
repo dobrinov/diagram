@@ -27,12 +27,14 @@ EXPORT
   diagram svg  FILE [-o out.svg]     static SVG
   diagram png  FILE [-o out.png]     PNG image (--scale N, default 2)
   diagram html FILE [-o out.html]    self-contained interactive page (viewer + WASM)
-    render options: --dark --transparent --title --comments open|all|none --today
+    render options: --dark --transparent --title --comments open|all|none
+                    --today | --as-of YYYY-MM-DD   mark that day on gantt charts and show the forecast
                     --focus ID,ID   crop to these elements (look at one block)
                     --base FILE|GIT_REF   highlight what changed since then
   diagram convert FILE --to dsl|json|mermaid|brief [-o OUT]
                                      FILE may be DSL, JSON or Mermaid (detected)
-  diagram brief FILE                 Markdown description for LLM context
+  diagram brief FILE [--today|--as-of DATE]   Markdown description for LLM context
+                                     (with a date: gantt forecasts, late and behind tasks)
 
 MINDMAPS
   diagram outline FILE [ID] [--md]   a mindmap as an indented outline (--md: Markdown, ready as a prompt)
@@ -54,6 +56,10 @@ REVIEW
                                      turn open comments into a prompt for an agent
   diagram apply    FILE [PATCH|-|'{"op":…}'] [--dry-run]   apply ops JSON (a file, stdin, inline,
                                      or an LLM reply containing it)
+
+PLANNING
+  diagram schedule FILE [CHART] [--as-of DATE] [--json]   gantt tasks planned vs forecast as of
+                                     today (or DATE): late, behind, pushed back, how many days
 
 FOR AGENTS
   diagram query FILE SELECTOR...     just part of the board, as diagram language (--ids: ids only)
@@ -106,6 +112,7 @@ const VALUE_FLAGS: &[&str] = &[
     "--levels",
     "--new",
     "--focus",
+    "--as-of",
 ];
 
 struct Args {
@@ -136,7 +143,7 @@ impl Args {
         const COMMANDS: &[&str] = &[
             "new", "open", "svg", "png", "html", "convert", "brief", "comments", "comment",
             "reply", "resolve", "prompt", "apply", "check", "fmt", "diff", "spec", "embed",
-            "skills", "version", "help", "outline", "expand", "query", "add",
+            "skills", "version", "help", "outline", "expand", "query", "add", "schedule",
         ];
         let cmd = match pos.first() {
             Some(c) if COMMANDS.contains(&c.as_str()) => pos.remove(0),
@@ -346,6 +353,29 @@ fn author(args: &Args) -> Option<String> {
     git.or_else(|| std::env::var("USER").ok())
 }
 
+/// `--today` (the date now, UTC) or `--as-of YYYY-MM-DD`: the day gantt
+/// charts mark and forecast from (days since 1970).
+fn today(args: &Args) -> Result<Option<i64>, String> {
+    if let Some(d) = args.val("--as-of") {
+        return diagram_core::gantt::parse_date(d)
+            .map(Some)
+            .ok_or_else(|| format!("--as-of: `{d}` is not a date (YYYY-MM-DD)"));
+    }
+    if args.flag("--today") {
+        return Ok(Some(today_utc()));
+    }
+    Ok(None)
+}
+
+/// Today (UTC), in days since 1970.
+fn today_utc() -> i64 {
+    let secs = std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .map(|d| d.as_secs())
+        .unwrap_or(0);
+    (secs / 86400) as i64
+}
+
 fn render_opts(args: &Args) -> Result<RenderOptions, String> {
     let mut o = RenderOptions::default();
     if args.flag("--dark") {
@@ -355,14 +385,7 @@ fn render_opts(args: &Args) -> Result<RenderOptions, String> {
         o.theme = Some(Theme::parse(t).ok_or_else(|| format!("unknown theme {t}"))?);
     }
     o.transparent = args.flag("--transparent");
-    if args.flag("--today") {
-        // gantt charts mark today (UTC)
-        let secs = std::time::SystemTime::now()
-            .duration_since(std::time::UNIX_EPOCH)
-            .map(|d| d.as_secs())
-            .unwrap_or(0);
-        o.today = Some(diagram_core::gantt::format_date((secs / 86400) as i64));
-    }
+    o.today = today(args)?.map(diagram_core::gantt::format_date);
     if args.flag("--title") {
         o.title = Some(true);
     }
@@ -499,8 +522,86 @@ fn run(args: Args) -> Result<ExitCode, String> {
                 args.val("--to")
                     .ok_or("--to dsl|json|mermaid|brief is required")?
             };
-            let text = diagram_core::export(&doc, to)?;
+            let text = match today(&args)? {
+                Some(t) if to == "brief" => diagram_core::prompt::brief_at(&doc, Some(t)),
+                _ => diagram_core::export(&doc, to)?,
+            };
             write_out(args.val("-o"), text.as_bytes(), to)?;
+            ok
+        }
+        "schedule" => {
+            let file = args.file(0)?;
+            let doc = load(file)?;
+            let now = match today(&args)? {
+                Some(t) => t,
+                None => today_utc(),
+            };
+            let charts: Vec<_> = doc
+                .groups
+                .iter()
+                .filter(|g| g.gantt && args.pos.get(1).is_none_or(|c| *c == g.id))
+                .collect();
+            if charts.is_empty() {
+                return Err(match args.pos.get(1) {
+                    Some(c) => format!("no gantt chart `{c}`"),
+                    None => "no gantt charts".into(),
+                });
+            }
+            let all: Vec<_> = charts
+                .iter()
+                .map(|g| (g, diagram_core::gantt::track(&doc, &g.id, now)))
+                .collect();
+            if args.flag("--json") {
+                let v: Vec<_> = all
+                    .iter()
+                    .map(|(g, t)| serde_json::json!({"id": g.id, "label": g.display(), "tasks": t}))
+                    .collect();
+                println!(
+                    "{}",
+                    serde_json::to_string_pretty(&serde_json::json!({
+                        "today": diagram_core::gantt::format_date(now),
+                        "charts": v
+                    }))
+                    .unwrap()
+                );
+                return ok;
+            }
+            for (g, tasks) in all {
+                println!(
+                    "{} ({}), as of {}",
+                    g.display(),
+                    g.id,
+                    diagram_core::gantt::format_date(now)
+                );
+                let w = tasks
+                    .iter()
+                    .filter_map(|t| doc.node(&t.id))
+                    .map(|n| n.display().chars().count())
+                    .max()
+                    .unwrap_or(4)
+                    .min(36);
+                for t in tasks {
+                    let name: String = doc
+                        .node(&t.id)
+                        .map_or(t.id.clone(), |n| n.display().chars().take(w).collect());
+                    let when = if t.milestone || t.start == t.end {
+                        t.start.clone()
+                    } else {
+                        format!("{} → {}", t.start, t.end)
+                    };
+                    let done = t.done.map(|d| format!("{d}%")).unwrap_or_default();
+                    let fc = if t.slip > 0 {
+                        format!("forecast {} (+{}d)", t.forecast_end, t.slip)
+                    } else {
+                        String::new()
+                    };
+                    println!(
+                        "  {name:<w$}  {when:<23}  {done:>4}  {:<11}  {fc}",
+                        t.status
+                    );
+                }
+                println!();
+            }
             ok
         }
         "comments" => {
@@ -672,7 +773,10 @@ fn run(args: Args) -> Result<ExitCode, String> {
                 return Err(format!("no node `{id}`"));
             }
             if args.flag("--md") {
-                print!("{}", diagram_core::prompt::selection(&doc, &[id]));
+                print!(
+                    "{}",
+                    diagram_core::prompt::selection_at(&doc, &[id], today(&args)?)
+                );
             } else {
                 print!("{}", diagram_core::mindmap::outline(&doc, &id, true));
             }

@@ -80,9 +80,16 @@ function parseResult(text) {
   return v;
 }
 
+/** A Date or `YYYY-MM-DD` as `YYYY-MM-DD` (a Date in its local day). */
+function isoDate(d) {
+  if (typeof d === "string") return d;
+  const pad = (n) => String(n).padStart(2, "0");
+  return `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}`;
+}
+
 function renderOptions(o = {}) {
   const { theme, comments, title, transparent, padding, today, focus } = o;
-  return { theme, comments, title, transparent, padding, today, focus };
+  return { theme, comments, title, transparent, padding, today: today && isoDate(today), focus };
 }
 
 function promptOptions(o = {}) {
@@ -180,8 +187,8 @@ export class Board {
   }
 
   /** A Markdown description of the board, for LLM context. */
-  brief() {
-    return this.#live().brief();
+  brief({ today } = {}) {
+    return today ? this.#live().brief_at(isoDate(today)) : this.#live().brief();
   }
 
   /** The mindmap under topic `id` as an indented outline (two spaces per level, `id` first). */
@@ -198,9 +205,16 @@ export class Board {
     return out;
   }
 
-  /** The selected elements as Markdown to paste into a prompt. */
-  selection(ids) {
-    return this.#live().selection_markdown(JSON.stringify(ids ?? []));
+  /** The selected elements as Markdown to paste into a prompt; with `{today}`, gantt tasks also get their forecast. */
+  selection(ids, { today } = {}) {
+    return today
+      ? this.#live().selection_markdown_at(JSON.stringify(ids ?? []), isoDate(today))
+      : this.#live().selection_markdown(JSON.stringify(ids ?? []));
+  }
+
+  /** Every gantt chart's tasks, planned against the forecast as of `today` (a Date or YYYY-MM-DD; default: now). */
+  schedule({ today } = {}) {
+    return parseResult(this.#live().schedule(isoDate(today ?? new Date())));
   }
 
   /** Part of the board as diagram language, picked by selectors (`group:back`, `near:api`, `label~ledger`, …). */

@@ -1052,7 +1052,7 @@
       ids = (ids || st.sel).filter(kindOf);
       if (!ids.length) return;
       var n = ids.length === 1 && (node(ids[0]) || group(ids[0])), label = n && (n.label || n.id);
-      copyText(st.session.selection_markdown(JSON.stringify(ids))).then(function () {
+      copyText(st.session.selection_markdown_at(JSON.stringify(ids), isoDay(today()))).then(function () {
         flash(n ? "Prompt copied — “" + label + "”" + (mapInfo(ids[0]) || group(ids[0]) ? " and everything in it" : "") : "Prompt copied — " + ids.length + " items");
       });
     }

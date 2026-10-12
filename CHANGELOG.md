@@ -1,5 +1,13 @@
 # Changelog
 
+## 0.12.0 — 2026-10-12
+
+- **Gantt forecasts.** As of today, an unfinished task that has started is forecast to take until today plus the part not done yet (by its `done`), and what waits for it moves with it, also in other charts and past fixed start dates. Charts draw a slip as a red dashed extension with `+5d`, and a hollow diamond where a milestone will now land; the timeline grows to fit. The editor shows it live; exports take `--today` or `--as-of DATE`.
+- **`diagram schedule FILE [CHART] [--as-of DATE] [--json]`:** every task's planned and forecast dates and status (done, late, behind, in progress, pushed back, upcoming).
+- Prompts and `brief` with a date (`--today`, `--as-of`; *Copy as prompt* in the editor uses today) add `forecast end 2026-10-26 (+5d, behind)` to tasks.
+- `diff` (and what `apply` prints) lists the milestones and chart ends a plan change moves: `milestone m1 moves 2026-10-17 → 2026-10-19 (+2d)`.
+- JS: `Board.schedule({today})`, `Board.brief({today})`, `Board.selection(ids, {today})`, `render({today})` takes a Date. WASM: `schedule`, `brief_at`, `selection_markdown_at`.
+
 ## 0.11.0 — 2026-10-12
 
 - **Free text keeps its commas, and mistakes are errors.** `[detail: fast, opinionated, red]` reads as the detail "fast, opinionated" and the colour red (also `;`, and in `label`, `resolution`, `owner`). Brackets that start like attributes but don't read as them (`[shape: box, opinionated]`) are now an error with the line, instead of silently becoming part of the label (models hit this constantly).

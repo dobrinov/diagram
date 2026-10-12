@@ -122,6 +122,36 @@ impl Diagram {
         diagram_core::prompt::selection(&self.inner.doc, &ids)
     }
 
+    /// The selected items as Markdown, with gantt forecasts as of `today`
+    /// (`YYYY-MM-DD`; empty: none).
+    pub fn selection_markdown_at(&self, ids: &str, today: &str) -> String {
+        let ids: Vec<String> = serde_json::from_str(ids).unwrap_or_default();
+        let t = diagram_core::gantt::parse_date(today);
+        diagram_core::prompt::selection_at(&self.inner.doc, &ids, t)
+    }
+
+    /// The brief, with gantt forecasts as of `today` (`YYYY-MM-DD`).
+    pub fn brief_at(&self, today: &str) -> String {
+        diagram_core::prompt::brief_at(&self.inner.doc, diagram_core::gantt::parse_date(today))
+    }
+
+    /// Every gantt chart's tasks, planned against the forecast as of `today`
+    /// (`YYYY-MM-DD`): `{today, charts: [{id, label, tasks: [{id, start, end,
+    /// days, done, milestone, forecast_start, forecast_end, slip, status}]}]}`.
+    pub fn schedule(&self, today: &str) -> String {
+        let Some(t) = diagram_core::gantt::parse_date(today) else {
+            return err(format!("`{today}` is not a date (YYYY-MM-DD)"));
+        };
+        let doc = &self.inner.doc;
+        let charts: Vec<Value> = doc
+            .groups
+            .iter()
+            .filter(|g| g.gantt)
+            .map(|g| json!({"id": g.id, "label": g.display(), "tasks": diagram_core::gantt::track(doc, &g.id, t)}))
+            .collect();
+        json!({"today": diagram_core::gantt::format_date(t), "charts": charts}).to_string()
+    }
+
     /// Part of the board as diagram language: `selectors` is a JSON array
     /// (`["group:back", "near:api"]`, see `diagram help`). Returns
     /// `{source, ids}` or `{error}`.

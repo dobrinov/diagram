@@ -210,3 +210,14 @@ test("risk matrices", () => {
   assert.match(b.selection(["r"]), /- Scope creep: probability 2 × impact 3 = 6 \(medium\)/);
   b.free();
 });
+
+test("gantt forecasts: schedule, prompts, render", () => {
+  const b = Board.parse("gantt a: A [start: 2026-10-12] {\n  Build [10d, done: 20%]\n  Ship [after: build, milestone]\n}\n");
+  const s = b.schedule({ today: "2026-10-20" });
+  const ship = s.charts[0].tasks.find((t) => t.id === "ship");
+  assert.deepEqual([ship.start, ship.forecast_start, ship.slip, ship.status], ["2026-10-22", "2026-10-28", 6, "pushed back"]);
+  assert.match(b.selection(["a"], { today: "2026-10-20" }), /- Ship: 2026-10-22, milestone, after Build, forecast 2026-10-28 \(\+6d, pushed back\)/);
+  assert.match(b.brief({ today: new Date(2026, 9, 20) }), /forecast end 2026-10-27 \(\+6d, behind\)/);
+  assert.match(b.render({ today: "2026-10-20" }).svg, /dg-slip/);
+  b.free();
+});
