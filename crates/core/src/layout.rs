@@ -377,6 +377,12 @@ pub fn layout(doc: &Document) -> Layout {
             None => (0.0, 0.0),
         };
         let (w, h) = ctx.group_sizes[i];
+        // pinned swimlanes and gantt charts (not a lane: lanes are bands)
+        let g = &ctx.doc.groups[i];
+        let (ox, oy, rx, ry) = match (g.x, g.y) {
+            (Some(x), Some(y)) if (g.lanes || g.gantt) && ctx.lane[i].is_none() => (x, y, 0.0, 0.0),
+            _ => (ox, oy, rx, ry),
+        };
         let r = Rect {
             x: ox + rx,
             y: oy + ry,
@@ -495,7 +501,9 @@ pub fn layout(doc: &Document) -> Layout {
     let mut order: Vec<usize> = (0..doc.groups.len()).collect();
     order.sort_by_key(|&i| std::cmp::Reverse(depth(i)));
     let mut rects: Vec<Rect> = abs_group.iter().map(|r| r.unwrap()).collect();
-    if doc.nodes.iter().any(|n| n.pinned() && n.parent.is_none()) {
+    if doc.nodes.iter().any(|n| n.pinned() && n.parent.is_none())
+        || doc.groups.iter().any(|g| g.x.is_some() && g.y.is_some())
+    {
         for &g in &order {
             if doc.groups[g].lanes || ctx.lane[g].is_some() || ctx.gantt[g].is_some() {
                 continue; // laid out as bands or a timeline
@@ -1269,6 +1277,33 @@ mod tests {
         assert_eq!(l.rect("c").unwrap().x, 500.0);
         let g = l.rect("g").unwrap();
         assert!(g.x < 500.0 && g.right() > 500.0);
+    }
+
+    #[test]
+    fn swimlanes_and_gantt_charts_can_be_moved() {
+        let src = "free: Free\n\nlanes o: Order [x: 400, y: 300] {\n  lane c: Customer {\n    a: Place\n  }\n}\ngantt g: Plan [start: 2026-10-12, x: -50, y: 20] {\n  Design [5d]\n}\n";
+        let mut d = crate::dsl::parse(src).unwrap();
+        assert_eq!(crate::dsl::print(&d), src);
+        let l = layout(&d);
+        let (o, g) = (l.group("o").unwrap().rect, l.group("g").unwrap().rect);
+        assert_eq!((o.x, o.y, g.x, g.y), (400.0, 300.0, -50.0, 20.0));
+        // the lane and its blocks move with it
+        assert!(l.rect("a").unwrap().x > 400.0 && l.group("c").unwrap().rect.y >= 300.0);
+        let ops = |s: &str| crate::ops::parse_ops(s).unwrap();
+        crate::ops::apply(
+            &mut d,
+            &ops(r#"[{"op":"move","id":"o","x":10,"y":20},{"op":"nudge","id":"g","dx":5,"dy":5}]"#),
+        )
+        .unwrap();
+        assert_eq!(
+            (d.group("o").unwrap().x, d.group("g").unwrap().x),
+            (Some(10.0), Some(-45.0))
+        );
+        assert!(
+            crate::ops::apply(&mut d, &ops(r#"[{"op":"move","id":"c","x":1,"y":1}]"#)).is_err()
+        );
+        crate::ops::apply(&mut d, &ops(r#"[{"op":"unpin"}]"#)).unwrap();
+        assert!(d.groups.iter().all(|g| g.x.is_none()));
     }
 
     #[test]

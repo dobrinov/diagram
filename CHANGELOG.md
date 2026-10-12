@@ -1,5 +1,11 @@
 # Changelog
 
+## 0.3.2 — 2026-10-12
+
+- **Move swimlanes and gantt charts:** drag them by their frame, title or a lane (or nudge with the arrow keys); they keep their place. Saved as `x`/`y` on the `lanes` or `gantt` line, which the `move`, `nudge` and `unpin` ops now handle. Inside, they are still laid out automatically.
+- **Deleting a section deletes what is in it:** Delete on a section, swimlanes, lane or gantt chart removes it with its blocks, lanes and tasks, and the arrows to them; right-click → *Delete* does the same. *Remove section* / *Remove lane* / *Remove chart* still keep the blocks. *Remove swimlanes* now removes the lanes too instead of leaving them as sections.
+- **Fixed:** removing a group with its contents failed when it held a mindmap, and left arrows to the lanes inside it dangling.
+
 ## 0.3.1 — 2026-10-12
 
 - **Copy any selection as a prompt:** right-click a block, section, swimlanes, gantt chart or a multi-selection → *Copy as prompt* (or `⌘⇧C`). Markdown with the board's title, the blocks as bullets under their sections' headings (gantt tasks with dates and durations), then the arrows between them and their open comments. Right-clicking a multi-selection also offers *Put in a section* and *Delete*. Core: `prompt::selection`; WASM: `selection_markdown(ids)`.

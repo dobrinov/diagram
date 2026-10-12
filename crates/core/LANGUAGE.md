@@ -111,7 +111,7 @@ confirm -> invoice -> pay
 
 - `lanes` is a group whose groups are lanes; in JSON it is a group with `"lanes": true`, and its lanes are the groups whose `parent` it is.
 - Everything in all lanes is ranked together, so a step in one lane lines up with the steps before and after it in the others. Lanes share one length; a lane is as tall (or wide) as what it holds.
-- Lanes are laid out automatically: `x`/`y` on a block inside a lane are ignored. Edges can leave the lanes for anything else on the board.
+- Lanes are laid out automatically: `x`/`y` on a block inside a lane are ignored. `lanes id: Title [x: 400, y: 120] {` pins the whole swimlanes (top-left), as dragging them in the editor does. Edges can leave the lanes for anything else on the board.
 
 ### Gantt charts
 
@@ -129,6 +129,7 @@ gantt launch: Launch plan [start: 2026-10-12] {
 - `5d` / `2w` (or `days: 5`) is the duration (1 day if left out). `2026-11-03` (or `start: …`) fixes the start. `after: a b` starts it when those tasks end. Otherwise a task starts when the one above it ends; the first starts on the chart's `start`.
 - Days are calendar days. A colour colours the bar. In JSON, the chart is a group with `"gantt": true` and `start`; tasks are its nodes with `start`, `days` and `after`.
 - Bars are tasks like any node: comment on them, link them to anything on the board.
+- `x`/`y` on the chart (`[start: …, x: 400, y: 120]`) pin it, as dragging it in the editor does.
 
 ### Mindmaps
 

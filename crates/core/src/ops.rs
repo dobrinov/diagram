@@ -132,8 +132,8 @@ pub enum Op {
         #[serde(default, skip_serializing_if = "Option::is_none")]
         keep_members: Option<bool>,
     },
-    /// Pin a node at a position (top-left corner). For a mindmap topic the
-    /// position is relative to its centre's top-left.
+    /// Pin a node, swimlanes or gantt chart at a position (top-left corner).
+    /// For a mindmap topic the position is relative to its centre's top-left.
     Move {
         id: String,
         x: f64,
@@ -145,7 +145,8 @@ pub enum Op {
         dx: f64,
         dy: f64,
     },
-    /// Let the layout place a node again; without `id`, every node.
+    /// Let the layout place a node (or swimlanes, gantt chart) again; without
+    /// `id`, everything.
     Unpin {
         #[serde(default, skip_serializing_if = "Option::is_none")]
         id: Option<String>,
@@ -707,6 +708,9 @@ fn apply_one(doc: &mut Document, op: &Op, created: &mut Vec<String>) -> Result<(
                         .map(|n| n.id.clone())
                         .collect();
                     for nid in doomed_nodes {
+                        if doc.node(&nid).is_none() {
+                            continue; // went with its map
+                        }
                         apply_one(
                             doc,
                             &Op::Remove {
@@ -715,6 +719,16 @@ fn apply_one(doc: &mut Document, op: &Op, created: &mut Vec<String>) -> Result<(
                             },
                             created,
                         )?;
+                    }
+                    for gid in doomed_groups.iter().filter(|g| *g != id) {
+                        let gone: Vec<String> = doc
+                            .edges
+                            .iter()
+                            .filter(|e| e.from == *gid || e.to == *gid)
+                            .map(|e| e.id.clone())
+                            .collect();
+                        doc.edges.retain(|e| e.from != *gid && e.to != *gid);
+                        detach_comments(doc, gid, &gone);
                     }
                     doc.groups
                         .retain(|c| c.id == *id || !doomed_groups.contains(&c.id));
@@ -739,9 +753,16 @@ fn apply_one(doc: &mut Document, op: &Op, created: &mut Vec<String>) -> Result<(
         }
         Op::Move { id, x, y } => {
             // a mindmap topic's x/y are relative to its map's centre
-            let n = doc.node_mut(id).ok_or_else(|| format!("no node `{id}`"))?;
-            n.x = Some(x.round());
-            n.y = Some(y.round());
+            if let Some(n) = doc.node_mut(id) {
+                n.x = Some(x.round());
+                n.y = Some(y.round());
+            } else if let Some(g) = doc.group_mut(id).filter(|g| g.lanes || g.gantt) {
+                // swimlanes and gantt charts move as a whole
+                g.x = Some(x.round());
+                g.y = Some(y.round());
+            } else {
+                return Err(format!("no node, swimlanes or gantt chart `{id}`"));
+            }
         }
         Op::Nudge { id, dx, dy } => {
             let targets: Vec<String> = if doc.node(id).is_some() {
@@ -759,6 +780,21 @@ fn apply_one(doc: &mut Document, op: &Op, created: &mut Vec<String>) -> Result<(
             } else {
                 return Err(format!("no node or group `{id}`"));
             };
+            // pinned swimlanes and gantt charts in it move too
+            let inside: Vec<String> = doc
+                .groups
+                .iter()
+                .filter(|g| doc.group_chain(&g.id).contains(id))
+                .map(|g| g.id.clone())
+                .collect();
+            for g in &mut doc.groups {
+                if inside.contains(&g.id) {
+                    if let (Some(x), Some(y)) = (g.x, g.y) {
+                        g.x = Some((x + dx).round());
+                        g.y = Some((y + dy).round());
+                    }
+                }
+            }
             for t in targets {
                 let n = doc.node_mut(&t).unwrap();
                 if let (Some(x), Some(y)) = (n.x, n.y) {
@@ -772,6 +808,12 @@ fn apply_one(doc: &mut Document, op: &Op, created: &mut Vec<String>) -> Result<(
                 if id.as_ref().is_none_or(|id| *id == n.id) {
                     n.x = None;
                     n.y = None;
+                }
+            }
+            for g in &mut doc.groups {
+                if id.as_ref().is_none_or(|id| *id == g.id) {
+                    g.x = None;
+                    g.y = None;
                 }
             }
         }
@@ -1110,6 +1152,22 @@ mod tests {
 
     fn doc() -> Document {
         dsl::parse("group b: Backend {\n api\n db\n}\nweb -> api -> db\ncomment on api: split?\ncomment on api->db: index?").unwrap()
+    }
+
+    #[test]
+    fn removing_a_section_with_its_contents_leaves_nothing_behind() {
+        let mut d = dsl::parse("group s: Section {\n  mindmap m: Map {\n    A\n      B\n  }\n  lanes o: Order {\n    lane c: Customer {\n      x: Place\n    }\n  }\n}\nkeep: Keep\nkeep -> c\nkeep -> b\ncomment on c: Hm").unwrap();
+        apply(
+            &mut d,
+            &parse_ops(r#"{"op":"remove","id":"s","keep_members":false}"#).unwrap(),
+        )
+        .unwrap();
+        assert_eq!(
+            dsl::print(&d).trim_end(),
+            "keep: Keep\n\ncomment c1: [on removed `c`] Hm",
+            "{}",
+            dsl::print(&d)
+        );
     }
 
     #[test]

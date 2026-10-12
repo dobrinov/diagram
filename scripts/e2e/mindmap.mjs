@@ -193,12 +193,20 @@ try {
   await key(MOD + "+a"); await type("Teams"); await key("Enter");
   await sleep(600);
   assert.match(saved(), /lanes teams: Teams \{\n  lane lane: Lane 1 \{\n    mindmap ideas: Ideas/, saved());
+  // dragging the swimlanes by their frame moves them as a whole
+  const lb0 = await p.locator('.dg-group[data-id="teams"]').boundingBox();
+  await p.mouse.move(lb0.x + 6, lb0.y + lb0.height / 2); await p.mouse.down();
+  await p.mouse.move(lb0.x + 66, lb0.y + lb0.height / 2 + 40, { steps: 5 }); await p.mouse.up();
+  await sleep(600);
+  assert.match(saved(), /lanes teams: Teams \[x: -?\d+, y: -?\d+\] \{/, saved());
   const lb = await p.locator('.dg-group[data-id="teams"]').boundingBox();
+  assert.ok(Math.abs(lb.x - lb0.x - 60) < 3 && Math.abs(lb.y - lb0.y - 40) < 3, JSON.stringify([lb0, lb]));
   await p.mouse.click(lb.x + 30, lb.y + 20, { button: "right" });
   await p.locator(".dge-menu button", { hasText: "Remove swimlanes" }).click();
-  await sleep(400);
-  // remove, name, create: three steps back
-  await key(MOD + "+z"); await key(MOD + "+z"); await key(MOD + "+z"); await sleep(600);
+  await sleep(700);
+  assert.doesNotMatch(saved(), /lane /, saved());
+  // remove, move, name, create: four steps back
+  await key(MOD + "+z"); await key(MOD + "+z"); await key(MOD + "+z"); await key(MOD + "+z"); await sleep(600);
   assert.equal(saved(), lanesBefore);
 
   // a gantt chart: two tasks starting today; Longer adds a day; removing the chart keeps the tasks
@@ -214,7 +222,16 @@ try {
   await p.locator(".dge-menu button", { hasText: "Longer" }).click();
   await sleep(500);
   assert.match(saved(), /  Task 1 \[6d\]\n/, saved());
-  // create, name, longer: three steps back
+  // the chart moves by its title; Delete takes its tasks with it
+  const gb0 = await p.locator('.dg-group[data-id="roadmap"]').boundingBox();
+  await p.mouse.move(gb0.x + 20, gb0.y + 14); await p.mouse.down();
+  await p.mouse.move(gb0.x + 20, gb0.y + 74, { steps: 5 }); await p.mouse.up();
+  await sleep(600);
+  assert.match(saved(), /gantt roadmap: Roadmap \[start: [\d-]+, x: -?\d+, y: -?\d+\]/, saved());
+  await key("Delete"); await sleep(600);
+  assert.doesNotMatch(saved(), /Roadmap|Task 1|Task 2/, saved());
+  // create, name, longer, move, delete: five steps back
+  await key(MOD + "+z"); await key(MOD + "+z");
   await key(MOD + "+z"); await key(MOD + "+z"); await key(MOD + "+z"); await sleep(600);
   assert.equal(saved(), ganttBefore);
 

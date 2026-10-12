@@ -207,6 +207,12 @@ pub struct Group {
     /// Gantt chart: its first day (`YYYY-MM-DD`).
     #[serde(skip_serializing_if = "Option::is_none")]
     pub start: Option<String>,
+    /// Swimlanes and gantt charts: pinned position (top-left). Their insides
+    /// are always laid out automatically; other groups follow their members.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub x: Option<f64>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub y: Option<f64>,
 }
 
 impl Group {

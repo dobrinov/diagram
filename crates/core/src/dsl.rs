@@ -336,9 +336,15 @@ impl Parser {
             match (k.as_str(), v) {
                 ("start", Some(v)) => g.start = Some(date(v)?),
                 ("color" | "colour", Some(v)) => g.color = Some(color(v)?),
+                ("x", Some(v)) => g.x = Some(num("x", v)?),
+                ("y", Some(v)) => g.y = Some(num("y", v)?),
                 (d, None) if crate::gantt::parse_date(d).is_some() => g.start = Some(d.to_string()),
                 (c, None) if valid_color(c) => g.color = Some(c.to_string()),
-                (k, _) => return Err(format!("unknown gantt attribute `{k}` (start, color)")),
+                (k, _) => {
+                    return Err(format!(
+                        "unknown gantt attribute `{k}` (start, color, x, y)"
+                    ))
+                }
             }
         }
         if !closes_inline {
@@ -551,6 +557,8 @@ impl Parser {
             match (k.as_str(), v) {
                 ("color" | "colour", Some(v)) => g.color = Some(color(v)?),
                 ("label", Some(v)) => g.label = v.clone(),
+                ("x", Some(v)) if lanes => g.x = Some(num("x", v)?),
+                ("y", Some(v)) if lanes => g.y = Some(num("y", v)?),
                 (c, None) if valid_color(c) => g.color = Some(c.to_string()),
                 (k, _) => return Err(format!("unknown group attribute `{k}`")),
             }
@@ -1132,6 +1140,14 @@ fn node_line(n: &Node) -> String {
 }
 
 /// `mindmap id: Topic [attrs] {` + the indented outline + `}`.
+/// `x: …, y: …` of a pinned swimlanes or gantt chart.
+fn group_pos(g: &Group) -> Vec<String> {
+    [("x", g.x), ("y", g.y)]
+        .into_iter()
+        .filter_map(|(k, v)| v.map(|v| format!("{k}: {}", fmt_num(v))))
+        .collect()
+}
+
 fn gantt_block(doc: &Document, g: &Group, pad: &str, out: &mut String) {
     let mut head = id_text(&g.id);
     if !g.label.is_empty() && g.label != g.id {
@@ -1149,6 +1165,7 @@ fn gantt_block(doc: &Document, g: &Group, pad: &str, out: &mut String) {
             c.clone()
         });
     }
+    a.extend(group_pos(g));
     head.push_str(&attrs_text(&a));
     let tasks: Vec<&Node> = doc
         .nodes
@@ -1420,13 +1437,16 @@ pub fn print(doc: &Document) -> String {
             line.push_str(": ");
             line.push_str(&label_text(&g.label));
         }
+        let mut a = Vec::new();
         if let Some(c) = &g.color {
-            line.push_str(&attrs_text(&[if c.starts_with('#') {
+            a.push(if c.starts_with('#') {
                 format!("color: {c}")
             } else {
                 c.clone()
-            }]));
+            });
         }
+        a.extend(group_pos(g));
+        line.push_str(&attrs_text(&a));
         out.push_str(&line);
         out.push_str(" {\n");
         let (nodes, groups) = doc.members(Some(&g.id));

@@ -185,7 +185,9 @@ pub fn json_schema() -> Value {
                 "id": {"type": "string"}, "label": {"type": "string"}, "color": color, "parent": {"type": "string"},
                 "lanes": {"type": "boolean", "description": "swimlanes: the groups inside are lanes"},
                 "gantt": {"type": "boolean", "description": "gantt chart: the nodes inside are tasks"},
-                "start": {"type": "string", "format": "date", "description": "gantt chart: its first day (YYYY-MM-DD)"}
+                "start": {"type": "string", "format": "date", "description": "gantt chart: its first day (YYYY-MM-DD)"},
+                "x": {"type": "number", "description": "swimlanes / gantt chart: pinned left edge"},
+                "y": {"type": "number", "description": "swimlanes / gantt chart: pinned top edge"}
             }}},
             "comments": {"type": "array", "items": {"type": "object", "required": ["text"], "additionalProperties": false, "properties": {
                 "id": {"type": "string", "description": "defaults to c1, c2, …"},

@@ -904,7 +904,8 @@
         ["Rename", function () { editLabel(t.id); }],
         ["Add task", function () { addTask(t.id); }],
         "-",
-        ["Remove chart", function () { applyOps([{ op: "remove", id: t.id, keep_members: true }]); select([]); }, "Its tasks stay, as boxes"]
+        ["Remove chart", function () { applyOps([{ op: "remove", id: t.id, keep_members: true }]); select([]); }, "Its tasks stay, as boxes"],
+        ["Delete", function () { applyOps([{ op: "remove", id: t.id, keep_members: false }]); select([]); }, "The chart and its tasks"]
       ];
       if (t.type === "node" && !mapInfo(t.id) && !view) return [
         ["Rename", function () { editLabel(t.id); }],
@@ -926,17 +927,20 @@
         ["Rename", function () { editLabel(t.id); }],
         ["Add lane", function () { addLane(t.id); }],
         "-",
-        ["Remove swimlanes", function () { applyOps([{ op: "remove", id: t.id, keep_members: true }]); select([]); }, "The lanes become sections; the blocks stay"]
+        ["Remove swimlanes", function () { applyOps(lanesOf(t.id).map(function (l) { return { op: "remove", id: l.id, keep_members: true }; }).concat([{ op: "remove", id: t.id, keep_members: true }])); select([]); }, "The lanes go; the blocks stay"],
+        ["Delete", function () { applyOps([{ op: "remove", id: t.id, keep_members: false }]); select([]); }, "The swimlanes and everything in them"]
       ];
       if (gr && !view && gr.parent && group(gr.parent) && group(gr.parent).lanes) return [
         ["Rename", function () { editLabel(t.id); }],
         ["Add lane after", function () { addLane(gr.parent, t.id); }],
         "-",
-        ["Remove lane", function () { applyOps([{ op: "remove", id: t.id, keep_members: true }]); select([]); }, "Its blocks stay in the swimlanes"]
+        ["Remove lane", function () { applyOps([{ op: "remove", id: t.id, keep_members: true }]); select([]); }, "Its blocks stay in the swimlanes"],
+        ["Delete", function () { applyOps([{ op: "remove", id: t.id, keep_members: false }]); select([]); }, "The lane and its blocks"]
       ];
       if (t.type === "group") return view ? [] : [
         ["Rename", function () { editLabel(t.id); }],
-        ["Remove section", function () { applyOps([{ op: "remove", id: t.id, keep_members: true }]); select([]); }, "The blocks stay where they are"]
+        ["Remove section", function () { applyOps([{ op: "remove", id: t.id, keep_members: true }]); select([]); }, "The blocks stay where they are"],
+        ["Delete", function () { applyOps([{ op: "remove", id: t.id, keep_members: false }]); select([]); }, "The section and everything in it"]
       ];
       if (t.type === "node" && mapInfo(t.id)) return [
         ["Add parent", function () { addParent(t.id); }, mapInfo(t.id).parent ? "A new topic between this one and its parent" : "A new centre above this one (⇧Tab)"],
@@ -1034,7 +1038,8 @@
         st.sel.forEach(function (id) {
           if (isBranch(id)) return;
           if (node(id)) { ids.push(id); direct.push(id); }
-          else if (group(id)) ids = ids.concat(membersOf(id));
+          else if (blockOf(id)) ids.push(blockOf(id));
+          else if (group(id)) membersOf(id).forEach(function (m) { ids.push(blockOf(node(m).group) || m); });
         });
         var items = [];
         ids.forEach(function (id) {
@@ -1331,7 +1336,13 @@
         while (n && n.parent) { if (st.sel.indexOf(n.parent) >= 0) return false; n = node(n.parent); }
         return true;
       });
-      applyOps(ids.map(function (id) { return { op: "remove", id: id }; }));
+      // a section, swimlanes or chart goes with everything in it ("Remove section" keeps it)
+      ids = ids.filter(function (id) {
+        var n = node(id), g = n ? n.group : group(id) && group(id).parent;
+        for (; g; g = group(g) && group(g).parent) if (ids.indexOf(g) >= 0) return false;
+        return true;
+      });
+      applyOps(ids.map(function (id) { return group(id) ? { op: "remove", id: id, keep_members: false } : { op: "remove", id: id }; }));
       select(up && node(up) ? [up] : []);
     }
 
@@ -1350,6 +1361,14 @@
     /* Gantt charts: days since 1970 ↔ YYYY-MM-DD (UTC, like the core). */
     function isoDay(days) { return new Date(days * 86400000).toISOString().slice(0, 10); }
     function today() { var d = new Date(); return Date.UTC(d.getFullYear(), d.getMonth(), d.getDate()) / 86400000; }
+    /* Swimlanes and gantt charts move as one block: the one a group is (or is a lane of). */
+    function blockOf(gid) {
+      var g = gid && group(gid);
+      if (!g) return null;
+      if (g.lanes || g.gantt) return g.id;
+      var up = g.parent && group(g.parent);
+      return up && up.lanes ? up.id : null;
+    }
     function chartOf(id) { var n = node(id), g = n && n.group && group(n.group); return g && g.gantt ? g : null; }
     /* A chart starting today with two tasks; its title is typed next. */
     function addGantt() {
@@ -1447,6 +1466,7 @@
       st.sel.forEach(function (id) {
         var g = geom(id);
         if (node(id) && g && !isBranch(id)) ops.push({ op: "move", id: id, x: g.x + dx, y: g.y + dy });
+        else if (blockOf(id)) { var b = geom(blockOf(id)); ops.push({ op: "move", id: blockOf(id), x: b.x + dx, y: b.y + dy }); }
       });
       if (ops.length) applyOps(ops);
     }
