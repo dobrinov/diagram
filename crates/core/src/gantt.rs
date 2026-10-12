@@ -14,7 +14,7 @@
 //! ```
 //!
 //! Days are calendar days. Dates are `YYYY-MM-DD`.
-use crate::model::Document;
+use crate::model::{Document, Scale};
 
 /// Days since 1970-01-01 for a `YYYY-MM-DD` date.
 pub fn parse_date(s: &str) -> Option<i64> {
@@ -77,11 +77,15 @@ pub fn weekday(z: i64) -> i64 {
     (z + 3).rem_euclid(7)
 }
 
-/// A duration: `5d`, `2w`, `5` (days).
+/// A duration: `5d`, `2w`, `1m` (30 days), `1q` (91 days), `5` (days).
 pub fn parse_days(s: &str) -> Option<f64> {
     let s = s.trim();
     let (num, mul) = if let Some(n) = s.strip_suffix('w') {
         (n, 7.0)
+    } else if let Some(n) = s.strip_suffix('m') {
+        (n, 30.0)
+    } else if let Some(n) = s.strip_suffix('q') {
+        (n, 91.0)
     } else if let Some(n) = s.strip_suffix('d') {
         (n, 1.0)
     } else {
@@ -91,9 +95,12 @@ pub fn parse_days(s: &str) -> Option<f64> {
     (v > 0.0 && v.is_finite()).then_some(v * mul)
 }
 
+/// `182` → `2q`, `14` → `2w`, `60` → `2m`, `5` → `5d`.
 pub fn format_days(d: f64) -> String {
-    if d >= 7.0 && d % 7.0 == 0.0 {
-        return format!("{}w", (d / 7.0) as i64);
+    for (unit, n) in [("q", 91.0), ("w", 7.0), ("m", 30.0)] {
+        if d >= n && d % n == 0.0 {
+            return format!("{}{unit}", (d / n) as i64);
+        }
     }
     let v = if d.fract() == 0.0 {
         format!("{}", d as i64)
@@ -101,6 +108,121 @@ pub fn format_days(d: f64) -> String {
         format!("{d}")
     };
     format!("{v}d")
+}
+
+/// The first day of the next month after day `z`'s.
+fn next_month(z: i64) -> i64 {
+    let (y, m, d) = civil(z);
+    z - (d - 1) + days_in_month(y, m)
+}
+
+/// The first day of the next step of `scale` after day `z`: the next day,
+/// Monday, 1st of a month or 1st of a quarter.
+pub fn next_step(scale: Scale, z: i64) -> i64 {
+    match scale {
+        Scale::Day => z + 1,
+        Scale::Week => z + 7 - weekday(z),
+        Scale::Month => next_month(z),
+        Scale::Quarter => {
+            let mut n = next_month(z);
+            while (civil(n).1 - 1) % 3 != 0 {
+                n = next_month(n);
+            }
+            n
+        }
+    }
+}
+
+/// Days a chart's timeline shows for tasks spanning `span` days: whole steps
+/// of its scale, and a few of them at least.
+pub fn axis_days(scale: Scale, origin: Option<i64>, span: f64) -> f64 {
+    let (min, unit) = match scale {
+        Scale::Day | Scale::Week => (14.0, 7.0),
+        Scale::Month => (91.0, 30.0),
+        Scale::Quarter => (365.0, 91.0),
+    };
+    let want = span.ceil().max(min);
+    match (scale, origin) {
+        (Scale::Month | Scale::Quarter, Some(o)) => {
+            let mut end = o;
+            while ((end - o) as f64) < want {
+                end = next_step(scale, end);
+            }
+            (end - o) as f64
+        }
+        _ => (want / unit).ceil() * unit,
+    }
+}
+
+/// Width of a day on the timeline.
+pub fn day_width(scale: Scale, days: f64) -> f64 {
+    match scale {
+        Scale::Day => 32.0,
+        // long charts get narrower days
+        Scale::Week => (840.0 / days).clamp(8.0, 32.0),
+        Scale::Month => 4.0,
+        Scale::Quarter => 1.4,
+    }
+}
+
+/// Lines across the timeline: (days from the first day, label). Dated charts
+/// mark days, Mondays, months or quarters; undated ones count steps.
+pub fn ticks(scale: Scale, origin: Option<i64>, days: f64) -> Vec<(f64, String)> {
+    const MONTHS: [&str; 12] = [
+        "Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec",
+    ];
+    let mut out = Vec::new();
+    let Some(o) = origin else {
+        let step = match scale {
+            Scale::Day => 1.0,
+            Scale::Week => 7.0,
+            Scale::Month => 30.0,
+            Scale::Quarter => 91.0,
+        };
+        let mut d = 0.0;
+        while d <= days {
+            let k = (d / step) as i64 + 1;
+            out.push((
+                d,
+                match scale {
+                    Scale::Day => format!("{k}"),
+                    Scale::Week => format!("Week {k}"),
+                    Scale::Month => format!("Month {k}"),
+                    Scale::Quarter => format!("Q{k}"),
+                },
+            ));
+            d += step;
+        }
+        return out;
+    };
+    let label = |z: i64, first: bool| {
+        let (y, m, d) = civil(z);
+        let mon = MONTHS[(m - 1) as usize];
+        match scale {
+            Scale::Day if d == 1 || first => format!("{mon} {d}"),
+            Scale::Day => format!("{d}"),
+            Scale::Week => short_date(z),
+            Scale::Month if m == 1 || first => format!("{mon} {y}"),
+            Scale::Month => mon.to_string(),
+            Scale::Quarter => format!("Q{} {y}", (m - 1) / 3 + 1),
+        }
+    };
+    let on_step = next_step(scale, o - 1) == o;
+    let mut z = o;
+    if !on_step {
+        // weeks start on the next Monday; a partial first month or quarter
+        // is labelled where the chart starts
+        if scale != Scale::Week {
+            out.push((0.0, label(o, true)));
+        }
+        z = next_step(scale, o);
+    }
+    while ((z - o) as f64) <= days {
+        let first = out.is_empty();
+        out.push(((z - o) as f64, label(z, first)));
+        z = next_step(scale, z);
+    }
+    out
 }
 
 /// A task without a duration takes this long.
@@ -200,6 +322,31 @@ mod tests {
     }
 
     #[test]
+    fn timelines_have_a_scale() {
+        let o = parse_date("2026-10-14"); // a Wednesday
+        assert_eq!(ticks(Scale::Week, o, 14.0)[0], (5.0, "Oct 19".to_string()));
+        let t = ticks(Scale::Month, o, axis_days(Scale::Month, o, 10.0));
+        assert_eq!(
+            t.iter().map(|t| t.1.as_str()).collect::<Vec<_>>(),
+            ["Oct 2026", "Nov", "Dec", "Jan 2027", "Feb"]
+        );
+        assert_eq!(t[1].0, 18.0);
+        let t = ticks(Scale::Quarter, o, axis_days(Scale::Quarter, o, 10.0));
+        assert_eq!(t[0].1, "Q4 2026");
+        assert_eq!(t[1], (79.0, "Q1 2027".to_string()));
+        assert_eq!(ticks(Scale::Day, o, 3.0)[0].1, "Oct 14");
+        assert_eq!(ticks(Scale::Day, None, 2.0).len(), 3);
+        assert_eq!(
+            (parse_days("1m"), parse_days("2q")),
+            (Some(30.0), Some(182.0))
+        );
+        assert_eq!(
+            [182.0, 14.0, 60.0, 5.0, 1.5].map(format_days),
+            ["2q", "2w", "2m", "5d", "1.5d"]
+        );
+    }
+
+    #[test]
     fn tasks_follow_each_other() {
         let d = crate::dsl::parse(
             "gantt g: Plan [start: 2026-10-12] {\n  Design [5d]\n  Build [10d, after: design]\n  Docs [2d, after: design]\n  Beta [2026-11-03, 1w]\n  Launch\n}",
@@ -226,6 +373,13 @@ mod tests {
         let d = crate::dsl::parse(src).unwrap();
         assert_eq!(crate::dsl::print(&d), src);
         let l = crate::layout::layout(&d);
+        let m = crate::dsl::parse(
+            "gantt g: Plan [scale: quarter] {\n  A [2m]\n  B [1q, after: a]\n}\n",
+        )
+        .unwrap();
+        assert_eq!(m.groups[0].scale, Some(crate::model::Scale::Quarter));
+        assert_eq!((m.nodes[0].days, m.nodes[1].days), (Some(60.0), Some(91.0)));
+        assert!(crate::dsl::print(&m).contains("[scale: quarter]"));
         let (a, b) = (l.rect("design").unwrap(), l.rect("build").unwrap());
         let gb = l.group("g").unwrap().gantt.clone().unwrap();
         // bars: one row each, as long as the task, the next starting where the first ends

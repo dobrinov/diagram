@@ -217,6 +217,9 @@ pub enum Op {
         /// Gantt chart: its first day (`YYYY-MM-DD`; "" clears it).
         #[serde(default, skip_serializing_if = "Option::is_none")]
         start: Option<String>,
+        /// Gantt chart: `day`, `week`, `month` or `quarter` ("" resets it).
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        scale: Option<String>,
     },
     AddComment {
         #[serde(default, skip_serializing_if = "Option::is_none")]
@@ -962,6 +965,7 @@ fn apply_one(doc: &mut Document, op: &Op, created: &mut Vec<String>) -> Result<(
             lanes,
             gantt,
             start,
+            scale,
         } => {
             if let Some(Some(p)) = opt(parent) {
                 need_container(doc, &p)?;
@@ -989,6 +993,15 @@ fn apply_one(doc: &mut Document, op: &Op, created: &mut Vec<String>) -> Result<(
             }
             if let Some(s) = chart_start(start)? {
                 g.start = s;
+            }
+            if let Some(v) = scale {
+                g.scale = if v.is_empty() {
+                    None
+                } else {
+                    Some(Scale::parse(v).ok_or_else(|| {
+                        format!("unknown scale `{v}` (day, week, month, quarter)")
+                    })?)
+                };
             }
         }
         Op::AddComment {

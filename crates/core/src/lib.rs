@@ -163,7 +163,7 @@ pub fn json_schema() -> Value {
                 "detail": {"type": "string", "description": "smaller second line"},
                 "color": color,
                 "group": {"type": "string", "description": "id of the enclosing group"},
-                "link": {"type": "string"},
+                "link": {"type": "string", "description": "a URL, or #id to go to another element on the board"},
                 "tags": {"type": "array", "items": {"type": "string"}},
                 "x": {"type": "number"}, "y": {"type": "number"}, "w": {"type": "number"}, "h": {"type": "number"},
                 "parent": {"type": "string", "description": "mindmap: id of the topic this one branches from"},
@@ -186,6 +186,7 @@ pub fn json_schema() -> Value {
                 "lanes": {"type": "boolean", "description": "swimlanes: the groups inside are lanes"},
                 "gantt": {"type": "boolean", "description": "gantt chart: the nodes inside are tasks"},
                 "start": {"type": "string", "format": "date", "description": "gantt chart: its first day (YYYY-MM-DD)"},
+                "scale": e(&["day", "week", "month", "quarter"]),
                 "x": {"type": "number", "description": "swimlanes / gantt chart: pinned left edge"},
                 "y": {"type": "number", "description": "swimlanes / gantt chart: pinned top edge"}
             }}},

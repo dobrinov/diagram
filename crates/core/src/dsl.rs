@@ -335,6 +335,11 @@ impl Parser {
         for (k, v) in &attrs {
             match (k.as_str(), v) {
                 ("start", Some(v)) => g.start = Some(date(v)?),
+                ("scale", Some(v)) => {
+                    g.scale = Some(Scale::parse(v).ok_or_else(|| {
+                        format!("unknown scale `{v}` (day, week, month, quarter)")
+                    })?)
+                }
                 ("color" | "colour", Some(v)) => g.color = Some(color(v)?),
                 ("x", Some(v)) => g.x = Some(num("x", v)?),
                 ("y", Some(v)) => g.y = Some(num("y", v)?),
@@ -342,7 +347,7 @@ impl Parser {
                 (c, None) if valid_color(c) => g.color = Some(c.to_string()),
                 (k, _) => {
                     return Err(format!(
-                        "unknown gantt attribute `{k}` (start, color, x, y)"
+                        "unknown gantt attribute `{k}` (start, scale, color, x, y)"
                     ))
                 }
             }
@@ -779,7 +784,7 @@ fn looks_like_attrs(inner: &str) -> bool {
                         || matches!(item, "resolved" | "open" | "done" | "collapsed" | "folded")
                         // gantt: a date or a duration
                         || crate::gantt::parse_date(item).is_some()
-                        || (item.ends_with(['d', 'w']) && crate::gantt::parse_days(item).is_some())
+                        || (item.ends_with(['d', 'w', 'm', 'q']) && crate::gantt::parse_days(item).is_some())
                 }
             }
         })
@@ -858,12 +863,12 @@ pub fn apply_node_attrs(n: &mut Node, attrs: &Attrs) -> Result<(), String> {
             ("start", Some(v)) => n.start = Some(date(v)?),
             ("days" | "duration", Some(v)) => {
                 n.days = Some(crate::gantt::parse_days(v).ok_or_else(|| {
-                    format!("`{v}` is not a duration (like 5d or 2w)")
+                    format!("`{v}` is not a duration (like 5d, 2w, 1m or 1q)")
                 })?)
             }
             ("after", Some(v)) => n.after = v.split_whitespace().map(String::from).collect(),
             (k, None) if crate::gantt::parse_date(k).is_some() => n.start = Some(k.to_string()),
-            (k, None) if k.ends_with(['d', 'w']) && crate::gantt::parse_days(k).is_some() => {
+            (k, None) if k.ends_with(['d', 'w', 'm', 'q']) && crate::gantt::parse_days(k).is_some() => {
                 n.days = crate::gantt::parse_days(k)
             }
             (k, None) if Shape::parse(k).is_some() => n.shape = Shape::parse(k).unwrap(),
@@ -1157,6 +1162,9 @@ fn gantt_block(doc: &Document, g: &Group, pad: &str, out: &mut String) {
     let mut a = Vec::new();
     if let Some(s) = &g.start {
         a.push(format!("start: {s}"));
+    }
+    if let Some(sc) = g.scale {
+        a.push(format!("scale: {}", sc.as_str()));
     }
     if let Some(c) = &g.color {
         a.push(if c.starts_with('#') {

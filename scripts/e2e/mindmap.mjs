@@ -209,7 +209,7 @@ try {
   await key(MOD + "+z"); await key(MOD + "+z"); await key(MOD + "+z"); await key(MOD + "+z"); await sleep(600);
   assert.equal(saved(), lanesBefore);
 
-  // a gantt chart: two tasks starting today; Longer adds a day; removing the chart keeps the tasks
+  // a gantt chart: two tasks starting today; drag a bar's end, Duration…, dependencies, scale; Delete takes it all
   const ganttBefore = saved();
   await key("Escape");
   await p.locator('.dge-tools [data-act="gantt"]').click();
@@ -218,22 +218,69 @@ try {
   await sleep(600);
   assert.match(saved(), /gantt roadmap: Roadmap \[start: \d{4}-\d\d-\d\d\] \{\n  Task 1 \[5d\]\n  Task 2 \[3d, after: task-1\]\n\}/, saved());
   await key("f"); await sleep(300);
-  await topic("task-1").click({ button: "right" });
-  await p.locator(".dge-menu button", { hasText: "Longer" }).click();
-  await sleep(500);
+  // the end of a bar: one day longer
+  let b1 = await topic("task-1").boundingBox();
+  await p.mouse.move(b1.x + b1.width - 2, b1.y + b1.height / 2); await p.mouse.down();
+  await p.mouse.move(b1.x + b1.width - 2 + b1.width / 5, b1.y + b1.height / 2, { steps: 6 }); await p.mouse.up();
+  await sleep(600);
   assert.match(saved(), /  Task 1 \[6d\]\n/, saved());
+  // Duration… takes 2w
+  await topic("task-2").click({ button: "right" });
+  await p.locator(".dge-menu button", { hasText: "Duration…" }).click();
+  await p.waitForSelector(".dge-ask");
+  await key(MOD + "+a"); await type("2w"); await key("Enter");
+  await sleep(600);
+  assert.match(saved(), /  Task 2 \[2w, after: task-1\]\n/, saved());
+  // right-click the dependency line → Remove dependency; drawing an arrow from Task 1 to Task 2 brings it back
+  b1 = await topic("task-1").boundingBox();
+  const b2 = await topic("task-2").boundingBox();
+  const zoom = parseInt(await p.locator(".dge-zoom-label").textContent(), 10) / 100 || 1;
+  await p.mouse.click(b1.x + b1.width + 6 * zoom, (b1.y + b1.height / 2 + b2.y + b2.height / 2) / 2, { button: "right" });
+  await p.locator(".dge-menu button", { hasText: "Remove dependency" }).click();
+  await sleep(600);
+  assert.match(saved(), /  Task 2 \[2w\]\n/, saved());
+  await key("x");
+  await p.mouse.move(b1.x + 10, b1.y + b1.height / 2); await p.mouse.down();
+  const b2n = await topic("task-2").boundingBox();
+  await p.mouse.move(b2n.x + b2n.width / 2, b2n.y + b2n.height / 2, { steps: 6 }); await p.mouse.up();
+  await sleep(600);
+  assert.match(saved(), /  Task 2 \[2w, after: task-1\]\n/, saved());
+  assert.doesNotMatch(saved(), /task-1 -> task-2/, saved());
+  await key("v");
+  // the chart's scale: months
+  let gb0 = await p.locator('.dg-group[data-id="roadmap"]').boundingBox();
+  await p.mouse.click(gb0.x + 20, gb0.y + 14, { button: "right" });
+  await p.locator(".dge-menu button", { hasText: "Scale…" }).click();
+  await p.locator(".dge-menu button", { hasText: "Months" }).click();
+  await sleep(600);
+  assert.match(saved(), /gantt roadmap: Roadmap \[start: [\d-]+, scale: month\]/, saved());
   // the chart moves by its title; Delete takes its tasks with it
-  const gb0 = await p.locator('.dg-group[data-id="roadmap"]').boundingBox();
+  gb0 = await p.locator('.dg-group[data-id="roadmap"]').boundingBox();
   await p.mouse.move(gb0.x + 20, gb0.y + 14); await p.mouse.down();
   await p.mouse.move(gb0.x + 20, gb0.y + 74, { steps: 5 }); await p.mouse.up();
   await sleep(600);
-  assert.match(saved(), /gantt roadmap: Roadmap \[start: [\d-]+, x: -?\d+, y: -?\d+\]/, saved());
+  assert.match(saved(), /gantt roadmap: Roadmap \[start: [\d-]+, scale: month, x: -?\d+, y: -?\d+\]/, saved());
   await key("Delete"); await sleep(600);
   assert.doesNotMatch(saved(), /Roadmap|Task 1|Task 2/, saved());
-  // create, name, longer, move, delete: five steps back
-  await key(MOD + "+z"); await key(MOD + "+z");
-  await key(MOD + "+z"); await key(MOD + "+z"); await key(MOD + "+z"); await sleep(600);
+  // create, name, longer, duration, remove dependency, add it, scale, move, delete: nine steps back
+  for (let k = 0; k < 9; k++) await key(MOD + "+z");
+  await sleep(600);
   assert.equal(saved(), ganttBefore);
+
+  // links: right-click → Link to…, click the target; the badge takes you there
+  await key("f"); await sleep(300);
+  await topic("build").click({ button: "right" });
+  await p.locator(".dge-menu button", { hasText: "Link to…" }).click();
+  await topic("discovery").click();
+  await sleep(600);
+  assert.match(saved(), /\n  Build \[link: "?#discovery"?\]\n/, saved());
+  await topic("build").click();
+  await p.locator('.dg-link[data-node="build"]').click();
+  await key("F2");
+  await p.waitForSelector(".dge-inline");
+  assert.equal(await p.locator(".dge-inline").inputValue(), "Discovery");
+  await key("Escape");
+  await key(MOD + "+z"); await sleep(600);
 
   // C: comment mode; click a topic, type, Enter; then its pin opens the thread to resolve it
   await key("f"); await sleep(300);

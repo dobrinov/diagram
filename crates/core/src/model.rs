@@ -207,12 +207,47 @@ pub struct Group {
     /// Gantt chart: its first day (`YYYY-MM-DD`).
     #[serde(skip_serializing_if = "Option::is_none")]
     pub start: Option<String>,
+    /// Gantt chart: what one step of its timeline is (week when unset).
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub scale: Option<Scale>,
     /// Swimlanes and gantt charts: pinned position (top-left). Their insides
     /// are always laid out automatically; other groups follow their members.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub x: Option<f64>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub y: Option<f64>,
+}
+
+/// The resolution of a gantt chart's timeline.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default, Serialize, Deserialize)]
+#[serde(rename_all = "lowercase")]
+pub enum Scale {
+    Day,
+    #[default]
+    Week,
+    Month,
+    Quarter,
+}
+
+impl Scale {
+    pub fn as_str(self) -> &'static str {
+        match self {
+            Scale::Day => "day",
+            Scale::Week => "week",
+            Scale::Month => "month",
+            Scale::Quarter => "quarter",
+        }
+    }
+
+    pub fn parse(s: &str) -> Option<Scale> {
+        Some(match s.trim().to_ascii_lowercase().as_str() {
+            "day" | "days" | "daily" => Scale::Day,
+            "week" | "weeks" | "weekly" => Scale::Week,
+            "month" | "months" | "monthly" => Scale::Month,
+            "quarter" | "quarters" | "quarterly" => Scale::Quarter,
+            _ => return None,
+        })
+    }
 }
 
 impl Group {

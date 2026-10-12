@@ -69,7 +69,8 @@ Whiteboard tools are great for talking. Their output, though, ends up in a forma
 - **Flowcharts, swimlanes and gantt charts.**
   - Boxes, decisions and 11 more shapes, with labelled, dashed or reversed arrows (right-click a block or an arrow).
   - Swimlanes (`lanes { lane … }`): bands the flow runs across, lined up step by step.
-  - Gantt charts (`gantt { Design [5d]  Build [2w, after: design] }`): a timeline with dependencies; drag a bar to reschedule it.
+  - Gantt charts (`gantt { Design [5d]  Build [2w, after: design] }`): a timeline by day, week, month or quarter. Drag a bar to reschedule it, drag its end to change its duration, draw an arrow between bars to make one wait for the other.
+- **Links between elements.** Right-click a block → *Link to…* and click another element; the block's link badge takes you there (`link: #id`). Web links work the same way.
 - **Comments become prompts.**
   - Press **C** and click a block (or empty canvas) to start a thread, right where you clicked. Threads support replies, resolving and reopening.
   - **Prompt** builds a task from the open threads. You choose what the agent should do: *update the diagram*, *change the code* or *discuss*. You also choose the reply format: ops or a whole diagram.

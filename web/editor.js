@@ -755,7 +755,10 @@
           return;
         }
         var r = 5 / Math.max(st.zoom, 0.4);
-        [[g.x + g.w / 2, g.y], [g.x + g.w, g.y + g.h / 2], [g.x + g.w / 2, g.y + g.h], [g.x, g.y + g.h / 2]].forEach(function (p) {
+        // a task: one dot past the end of its bar (draw to the task that waits for it); the end itself resizes
+        var dots = chartOf(id) ? [[g.x + g.w + 3 * r, g.y + g.h / 2]]
+          : [[g.x + g.w / 2, g.y], [g.x + g.w, g.y + g.h / 2], [g.x + g.w / 2, g.y + g.h], [g.x, g.y + g.h / 2]];
+        dots.forEach(function (p) {
           var c = svgEl("circle", { cx: p[0], cy: p[1], r: r, class: "dge-handle", "data-node": id });
           overlay.appendChild(c);
         });
@@ -819,6 +822,10 @@
       if (ctl) return { type: ctl.classList.contains("dge-plus") ? "plus" : "fold", id: ctl.getAttribute("data-node") };
       var fold = target.closest(".dg-fold");
       if (fold) return { type: "fold", id: fold.getAttribute("data-fold") };
+      var lk = target.closest(".dg-link");
+      if (lk) return { type: "link", id: lk.getAttribute("data-node"), link: lk.getAttribute("data-link") };
+      var dep = target.closest(".dg-dep");
+      if (dep) return { type: "dep", id: dep.getAttribute("data-to"), from: dep.getAttribute("data-from") };
       var pin = target.closest(".dg-pin");
       if (pin) return { type: "pin", id: pin.getAttribute("data-comment") };
       var n = target.closest(".dg-node");
@@ -882,18 +889,30 @@
         "-",
         ["Delete", function () { deleteSelection(); }]
       ]);
-      if (t.type === "edge" || mapInfo(t.id)) return items;
+      if (t.type === "edge" || t.type === "dep" || mapInfo(t.id)) return items;
       var copy = ["Copy as prompt", function () { copyPrompt([t.id]); }, "As Markdown to paste into a prompt (" + MOD + "⇧C)"];
       return view ? [copy] : [copy, "-"].concat(items);
     }
     function itemsFor(t) {
+      if (t.type === "dep") return view ? [] : [
+        ["Remove dependency", function () { dropDependency(t.id, t.from); }, "“" + labelOf(t.id) + "” stops waiting for “" + labelOf(t.from) + "”"]
+      ];
+      var items = baseItems(t);
+      if (t.type !== "node" || view) return items;
+      var lk = node(t.id).link;
+      var links = [["Link to…", function () { startLinking(t.id); }, "Then click the element this one should take you to"]];
+      if (lk) links.push(["Remove link", function () { applyOps([{ op: "update_node", id: t.id, link: "" }]); }, lk]);
+      var cut = items.lastIndexOf("-");
+      return cut > 0 ? items.slice(0, cut).concat(links, items.slice(cut)) : items.concat(["-"], links);
+    }
+    function baseItems(t) {
       var gr = t.type === "group" && group(t.id);
       if (t.type === "node" && !view && chartOf(t.id)) {
         var tk = node(t.id);
         return [
           ["Rename", function () { editLabel(t.id); }],
-          ["Longer (+1 day)", function () { taskDays(t.id, 1); }],
-          ["Shorter (−1 day)", function () { taskDays(t.id, -1); }],
+          ["Duration…", function () { askDuration(t.id); }, "Or drag the end of the bar"],
+          ["Starts after…", function () { afterMenu(t.id); }, "Or draw an arrow from the task it waits for"],
           tk.start ? ["Follow the task before", function () { applyOps([{ op: "update_node", id: t.id, start: "" }]); }, "Drop its fixed date"] : null,
           ["Add task after", function () { addTask(tk.group, t.id); }],
           "-",
@@ -903,6 +922,7 @@
       if (gr && !view && gr.gantt) return [
         ["Rename", function () { editLabel(t.id); }],
         ["Add task", function () { addTask(t.id); }],
+        ["Scale…", function () { scaleMenu(t.id); }, "Days, weeks, months or quarters"],
         "-",
         ["Remove chart", function () { applyOps([{ op: "remove", id: t.id, keep_members: true }]); select([]); }, "Its tasks stay, as boxes"],
         ["Delete", function () { applyOps([{ op: "remove", id: t.id, keep_members: false }]); select([]); }, "The chart and its tasks"]
@@ -983,6 +1003,15 @@
       closeMenu();
       var p = toDiagram(e.clientX, e.clientY);
       var t = hit(e.target);
+      if (e.button === 0 && t && t.type === "link" && !st.linking) { e.preventDefault(); followLink(t.link); return; }
+      if (st.linking && e.button === 0) {
+        // Link to…: the next click picks the target
+        var from = st.linking, to = t && (t.type === "node" || t.type === "group") ? t.id : null;
+        endLinking();
+        e.preventDefault();
+        if (to && to !== from) { applyOps([{ op: "update_node", id: from, link: "#" + to }]); flash("Linked to “" + labelOf(to) + "”"); }
+        return;
+      }
       if (e.button === 1 || st.space || (e.button === 0 && (st.tool === "hand" || view) && !(t && t.type === "pin"))) {
         st.drag = { type: "pan", sx: e.clientX, sy: e.clientY, px: st.panX, py: st.panY };
         canvas.setPointerCapture(e.pointerId);
@@ -1021,6 +1050,13 @@
         st.drag = { type: "connect", from: t.id, to: p };
         canvas.setPointerCapture(e.pointerId);
         drawOverlay();
+        return;
+      }
+      if (t && t.type === "node" && !view && barEnd(t.id, e.clientX)) {
+        // the end of a bar: drag to change how long the task takes
+        select([t.id]);
+        st.drag = { type: "resize", id: t.id, sx: p.x, days: node(t.id).days || 1, before: st.text, moved: false };
+        canvas.setPointerCapture(e.pointerId);
         return;
       }
       if (t && (t.type === "node" || t.type === "group" || t.type === "edge")) {
@@ -1062,6 +1098,7 @@
       var d = st.drag;
       if (!d) {
         var t = hit(e.target);
+        canvas.classList.toggle("resizing", !!(t && t.type === "node" && !view && barEnd(t.id, e.clientX)));
         var hov = t && (t.type === "node" || t.type === "handle") ? t.id : null;
         if (hov !== st.hover) {
           st.hover = hov;
@@ -1076,6 +1113,14 @@
         return;
       }
       var p = toDiagram(e.clientX, e.clientY);
+      if (d.type === "resize") {
+        var ch = chartBox(d.id), step = snapDays(ch.scale);
+        var days = Math.max(step, Math.round((d.days * ch.day + p.x - d.sx) / ch.day / step) * step);
+        if (!d.moved && Math.abs(p.x - d.sx) < 3) return;
+        d.moved = true;
+        if (days !== d.now) { d.now = days; applyOps([{ op: "update_node", id: d.id, days: days }], true); }
+        return;
+      }
       if (d.type === "move") {
         d.dx = Math.round(p.x - d.sx);
         d.dy = Math.round(p.y - d.sy);
@@ -1145,6 +1190,14 @@
         drawOverlay();
         return;
       }
+      if (d.type === "resize") {
+        if (d.moved && d.now) {
+          st.session.set_source(d.before);
+          st.text = d.before;
+          applyOps([{ op: "update_node", id: d.id, days: d.now }]);
+        }
+        return;
+      }
       if (d.type === "move" && d.moved) {
         if (raf) { cancelAnimationFrame(raf); raf = 0; }
         var ops = d.items.map(function (m) { return { op: "move", id: m.id, x: m.x + d.dx, y: m.y + d.dy }; });
@@ -1158,7 +1211,7 @@
           // a bar moved along its own chart starts on the day it was dropped at
           if (sec && sec.gantt && into === was) {
             var gt = sec.gantt, origin = gt.origin != null ? gt.origin : today();
-            var day = Math.round((m.x + d.dx - gt.left) / gt.day);
+            var unit = snapDays(gt.scale), day = Math.round((m.x + d.dx - gt.left) / gt.day / unit) * unit;
             if (gt.origin == null) ops.push({ op: "update_group", id: into, start: isoDay(origin) });
             ops.push({ op: "update_node", id: m.id, start: isoDay(origin + day) });
           }
@@ -1168,7 +1221,8 @@
         applyOps(ops);
       } else if (d.type === "connect" && e) {
         var p = toDiagram(e.clientX, e.clientY);
-        if (d.target) applyOps([{ op: "add_edge", from: d.from, to: d.target }]);
+        if (d.target && chartOf(d.from) && chartOf(d.target) && chartOf(d.from) === chartOf(d.target)) dependOn(d.target, d.from);
+        else if (d.target) applyOps([{ op: "add_edge", from: d.from, to: d.target }]);
         else if (Math.hypot(p.x - (geom(d.from).x + geom(d.from).w / 2), p.y - (geom(d.from).y + geom(d.from).h / 2)) > 60) {
           // dropped on empty canvas: create a connected box there
           var before = st.text;
@@ -1396,6 +1450,118 @@
       var d = (node(id).days || 1) + delta;
       if (d >= 1) applyOps([{ op: "update_node", id: id, days: d }]);
     }
+    /* The laid-out chart a task is on: day width, scale, … */
+    function chartBox(id) {
+      var c = chartOf(id), g = c && st.r.groups.find(function (x) { return x.id === c.id; });
+      return g && g.gantt;
+    }
+    /* What dragging a bar snaps to, in days: a day, or a week / month on long scales. */
+    function snapDays(scale) { return scale === "quarter" ? 30 : scale === "month" ? 7 : 1; }
+    /* Is the pointer on the right end of a task's bar? */
+    function barEnd(id, clientX) {
+      var g = chartOf(id) && geom(id);
+      if (!g) return false;
+      var right = toScreen(g.x + g.w, 0).x + canvas.getBoundingClientRect().left;
+      return Math.abs(clientX - right) <= 6;
+    }
+    /* `id` starts when `on` ends. */
+    function dependOn(id, on) {
+      var t = node(id), after = (t.after || []).slice();
+      if (id === on || after.indexOf(on) >= 0) return;
+      // no loops: `on` may not already wait for `id`
+      var seen = [], todo = [on];
+      while (todo.length) {
+        var x = todo.pop();
+        if (x === id) { flash("“" + labelOf(on) + "” already waits for “" + labelOf(id) + "”", true); return; }
+        if (seen.indexOf(x) < 0) { seen.push(x); todo = todo.concat((node(x) || {}).after || []); }
+      }
+      after.push(on);
+      applyOps([{ op: "update_node", id: id, after: after, start: "" }]);
+      flash("“" + labelOf(id) + "” starts after “" + labelOf(on) + "”");
+    }
+    function dropDependency(id, on) {
+      applyOps([{ op: "update_node", id: id, after: (node(id).after || []).filter(function (a) { return a !== on; }) }]);
+    }
+    /* Pick which tasks this one starts after (✓ = it does). */
+    function afterMenu(id) {
+      var c = chartOf(id), mine = node(id).after || [];
+      var others = st.doc.nodes.filter(function (n) { return n.group === c.id && n.id !== id; });
+      setTimeout(function () {
+        openMenu(st.menuAt, others.length ? others.map(function (n) {
+          var on = mine.indexOf(n.id) >= 0;
+          return [(on ? "✓ " : "\u2003") + (n.label || n.id), function () { if (on) dropDependency(id, n.id); else dependOn(id, n.id); }];
+        }) : [["No other tasks", function () {}]]);
+      });
+    }
+    function scaleMenu(gid) {
+      var cur = group(gid).scale || "week";
+      setTimeout(function () {
+        openMenu(st.menuAt, [["day", "Days"], ["week", "Weeks"], ["month", "Months"], ["quarter", "Quarters"]].map(function (sc) {
+          return [(sc[0] === cur ? "✓ " : "\u2003") + sc[1], function () { applyOps([{ op: "update_group", id: gid, scale: sc[0] === "week" ? "" : sc[0] }]); }];
+        }));
+      });
+    }
+    /* A small text field at the menu's spot; Enter calls back with the text. */
+    function askAt(at, value, placeholder, done) {
+      var rect = canvas.getBoundingClientRect();
+      var inp = h("input", { class: "dge-inline dge-ask", value: value, placeholder: placeholder, spellcheck: "false" });
+      inp.style.left = (at.x - rect.left) + "px";
+      inp.style.top = (at.y - rect.top) + "px";
+      canvas.appendChild(inp);
+      inp.focus(); inp.select();
+      var over = false;
+      function end(save) {
+        if (over) return;
+        over = true;
+        var v = inp.value.trim();
+        inp.remove();
+        canvas.focus({ preventScroll: true });
+        if (save && v) done(v);
+      }
+      inp.addEventListener("keydown", function (e) {
+        e.stopPropagation();
+        if (e.key === "Enter") { e.preventDefault(); end(true); }
+        if (e.key === "Escape") { e.preventDefault(); end(false); }
+      });
+      inp.addEventListener("blur", function () { end(false); });
+    }
+    /* Duration…: 5d, 2w, 1m, 1q or a number of days. */
+    function askDuration(id) {
+      var cur = node(id).days || 1;
+      askAt(st.menuAt, cur % 7 === 0 ? cur / 7 + "w" : cur + "d", "5d, 2w, 1m", function (v) {
+        var m = /^(\d+(?:\.\d+)?)\s*([dwmq]?)$/i.exec(v);
+        if (!m || !(+m[1] > 0)) { flash("Write a duration like 5d, 2w, 1m or 1q", true); return; }
+        var days = +m[1] * ({ d: 1, w: 7, m: 30, q: 91 }[(m[2] || "d").toLowerCase()]);
+        applyOps([{ op: "update_node", id: id, days: days }]);
+      });
+    }
+
+    // -------------------------------------------------------------- links
+    /* Link to…: the next click on an element makes it this one's target. */
+    function startLinking(id) {
+      st.linking = id;
+      canvas.classList.add("linking");
+      flash("Click the element to link to — Esc cancels", false, 6000);
+    }
+    function endLinking() {
+      st.linking = null;
+      canvas.classList.remove("linking");
+      toast.className = "dge-toast";
+    }
+    /* `#id` goes to that element on the board; anything else opens in a new tab. */
+    function followLink(link) {
+      if (!link) return;
+      if (link.charAt(0) !== "#") { window.open(link, "_blank", "noopener"); return; }
+      var id = link.slice(1), g = geom(id);
+      if (!g) { flash(kindOf(id) ? "“" + labelOf(id) + "” is folded away" : "“" + id + "” is not on the board any more", true); return; }
+      var cw = canvas.clientWidth, ch = canvas.clientHeight;
+      var z = Math.min(Math.max(st.zoom, 0.6), (cw * 0.8) / g.w, (ch * 0.8) / g.h, 1.5);
+      st.zoom = Math.max(0.1, z);
+      st.panX = cw / 2 - (g.x + g.w / 2 - st.r.view.x) * st.zoom;
+      st.panY = ch / 2 - (g.y + g.h / 2 - st.r.view.y) * st.zoom;
+      transform();
+      select([id]);
+    }
 
     /* Swimlanes with two lanes; the selected blocks go in the first. */
     function addSwimlanes() {
@@ -1526,7 +1692,7 @@
         case "-": zoomTo(st.zoom / 1.2); break;
         case "Enter": if (st.sel.length === 1) { e.preventDefault(); editLabel(st.sel[0]); } break;
         case "Delete": case "Backspace": e.preventDefault(); deleteSelection(); break;
-        case "Escape": if (!bubble.hidden) closeBubble(); else if (st.tool !== "select") setTool("select"); else select([]); closeMenu(); break;
+        case "Escape": if (st.linking) endLinking(); else if (!bubble.hidden) closeBubble(); else if (st.tool !== "select") setTool("select"); else select([]); closeMenu(); break;
         case "ArrowLeft": e.preventDefault(); nudge(e.shiftKey ? -40 : -8, 0); break;
         case "ArrowRight": e.preventDefault(); nudge(e.shiftKey ? 40 : 8, 0); break;
         case "ArrowUp": e.preventDefault(); nudge(0, e.shiftKey ? -40 : -8); break;

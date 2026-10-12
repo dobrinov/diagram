@@ -404,6 +404,36 @@ pub fn render(doc: &Document, opts: &RenderOptions) -> Rendered {
         }
     }
     s.push_str("</g>");
+    // a badge on linked blocks: a web page, or `#id` for another element
+    let linked: Vec<(&layout::NodeBox, &str)> = lay
+        .nodes
+        .iter()
+        .filter_map(|nb| Some((nb, doc.node(&nb.id)?.link.as_deref()?)))
+        .collect();
+    if !linked.is_empty() {
+        s.push_str(r#"<g class="dg-links">"#);
+        for (nb, link) in linked {
+            let (x, y) = (nb.rect.right() - 2.0, nb.rect.bottom() - 2.0);
+            let open = match web_link(doc.node(&nb.id).unwrap()) {
+                Some(l) => format!(r#"<a href="{}" target="_blank">"#, esc(l)),
+                None => String::new(),
+            };
+            let _ = write!(
+                s,
+                r#"{open}<g class="dg-link" data-node="{}" data-link="{}" transform="translate({},{})"><title>{}</title><circle r="10" fill="{}" stroke="{}" stroke-width="2"/><path transform="translate(-6.5,-6.5) scale(0.54)" d="M10 13a5 5 0 0 0 7.54.54l3-3a5 5 0 0 0-7.07-7.07l-1.72 1.71M14 11a5 5 0 0 0-7.54-.54l-3 3a5 5 0 0 0 7.07 7.07l1.71-1.71" fill="none" stroke="{}" stroke-width="2.6" stroke-linecap="round" stroke-linejoin="round"/></g>{}"#,
+                esc(&nb.id),
+                esc(link),
+                n(x),
+                n(y),
+                esc(&link_title(doc, link)),
+                p.group_accent,
+                p.node_fill,
+                p.on_accent,
+                if open.is_empty() { "" } else { "</a>" }
+            );
+        }
+        s.push_str("</g>");
+    }
     // folded branches show how much is tucked away
     let folds: Vec<&&layout::NodeBox> = maps
         .iter()
@@ -596,18 +626,18 @@ fn gantt_svg(
             y = n(y)
         );
     }
-    // a line and a date at each week (Mondays when the chart has dates)
-    let first = match g.origin {
-        Some(o) => (7 - crate::gantt::weekday(o)) % 7,
-        None => 0,
-    };
-    let mut d = first;
-    while (d as f64) <= g.days {
-        let x = ox + g.x0 + d as f64 * g.day;
-        let label = match g.origin {
-            Some(o) => crate::gantt::short_date(o + d),
-            None => format!("Week {}", d / 7 + 1),
-        };
+    // a line and a label at each step of the scale (Mondays, 1st of the
+    // month, … when the chart has dates)
+    let ticks = crate::gantt::ticks(g.scale, g.origin, g.days);
+    let mut free = f64::MIN; // labels do not overlap: the later one is left out
+    for (k, (d, label)) in ticks.iter().enumerate() {
+        let d = *d;
+        let x = ox + g.x0 + d * g.day;
+        let w = text::width(label, 11.0) + 8.0;
+        // a short first month or quarter gives its label to the next one
+        let partial = k == 0
+            && matches!(g.scale, Scale::Month | Scale::Quarter)
+            && ticks.get(1).is_some_and(|t| t.0 * g.day < w);
         let _ = write!(
             s,
             r#"<line x1="{x}" y1="{}" x2="{x}" y2="{}" stroke="{}" stroke-width="1"/>"#,
@@ -616,17 +646,17 @@ fn gantt_svg(
             p.node_stroke,
             x = n(x)
         );
-        if (d as f64) < g.days {
+        if d < g.days && x >= free && !partial {
+            free = x + w;
             let _ = write!(
                 s,
                 r#"<text x="{}" y="{}" font-size="11" fill="{}">{}</text>"#,
                 n(x + 4.0),
                 n(top - 10.0),
                 p.muted,
-                esc(&label)
+                esc(label)
             );
         }
-        d += 7;
     }
     // task names
     for (k, id) in g.rows.iter().enumerate() {
@@ -674,7 +704,9 @@ fn gantt_svg(
             };
             let _ = write!(
                 s,
-                r#"<path d="{path}" fill="none" stroke="{}" stroke-width="1.5"/><path d="M{},{} l-5,-3.5 v7 z" fill="{}"/>"#,
+                r#"<g class="dg-dep" data-from="{}" data-to="{}"><path d="{path}" fill="none" stroke="{}" stroke-width="1.5"/><path d="M{},{} l-5,-3.5 v7 z" fill="{}"/><path d="{path}" fill="none" stroke="transparent" stroke-width="10" pointer-events="stroke"/></g>"#,
+                esc(a),
+                esc(id),
                 p.edge,
                 n(x2),
                 n(y2),
@@ -765,7 +797,7 @@ fn map_node_svg(
             ""
         }
     );
-    if let Some(link) = &node.link {
+    if let Some(link) = web_link(node) {
         let _ = write!(s, r#"<a href="{}" target="_blank">"#, esc(link));
     }
     let lifted = r#" filter="url(#dg-shadow)""#;
@@ -897,7 +929,7 @@ fn map_node_svg(
             r#" opacity="0.85""#,
         );
     }
-    if node.link.is_some() {
+    if web_link(node).is_some() {
         s.push_str("</a>");
     }
     s.push_str("</g>");
@@ -1012,7 +1044,7 @@ fn node_svg(
             ""
         }
     );
-    if let Some(link) = &node.link {
+    if let Some(link) = web_link(node) {
         let _ = write!(s, r#"<a href="{}" target="_blank">"#, esc(link));
     }
     let lifted = r#" filter="url(#dg-shadow)""#;
@@ -1287,10 +1319,32 @@ fn node_svg(
             "",
         );
     }
-    if node.link.is_some() {
+    if web_link(node).is_some() {
         s.push_str("</a>");
     }
     s.push_str("</g>");
+}
+
+/// A node's link when it is a web page (`#id` links point at elements).
+fn web_link(node: &Node) -> Option<&str> {
+    node.link.as_deref().filter(|l| !l.starts_with('#'))
+}
+
+/// The tooltip of a link badge: where it goes.
+fn link_title(doc: &Document, link: &str) -> String {
+    match link.strip_prefix('#') {
+        Some(id) => {
+            let name = doc
+                .node(id)
+                .map(|n| n.display().replace('\n', " "))
+                .or_else(|| doc.group(id).map(|g| g.display().to_string()));
+            match name {
+                Some(n) => format!("Go to {n}"),
+                None => format!("Go to {id} (not on the board)"),
+            }
+        }
+        None => link.to_string(),
+    }
 }
 
 /// "Ana Petrova" → "AP", "Postgres" → "PO".

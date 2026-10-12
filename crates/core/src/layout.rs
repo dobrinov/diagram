@@ -163,6 +163,8 @@ pub struct GanttBox {
     pub rows: Vec<String>,
     /// Where day 0 is on the board (x).
     pub left: f64,
+    /// What one step of the timeline is.
+    pub scale: crate::model::Scale,
 }
 
 fn is_zero(v: &f64) -> bool {
@@ -865,9 +867,9 @@ fn gantt_block(ctx: &mut Ctx, g: usize) -> (f64, f64) {
         .map(|t| text::width(ctx.doc.nodes[t.0].display(), 13.0) + 8.0)
         .fold(80.0, f64::max)
         .min(260.0);
-    // whole weeks, at least two; long charts get narrower days
-    let days = (sched.span.ceil().max(14.0) / 7.0).ceil() * 7.0;
-    let day = (840.0 / days).clamp(8.0, 32.0);
+    let scale = ctx.doc.groups[g].scale.unwrap_or_default();
+    let days = crate::gantt::axis_days(scale, sched.origin, sched.span);
+    let day = crate::gantt::day_width(scale, days);
     let x0 = names + GANTT_GAP;
     for (k, &(i, start, len)) in sched.tasks.iter().enumerate() {
         ctx.sizes[i] = ((len * day).max(4.0), GANTT_BAR);
@@ -888,6 +890,7 @@ fn gantt_block(ctx: &mut Ctx, g: usize) -> (f64, f64) {
             .map(|t| ctx.doc.nodes[t.0].id.clone())
             .collect(),
         left: 0.0,
+        scale,
     });
     (
         x0 + days * day,

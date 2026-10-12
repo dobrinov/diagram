@@ -139,6 +139,14 @@
   background: var(--bg) !important; text-align: center; resize: none; line-height: 1.3; box-shadow: var(--focus-ring) !important;
 }
 
+.dge-inline.dge-ask { width: 160px; height: 30px; text-align: left; font: inherit; color: var(--fg); }
+.dge-canvas.resizing, .dge-canvas.resizing * { cursor: ew-resize !important; }
+.dge-canvas.linking, .dge-canvas.linking * { cursor: crosshair !important; }
+.dge-canvas .dg-link { cursor: pointer; }
+.dge-canvas .dg-link:hover circle { stroke-width: 2.5; }
+.dge-canvas .dg-dep { cursor: context-menu; }
+.dge-canvas .dg-dep:hover path:first-child { stroke: var(--accent); }
+
 .dge-panel { width: 300px; flex: none; overflow-y: auto; border-left: 1px solid var(--line); background: var(--bg); }
 .dge-inspector, .dge-comments { padding: 12px; }
 .dge-inspector { border-bottom: 1px solid var(--line); }

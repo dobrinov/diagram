@@ -1,5 +1,12 @@
 # Changelog
 
+## 0.4.0 — 2026-10-12
+
+- **Gantt scale:** `scale: day | week | month | quarter` on a chart (right-click it → *Scale…*). Lines and dates at each day, Monday, month or quarter; month and quarter labels carry the year when it changes. Durations also take `1m` (30 days) and `1q` (91 days), and are written that way when they divide evenly.
+- **Task durations in the editor:** drag the end of a bar (snaps to a day; a week on the month scale, 30 days on the quarter scale), or right-click → *Duration…* and type `5d`, `2w`, `1m`, `1q`. *Duration…* replaces *Longer* / *Shorter*.
+- **Dependencies in the editor:** draw an arrow from one bar to another (the dot past the end of a bar, or Connect X) and the second task starts when the first ends (`after:`), instead of an arrow. Loops are refused. Right-click a dependency line → *Remove dependency*, or a task → *Starts after…* to tick the tasks it waits for.
+- **Links between elements:** right-click a block → *Link to…*, then click the element it should take you to (`link: #id`). Linked blocks get a link badge; clicking it pans and zooms to the target and selects it (a web link opens in a new tab). *Remove link* takes it off. Exports keep web links clickable.
+
 ## 0.3.3 — 2026-10-12
 
 - The open file's name sits at the right of the top bar, next to *Saved* (`notes.diagram · Saved`).
