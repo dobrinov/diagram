@@ -46,6 +46,7 @@
     theme: '<circle cx="12" cy="12" r="8"/><path d="M12 4a8 8 0 000 16z" fill="currentColor"/>',
     tidy: '<path d="M4 6h7M4 12h11M4 18h16"/>',
     decision: '<path d="M12 3l9 9-9 9-9-9z"/>',
+    risks: '<rect x="4" y="4" width="16" height="16" rx="2"/><path d="M4 12h16M12 4v16"/><circle cx="16" cy="8" r="2" fill="currentColor" stroke="none"/><circle cx="8.5" cy="15.5" r="1.6" fill="currentColor" stroke="none"/>',
     gantt: '<path d="M4 4v16h16"/><rect x="7" y="6.5" width="7" height="3" rx="1" fill="currentColor" stroke="none"/><rect x="11" y="11" width="8" height="3" rx="1" fill="currentColor" stroke="none"/><rect x="9" y="15.5" width="5" height="3" rx="1" fill="currentColor" stroke="none"/>',
     lanes: '<rect x="3" y="4" width="18" height="16" rx="2"/><path d="M3 9.5h18M3 14.5h18M8 4v16"/>',
     section: '<rect x="3" y="8" width="18" height="12" rx="2"/><rect x="3" y="3" width="9" height="3.5" rx="1.2" fill="currentColor" stroke="none"/>',
@@ -223,6 +224,7 @@
           if (i === 1) {
             tools.appendChild(btn({ class: "dge-tool", "data-act": "lanes", title: "Swimlanes: lanes the flow runs across; the selected blocks go in the first lane. Drop blocks into a lane to move them there.", onclick: function () { canvas.focus({ preventScroll: true }); addSwimlanes(); } }, icon("lanes")));
             tools.appendChild(btn({ class: "dge-tool", "data-act": "gantt", title: "Gantt chart: tasks on a timeline. Drag a bar to reschedule it; right-click a task to change its length or add one after it.", onclick: function () { canvas.focus({ preventScroll: true }); addGantt(); } }, icon("gantt")));
+            tools.appendChild(btn({ class: "dge-tool", "data-act": "risks", title: "Risk matrix: risks by probability and impact. Drag a dot to another cell to re-rate it; hover it for its description.", onclick: function () { canvas.focus({ preventScroll: true }); addRisks(); } }, icon("risks")));
             tools.appendChild(btn({ class: "dge-tool", "data-act": "section", title: "Section (" + MOD + "G): put the selected blocks in a titled section. Drag blocks in or out of a section to change what is in it.", onclick: function () { canvas.focus({ preventScroll: true }); groupSelection(); } }, icon("section")));
           }
         });
@@ -756,6 +758,7 @@
           if (!folded) control("dge-plus", pp, rr, "+", id);
           return;
         }
+        if (matrixOf(id)) return; // a risk's dot is too small for handles
         var r = 5 / Math.max(st.zoom, 0.4);
         // a task: one dot past the end of its bar (draw to the task that waits for it); the end itself resizes
         var dots = chartOf(id) ? [[g.x + g.w + 3 * r, g.y + g.h / 2]]
@@ -842,6 +845,9 @@
       if (fold) return { type: "fold", id: fold.getAttribute("data-fold") };
       var lk = target.closest(".dg-link");
       if (lk) return { type: "link", id: lk.getAttribute("data-node"), link: lk.getAttribute("data-link") };
+      // a risk's row in its matrix's list stands for the risk
+      var rr = target.closest(".dg-risk-row");
+      if (rr) return { type: "node", id: rr.getAttribute("data-node") };
       var dep = target.closest(".dg-dep");
       if (dep) return { type: "dep", id: dep.getAttribute("data-to"), from: dep.getAttribute("data-from") };
       var pin = target.closest(".dg-pin");
@@ -947,6 +953,26 @@
           ["Delete", function () { applyOps([{ op: "remove", id: t.id }]); select([]); }]
         ].filter(Boolean);
       }
+      if (t.type === "node" && !view && matrixOf(t.id)) {
+        var rk = node(t.id);
+        return [
+          ["Rename", function () { askAt(st.menuAt, rk.label || rk.id, "What could go wrong?", function (v) { applyOps([{ op: "update_node", id: t.id, label: v }]); }); }],
+          ["Probability…", function () { levelMenu(t.id, "probability"); }, "How likely (or drag the dot up or down)"],
+          ["Impact…", function () { levelMenu(t.id, "impact"); }, "How bad (or drag the dot left or right)"],
+          ["Description…", function () { askAt(st.menuAt, rk.detail || "", "What it is, what we do about it", function (v) { applyOps([{ op: "update_node", id: t.id, detail: v }]); }); }, "Shown when you hover the dot"],
+          ["Owner…", function () { askOwner(t.id); }, "Who watches it"],
+          "-",
+          ["Delete", function () { applyOps([{ op: "remove", id: t.id }]); select([]); }]
+        ];
+      }
+      if (gr && !view && gr.risks) return [
+        ["Rename", function () { editLabel(t.id); }],
+        ["Add risk", function () { addRisk(t.id); }],
+        ["Size…", function () { levelsMenu(t.id); }, "3 × 3, 4 × 4 or 5 × 5"],
+        "-",
+        ["Remove matrix", function () { applyOps([{ op: "remove", id: t.id, keep_members: true }]); select([]); }, "Its risks stay, as boxes"],
+        ["Delete", function () { applyOps([{ op: "remove", id: t.id, keep_members: false }]); select([]); }, "The matrix and its risks"]
+      ];
       if (gr && !view && gr.gantt) return [
         ["Rename", function () { editLabel(t.id); }],
         ["Add task", function () { addTask(t.id); }],
@@ -1126,9 +1152,9 @@
           if (g && !items.some(function (i) { return i.id === id; })) items.push({ id: id, x: g.x, y: g.y, w: g.w, h: g.h, direct: direct.indexOf(id) >= 0 });
         });
         // sections as they are now: while dragging, they stretch around what moves
-        var sections = (st.r.groups || []).map(function (g) { return { id: g.id, x: g.x, y: g.y, w: g.w, h: g.h, lane: !!g.lane, gantt: g.gantt || null }; });
+        var sections = (st.r.groups || []).map(function (g) { return { id: g.id, x: g.x, y: g.y, w: g.w, h: g.h, lane: !!g.lane, gantt: g.gantt || null, matrix: g.matrix || null }; });
         st.drag = { type: "move", sx: p.x, sy: p.y, dx: 0, dy: 0, items: items, sections: sections, before: st.text, moved: false,
-          tasks: items.some(function (m) { return m.direct && chartOf(m.id); }) };
+          tasks: items.some(function (m) { return m.direct && (chartOf(m.id) || matrixOf(m.id)); }) };
         canvas.setPointerCapture(e.pointerId);
         return;
       }
@@ -1449,11 +1475,52 @@
     function blockOf(gid) {
       var g = gid && group(gid);
       if (!g) return null;
-      if (g.lanes || g.gantt) return g.id;
+      if (g.lanes || g.gantt || g.risks) return g.id;
       var up = g.parent && group(g.parent);
       return up && up.lanes ? up.id : null;
     }
     function chartOf(id) { var n = node(id), g = n && n.group && group(n.group); return g && g.gantt ? g : null; }
+    function matrixOf(id) { var n = node(id), g = n && n.group && group(n.group); return g && g.risks ? g : null; }
+    /* A 5×5 risk matrix with one risk in the middle; its title is typed next. */
+    function addRisks() {
+      var ids = freshIds(["risks", "risk-1"]);
+      var res = applyOps([
+        { op: "add_group", id: ids[0], label: "Risks", risks: true },
+        { op: "add_node", id: ids[1], label: "New risk", group: ids[0], probability: 3, impact: 3 }
+      ]);
+      if (res.ok) {
+        select([ids[0]]);
+        reveal(ids[0]);
+        editLabel(ids[0], true);
+      }
+    }
+    function addRisk(gid) {
+      var nid = freshId("risk");
+      if (applyOps([{ op: "add_node", id: nid, label: "New risk", group: gid, probability: 3, impact: 3 }]).ok) {
+        select([nid]);
+        askAt(st.menuAt, "New risk", "What could go wrong?", function (v) { applyOps([{ op: "update_node", id: nid, label: v }]); });
+      }
+    }
+    /* Pick a level (1 … the matrix's levels) for a risk's probability or impact. */
+    function levelMenu(id, field) {
+      var g = matrixOf(id), n = g.levels || 5, cur = node(id)[field] || 0;
+      var names = n === 5 ? ["Very low", "Low", "Medium", "High", "Very high"] : n === 4 ? ["Low", "Medium", "High", "Very high"] : ["Low", "Medium", "High"];
+      setTimeout(function () {
+        openMenu(st.menuAt, names.map(function (name, k) {
+          var v = k + 1, o = { op: "update_node", id: id };
+          o[field] = v;
+          return [(v === cur ? "✓ " : "\u2003") + v + " · " + name, function () { applyOps([o]); }];
+        }));
+      });
+    }
+    function levelsMenu(gid) {
+      var cur = group(gid).levels || 5;
+      setTimeout(function () {
+        openMenu(st.menuAt, [3, 4, 5].map(function (n) {
+          return [(n === cur ? "✓ " : "\u2003") + n + " × " + n, function () { applyOps([{ op: "update_group", id: gid, levels: n === 5 ? 0 : n }]); }];
+        }));
+      });
+    }
     /* A chart starting today with two tasks; its title is typed next. */
     function addGantt() {
       var ids = freshIds(["plan", "task-1", "task-2"]);
@@ -1667,7 +1734,14 @@
         if (into !== was) ops.push({ op: "update_node", id: m.id, group: into || "" });
         // lanes and charts are laid out automatically: no pin inside one
         var sec = d.sections.find(function (g) { return g.id === into; });
-        if (sec && (sec.lane || sec.gantt)) ops = ops.filter(function (o) { return !(o.op === "move" && o.id === m.id); }).concat([{ op: "unpin", id: m.id }]);
+        if (sec && (sec.lane || sec.gantt || sec.matrix)) ops = ops.filter(function (o) { return !(o.op === "move" && o.id === m.id); }).concat([{ op: "unpin", id: m.id }]);
+        // a risk dropped on a cell gets its probability and impact; off the grid, none
+        if (sec && sec.matrix && into === was) {
+          var mx = sec.matrix, cx = m.x + d.dx + m.w / 2, cy = m.y + d.dy + m.h / 2;
+          var col = Math.floor((cx - mx.left) / mx.cell), row = Math.floor((cy - mx.top) / mx.cell);
+          var on = col >= 0 && col < mx.levels && row >= 0 && row < mx.levels;
+          ops.push({ op: "update_node", id: m.id, probability: on ? mx.levels - row : 0, impact: on ? col + 1 : 0 });
+        }
         // a bar moved along its own chart starts on the day it was dropped at
         if (sec && sec.gantt && into === was) {
           var gt = sec.gantt, origin = gt.origin != null ? gt.origin : today();

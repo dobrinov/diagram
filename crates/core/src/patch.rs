@@ -89,7 +89,7 @@ fn block_text(doc: &Document, head: &Elem, pad: &str) -> Option<String> {
         }
         Elem::Group(g) => {
             let g = doc.group(g)?;
-            if !g.gantt {
+            if !g.gantt && !g.risks {
                 return None;
             }
             dsl::gantt_block(doc, g, pad, &mut out);
@@ -306,7 +306,12 @@ fn edit_lines(
     // lines with it, but only when everything in it is gone too
     for g in &old.groups {
         match new.group(&g.id) {
-            Some(n) if n.parent != g.parent || n.lanes != g.lanes || n.gantt != g.gantt => {
+            Some(n)
+                if n.parent != g.parent
+                    || n.lanes != g.lanes
+                    || n.gantt != g.gantt
+                    || n.risks != g.risks =>
+            {
                 return None
             }
             Some(_) => {}

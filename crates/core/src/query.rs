@@ -9,7 +9,7 @@
 //! | `map:ID` | a topic (or centre) and its branches |
 //! | `near:ID` | a box, its arrows and the boxes at their other ends |
 //! | `label~TEXT` | boxes and groups whose label or detail contains TEXT |
-//! | `kind:box\|topic\|task\|milestone\|sticky\|decision\|group\|edge\|comment` | elements of a kind |
+//! | `kind:box\|topic\|task\|milestone\|risk\|sticky\|decision\|group\|chart\|matrix\|edge\|comment` | elements of a kind |
 //! | `owner:NAME` · `tag:NAME` · `color:NAME` | boxes with that owner, tag or colour |
 //! | `comments:open` · `comments` | open (or all) comments and what they are on |
 //!
@@ -74,7 +74,7 @@ fn pick(doc: &Document, sel: &str) -> Result<Vec<String>, String> {
         let val = val.trim();
         let low = val.to_lowercase();
         return Ok(match key {
-            "group" | "chart" | "lanes" | "section" | "lane" => {
+            "group" | "chart" | "lanes" | "section" | "lane" | "matrix" | "risks" => {
                 if doc.group(val).is_none() {
                     return Err(format!("no group `{val}`"));
                 }
@@ -129,6 +129,7 @@ fn pick(doc: &Document, sel: &str) -> Result<Vec<String>, String> {
                     "comment" => doc.comments.iter().map(|c| c.id.clone()).collect(),
                     "group" | "section" => doc.groups.iter().map(|g| g.id.clone()).collect(),
                     "chart" | "gantt" => doc.groups.iter().filter(|g| g.gantt).map(|g| g.id.clone()).collect(),
+                    "matrix" | "risks" => doc.groups.iter().filter(|g| g.risks).map(|g| g.id.clone()).collect(),
                     "lanes" | "swimlanes" => doc.groups.iter().filter(|g| g.lanes).map(|g| g.id.clone()).collect(),
                     k => doc
                         .nodes
@@ -138,6 +139,7 @@ fn pick(doc: &Document, sel: &str) -> Result<Vec<String>, String> {
                             "map" | "mindmap" => in_map(n) && n.parent.is_none(),
                             "task" => task(n),
                             "milestone" => n.milestone,
+                            "risk" => crate::risks::matrix_of(doc, n).is_some(),
                             "sticky" => n.shape == Shape::Sticky,
                             "decision" => n.shape == Shape::Diamond,
                             "box" | "node" => !in_map(n) && !task(n),

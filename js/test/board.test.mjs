@@ -199,3 +199,14 @@ test("tools for agents: query, select, merge, focus, suggestions", () => {
   assert.throws(() => b.apply({ op: "update_node", id: "dbb", color: "red" }), /did you mean `db`/);
   b.free();
 });
+
+test("risk matrices", () => {
+  const b = Board.parse("risks r: Risks {\n  Contract slips [p: 4, i: 4, detail: \"Legal says 4 weeks\"]\n}\n");
+  b.apply([{ op: "add_node", id: "creep", label: "Scope creep", group: "r", probability: 2, impact: 3 }]);
+  const r = b.render();
+  assert.equal(r.groups[0].matrix.levels, 5);
+  assert.ok(r.nodes.every((n) => n.risk));
+  assert.match(r.svg, /<title>Contract slips\nProbability 4 × impact 4 = 16 \(critical\)\n\nLegal says 4 weeks<\/title>/);
+  assert.match(b.selection(["r"]), /- Scope creep: probability 2 × impact 3 = 6 \(medium\)/);
+  b.free();
+});

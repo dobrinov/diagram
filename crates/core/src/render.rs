@@ -302,6 +302,9 @@ pub fn render(doc: &Document, opts: &RenderOptions) -> Rendered {
             let today = opts.today.as_deref().and_then(crate::gantt::parse_date);
             gantt_svg(&mut s, doc, gb, gb_t, &lay, p, today);
         }
+        if let Some(m) = &gb.matrix {
+            matrix_svg(&mut s, doc, gb, m, p, t);
+        }
     }
     s.push_str("</g>");
 
@@ -414,6 +417,7 @@ pub fn render(doc: &Document, opts: &RenderOptions) -> Rendered {
         let change = opts.changes.get(&node.id).copied();
         match nb.map.as_ref().and_then(|m| m.style) {
             _ if nb.task => task_svg(&mut s, node, nb, p, t, change),
+            _ if nb.risk => risk_svg(&mut s, doc, node, nb, p, t, change),
             Some(st) => map_node_svg(&mut s, node, nb, st, p, t, change),
             None => node_svg(&mut s, node, nb, p, t, change),
         }
@@ -777,6 +781,181 @@ fn gantt_svg(
         }
     }
     s.push_str("</g>");
+}
+
+/// A risk matrix's grid (cells tinted by severity), axes and the list of
+/// risks, each with its score (drawn with the frame, under the dots).
+fn matrix_svg(
+    s: &mut String,
+    doc: &Document,
+    gb: &layout::GroupBox,
+    m: &layout::MatrixBox,
+    p: &Palette,
+    t: Theme,
+) {
+    let (ox, oy) = (
+        gb.rect.x + layout::GROUP_PAD,
+        gb.rect.y + layout::GROUP_HEAD,
+    );
+    let lv = m.levels;
+    let (gx, gy, c) = (ox + m.x0, oy + m.y0, m.cell);
+    s.push_str(r#"<g class="dg-matrix">"#);
+    for row in 0..lv {
+        let prob = lv - row;
+        for col in 0..lv {
+            let imp = col + 1;
+            let sev = crate::risks::SEVERITY[crate::risks::severity(prob, imp, lv)].1;
+            let fill = theme::tint(sev, t).map(|k| k.soft).unwrap_or_default();
+            let _ = write!(
+                s,
+                r#"<rect x="{}" y="{}" width="{}" height="{}" rx="4" fill="{fill}" stroke="{}" stroke-width="2"/>"#,
+                n(gx + f64::from(col) * c),
+                n(gy + f64::from(row) * c),
+                n(c),
+                n(c),
+                p.group_fill
+            );
+        }
+        let _ = write!(
+            s,
+            r#"<text x="{}" y="{}" font-size="11" text-anchor="middle" fill="{}">{prob}</text>"#,
+            n(gx - 12.0),
+            n(gy + f64::from(row) * c + c / 2.0 + 4.0),
+            p.muted
+        );
+    }
+    for col in 0..lv {
+        let _ = write!(
+            s,
+            r#"<text x="{}" y="{}" font-size="11" text-anchor="middle" fill="{}">{}</text>"#,
+            n(gx + f64::from(col) * c + c / 2.0),
+            n(gy + f64::from(lv) * c + 15.0),
+            p.muted,
+            col + 1
+        );
+    }
+    let _ = write!(
+        s,
+        r#"<text x="{}" y="{}" font-size="11" fill="{}">Probability ↑</text><text x="{}" y="{}" font-size="11" text-anchor="middle" fill="{}">Impact →</text>"#,
+        n(gx - 20.0),
+        n(gy - 8.0),
+        p.muted,
+        n(gx + f64::from(lv) * c / 2.0),
+        n(gy + f64::from(lv) * c + 32.0),
+        p.muted
+    );
+    // the list: number, name, score
+    for (k, id) in m.rows.iter().enumerate() {
+        let Some(node) = doc.node(id) else { continue };
+        let y = oy + m.y0 + k as f64 * layout::MATRIX_ROW;
+        let x = ox + m.list;
+        let rating = crate::risks::rating(node, lv);
+        let _ = write!(
+            s,
+            r#"<g class="dg-risk-row" data-node="{}"><title>{}</title><rect x="{}" y="{}" width="{}" height="{}" fill="transparent"/>"#,
+            esc(id),
+            esc(&crate::risks::tooltip(node, lv)),
+            n(x),
+            n(y),
+            n(gb.rect.right() - layout::GROUP_PAD - x),
+            n(layout::MATRIX_ROW)
+        );
+        if let Some((pr, im)) = rating {
+            let sev = crate::risks::SEVERITY[crate::risks::severity(pr, im, lv)].1;
+            let accent = theme::tint(node.color.as_deref().unwrap_or(sev), t)
+                .map(|k| k.accent)
+                .unwrap_or_default();
+            let _ = write!(
+                s,
+                r#"<circle cx="{}" cy="{}" r="9" fill="{accent}"/><text x="{}" y="{}" font-size="10" font-weight="700" text-anchor="middle" fill="{}">{}</text><text x="{}" y="{}" font-size="12" font-weight="700" text-anchor="end" fill="{accent}">{}</text>"#,
+                n(x + 9.0),
+                n(y + 12.0),
+                n(x + 9.0),
+                n(y + 15.5),
+                p.on_accent,
+                k + 1,
+                n(gb.rect.right() - layout::GROUP_PAD),
+                n(y + 16.5),
+                u16::from(pr) * u16::from(im)
+            );
+        } else {
+            let _ = write!(
+                s,
+                r#"<text x="{}" y="{}" font-size="12" text-anchor="end" fill="{}">–</text>"#,
+                n(gb.rect.right() - layout::GROUP_PAD),
+                n(y + 16.5),
+                p.muted
+            );
+        }
+        let _ = write!(
+            s,
+            r#"<text x="{}" y="{}" font-size="13" fill="{}">{}</text></g>"#,
+            n(x + 26.0),
+            n(y + 16.5),
+            p.fg,
+            esc(node.display())
+        );
+    }
+    s.push_str("</g>");
+}
+
+/// A risk: a numbered dot in its matrix cell (a hollow one in the list
+/// while it is not rated), with its description on hover.
+fn risk_svg(
+    s: &mut String,
+    doc: &Document,
+    node: &Node,
+    nb: &layout::NodeBox,
+    p: &Palette,
+    t: Theme,
+    change: Option<Change>,
+) {
+    let r = nb.rect;
+    let Some(g) = crate::risks::matrix_of(doc, node) else {
+        return;
+    };
+    let lv = crate::risks::levels(g);
+    let number = crate::risks::risks_of(doc, &g.id)
+        .iter()
+        .position(|x| x.id == node.id)
+        .map_or(0, |k| k + 1);
+    let rating = crate::risks::rating(node, lv);
+    let mut fill = match rating {
+        Some((pr, im)) => {
+            let sev = crate::risks::SEVERITY[crate::risks::severity(pr, im, lv)].1;
+            theme::tint(node.color.as_deref().unwrap_or(sev), t)
+                .map(|k| k.accent)
+                .unwrap_or_default()
+        }
+        None => p.node_fill.to_string(),
+    };
+    let mut stroke = if rating.is_some() {
+        p.group_fill.to_string()
+    } else {
+        p.muted.to_string()
+    };
+    if let Some(c) = change {
+        let (_, st, _) = change_colors(c, p);
+        stroke = st.clone();
+        fill = st;
+    }
+    let text = if rating.is_some() {
+        p.on_accent
+    } else {
+        p.muted
+    };
+    let _ = write!(
+        s,
+        r#"<g class="dg-node dg-risk" data-id="{}"><title>{}</title><circle class="dg-shape" cx="{}" cy="{}" r="{}" fill="{fill}" stroke="{stroke}" stroke-width="1.5"/><text x="{}" y="{}" font-size="{}" font-weight="700" text-anchor="middle" fill="{text}" pointer-events="none">{number}</text></g>"#,
+        esc(&node.id),
+        esc(&crate::risks::tooltip(node, lv)),
+        n(r.cx()),
+        n(r.cy()),
+        n(r.w / 2.0),
+        n(r.cx()),
+        n(r.cy() + r.w * 0.18),
+        n((r.w * 0.5).max(8.0)),
+    );
 }
 
 /// A gantt task: a bar, with its duration inside when it fits.

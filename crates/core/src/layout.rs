@@ -104,6 +104,9 @@ pub struct NodeBox {
     /// A gantt task: drawn as a bar on its chart's timeline.
     #[serde(skip_serializing_if = "std::ops::Not::not")]
     pub task: bool,
+    /// A risk: drawn as a numbered dot on its matrix.
+    #[serde(skip_serializing_if = "std::ops::Not::not")]
+    pub risk: bool,
 }
 
 #[derive(Debug, Clone, Serialize)]
@@ -143,7 +146,38 @@ pub struct GroupBox {
     /// A gantt chart's timeline.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub gantt: Option<GanttBox>,
+    /// A risk matrix's grid.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub matrix: Option<MatrixBox>,
 }
+
+/// Where a risk matrix's grid and list are (offsets from the matrix's content
+/// origin, like [`GanttBox`]).
+#[derive(Debug, Clone, Serialize)]
+pub struct MatrixBox {
+    /// Levels of probability and impact.
+    pub levels: u8,
+    pub cell: f64,
+    /// The grid's top-left.
+    pub x0: f64,
+    pub y0: f64,
+    /// Where the list of risks starts (x).
+    pub list: f64,
+    /// Risks, in order (numbered from 1).
+    pub rows: Vec<String>,
+    /// The grid's top-left on the board.
+    pub left: f64,
+    pub top: f64,
+}
+
+/// Risk matrices: a cell, a dot, a row of the list, the axes' margins.
+pub const MATRIX_CELL: f64 = 46.0;
+pub const MATRIX_DOT: f64 = 22.0;
+pub const MATRIX_ROW: f64 = 24.0;
+pub const MATRIX_AXIS: f64 = 30.0;
+pub const MATRIX_TOP: f64 = 22.0;
+pub const MATRIX_BOTTOM: f64 = 40.0;
+pub const MATRIX_GAP: f64 = 28.0;
 
 /// Where a gantt chart's timeline is drawn (offsets from the chart's content
 /// origin, which is `GROUP_PAD`, `GROUP_HEAD` from its top-left).
@@ -262,6 +296,7 @@ struct Ctx<'a> {
     /// Lanes: (row or column, title strip size).
     lane: Vec<Option<(&'static str, f64)>>,
     gantt: Vec<Option<GanttBox>>,
+    matrix: Vec<Option<MatrixBox>>,
     /// Position of each node / group relative to its parent block.
     node_pos: Vec<(f64, f64)>,
     group_pos: Vec<(f64, f64)>,
@@ -315,6 +350,7 @@ pub fn layout(doc: &Document) -> Layout {
         inset: vec![(GROUP_PAD, GROUP_HEAD); doc.groups.len()],
         lane: vec![None; doc.groups.len()],
         gantt: vec![None; doc.groups.len()],
+        matrix: vec![None; doc.groups.len()],
         node_pos: vec![(0.0, 0.0); doc.nodes.len()],
         group_pos: vec![(0.0, 0.0); doc.groups.len()],
         group_index: doc
@@ -382,7 +418,9 @@ pub fn layout(doc: &Document) -> Layout {
         // pinned swimlanes and gantt charts (not a lane: lanes are bands)
         let g = &ctx.doc.groups[i];
         let (ox, oy, rx, ry) = match (g.x, g.y) {
-            (Some(x), Some(y)) if (g.lanes || g.gantt) && ctx.lane[i].is_none() => (x, y, 0.0, 0.0),
+            (Some(x), Some(y)) if (g.lanes || g.gantt || g.risks) && ctx.lane[i].is_none() => {
+                (x, y, 0.0, 0.0)
+            }
             _ => (ox, oy, rx, ry),
         };
         let r = Rect {
@@ -412,8 +450,7 @@ pub fn layout(doc: &Document) -> Layout {
         if forest.root[i] == Some(i) {
             // a pinned centre pins its map
             let rel = map_rel[i].unwrap_or_default();
-            let in_lane =
-                parent_of_node[i].is_some_and(|g| ctx.lane[g].is_some() || ctx.gantt[g].is_some());
+            let in_lane = parent_of_node[i].is_some_and(|g| ctx.fixed(g));
             if let (Some(px), Some(py), false) = (n.x, n.y, in_lane) {
                 (x, y) = (px - rel.x, py - rel.y);
             }
@@ -471,8 +508,7 @@ pub fn layout(doc: &Document) -> Layout {
             };
             let (w, h) = ctx.sizes[i];
             let (mut x, mut y) = (ox + ctx.node_pos[i].0, oy + ctx.node_pos[i].1);
-            let in_lane =
-                parent_of_node[i].is_some_and(|g| ctx.lane[g].is_some() || ctx.gantt[g].is_some());
+            let in_lane = parent_of_node[i].is_some_and(|g| ctx.fixed(g));
             if let (Some(px), Some(py), false) = (n.x, n.y, in_lane) {
                 (x, y) = (px, py);
             }
@@ -487,6 +523,7 @@ pub fn layout(doc: &Document) -> Layout {
             font: mindmap::font_size(styles[i]),
             map,
             task: parent_of_node[i].is_some_and(|g| ctx.gantt[g].is_some()),
+            risk: parent_of_node[i].is_some_and(|g| ctx.matrix[g].is_some()),
         });
     }
 
@@ -507,7 +544,7 @@ pub fn layout(doc: &Document) -> Layout {
         || doc.groups.iter().any(|g| g.x.is_some() && g.y.is_some())
     {
         for &g in &order {
-            if doc.groups[g].lanes || ctx.lane[g].is_some() || ctx.gantt[g].is_some() {
+            if doc.groups[g].lanes || ctx.fixed(g) {
                 continue; // laid out as bands or a timeline
             }
             let mut bb: Option<Rect> = None;
@@ -547,6 +584,11 @@ pub fn layout(doc: &Document) -> Layout {
             gantt: ctx.gantt[i].clone().map(|mut gb| {
                 gb.left = rects[i].x + GROUP_PAD + gb.x0;
                 gb
+            }),
+            matrix: ctx.matrix[i].clone().map(|mut m| {
+                m.left = rects[i].x + GROUP_PAD + m.x0;
+                m.top = rects[i].y + GROUP_HEAD + m.y0;
+                m
             }),
         })
         .collect();
@@ -637,6 +679,8 @@ fn members(
                 lanes_block(ctx, i, pn, pg)
             } else if ctx.doc.groups[i].gantt {
                 gantt_block(ctx, i)
+            } else if ctx.doc.groups[i].risks {
+                matrix_block(ctx, i)
             } else {
                 block(ctx, Some(i), pn, pg)
             };
@@ -654,6 +698,14 @@ fn members(
         }
     }
     items
+}
+
+impl Ctx<'_> {
+    /// Laid out by its own rules (lanes, a timeline, a grid): members are
+    /// not placed by the flow, and pins inside it do not count.
+    fn fixed(&self, g: usize) -> bool {
+        self.lane[g].is_some() || self.gantt[g].is_some() || self.matrix[g].is_some()
+    }
 }
 
 /// Edges between items (deduplicated), with the width of their labels.
@@ -709,6 +761,8 @@ fn lanes_block(ctx: &mut Ctx, g: usize, pn: &[Option<usize>], pg: &[Option<usize
                 lanes_block(ctx, c, pn, pg)
             } else if ctx.doc.groups[c].gantt {
                 gantt_block(ctx, c)
+            } else if ctx.doc.groups[c].risks {
+                matrix_block(ctx, c)
             } else {
                 block(ctx, Some(c), pn, pg)
             };
@@ -855,6 +909,69 @@ fn lanes_block(ctx: &mut Ctx, g: usize, pn: &[Option<usize>], pg: &[Option<usize
     } else {
         (at, length)
     }
+}
+
+/// A risk matrix: a grid of probability (rows, likeliest on top) by impact
+/// (columns), each risk a numbered dot in its cell (a crowded cell packs
+/// smaller dots), and the list of risks beside it. Risks not rated yet are
+/// dots in the list. Returns the matrix's content size.
+fn matrix_block(ctx: &mut Ctx, g: usize) -> (f64, f64) {
+    let gid = ctx.doc.groups[g].id.clone();
+    let n = crate::risks::levels(&ctx.doc.groups[g]);
+    let rows: Vec<usize> = (0..ctx.doc.nodes.len())
+        .filter(|&i| ctx.doc.nodes[i].group.as_deref() == Some(gid.as_str()))
+        .collect();
+    let (x0, y0, c) = (MATRIX_AXIS, MATRIX_TOP, MATRIX_CELL);
+    let grid = f64::from(n) * c;
+    let list = x0 + grid + MATRIX_GAP;
+    let mut by_cell: HashMap<(u8, u8), Vec<usize>> = HashMap::new();
+    for &i in &rows {
+        if let Some(r) = crate::risks::rating(&ctx.doc.nodes[i], n) {
+            by_cell.entry(r).or_default().push(i);
+        }
+    }
+    for (k, &i) in rows.iter().enumerate() {
+        let node = &ctx.doc.nodes[i];
+        match crate::risks::rating(node, n) {
+            Some((p, imp)) => {
+                let here = &by_cell[&(p, imp)];
+                let at = here.iter().position(|&j| j == i).unwrap();
+                let cols = (here.len() as f64).sqrt().ceil();
+                let d = MATRIX_DOT.min((c - 6.0) / cols - 2.0);
+                let step = (c - 4.0) / cols;
+                let (col, row) = ((at as f64) % cols, (at as f64 / cols).floor());
+                let used = (here.len() as f64 / cols).ceil();
+                let cx = x0 + f64::from(imp - 1) * c + 2.0 + (col + 0.5) * step;
+                let cy = y0 + f64::from(n - p) * c + c / 2.0 + (row - (used - 1.0) / 2.0) * step;
+                ctx.sizes[i] = (d, d);
+                ctx.node_pos[i] = (cx - d / 2.0, cy - d / 2.0);
+            }
+            None => {
+                let d = 18.0;
+                ctx.sizes[i] = (d, d);
+                ctx.node_pos[i] = (list, y0 + k as f64 * MATRIX_ROW + (MATRIX_ROW - d) / 2.0);
+            }
+        }
+    }
+    let names = rows
+        .iter()
+        .map(|&i| text::width(ctx.doc.nodes[i].display(), 13.0))
+        .fold(120.0, f64::max)
+        .min(320.0);
+    ctx.matrix[g] = Some(MatrixBox {
+        levels: n,
+        cell: c,
+        x0,
+        y0,
+        list,
+        rows: rows.iter().map(|&i| ctx.doc.nodes[i].id.clone()).collect(),
+        left: 0.0,
+        top: 0.0,
+    });
+    (
+        list + 26.0 + names + 40.0,
+        (y0 + grid + MATRIX_BOTTOM).max(y0 + rows.len() as f64 * MATRIX_ROW),
+    )
 }
 
 /// A gantt chart: task names on the left, one row per task, a bar from its

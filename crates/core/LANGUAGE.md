@@ -51,6 +51,7 @@ Edits keep the file as it is written. Ops, the editor and `diagram apply` rewrit
 | `group id: Label [attrs] {` … `}` | a group (a *section* in the editor): a titled frame around what is declared or listed inside. Groups nest. |
 | `lanes id: Title {` … `lane id: Title {` … `}` … `}` | swimlanes: each `lane` is a band (a row when the flow runs right or left, a column when it runs down or up) with its title at the side; the flow runs across lanes |
 | `gantt id: Title [start: YYYY-MM-DD] {` … `}` | a gantt chart: one task per line, `Label [5d, after: other-task]` (see *Gantt charts*) |
+| `risks id: Title [scale: 5] {` … `}` | a risk matrix: one risk per line, `Label [p: 4, i: 3, owner: ana, detail: "…"]` (see *Risk matrices*) |
 | `mindmap id: Topic [attrs] {` … `}` | a mindmap: the line is its central topic and the body is an indented outline (see *Mindmaps*) |
 | `comment [id] [on target] [at x,y] [by author]: text [attrs]` | a review comment. Ids default to `c1`, `c2`, … |
 | `reply id [by author]: text` | a reply to a comment |
@@ -137,6 +138,23 @@ gantt launch: Launch plan [start: 2026-10-12] {
 - `x`/`y` on the chart (`[start: …, x: 400, y: 120]`) pin it, as dragging it in the editor does.
 - `scale: day | week | month | quarter` sets the timeline's resolution (week when left out): lines and dates at each day, Monday, 1st of the month or quarter. In JSON it is the group's `scale`.
 - In the editor: drag a bar to reschedule it and its end to change its duration (right-click → *Duration…* to type one); draw an arrow from one bar to another to make the second wait for the first (right-click the dependency line to remove it, or a task → *Starts after…*); right-click a task → *Colour…* to colour its bar, *Progress…*, *Owner…* or *Make it a milestone*; a red line marks today; right-click the chart → *Scale…*.
+
+### Risk matrices
+
+```diagram
+risks delivery: Delivery risks [scale: 5] {
+  Bank contract slips [p: 4, i: 4, owner: ana, detail: "Legal says 4 weeks; it blocks the pilot"]
+  Local model too weak for ops [p: 3, i: 3]
+  Scope creep [p: 2, i: 3]
+  Unknown unknowns
+}
+```
+
+- Each line is a risk: its label, then `p:` (probability, also `probability:` / `likelihood:`) and `i:` (impact), from 1 to the matrix's `scale` (3, 4 or 5; 5 when left out). `detail` is its description, `owner` who watches it. Ids come from labels as in gantt charts.
+- The matrix draws a grid of probability (rows, likeliest on top) by impact (columns), cells tinted by severity (probability × impact against the worst score: low, medium, high, critical), each risk a numbered dot in its cell, and the list of risks with their scores beside it. A risk without both levels is a hollow dot in the list.
+- Hovering a dot or a row shows the risk's rating, owner and description. In the editor, drag a dot to another cell to re-rate it (off the grid clears the rating), or right-click it → *Probability…*, *Impact…*, *Description…*, *Owner…*; right-click the matrix → *Add risk*, *Size…*.
+- Prompts list the risks worst first: `Bank contract slips: probability 4 × impact 4 = 16 (critical), owner ana — Legal says …`. In JSON the matrix is a group with `"risks": true` (and `levels`); risks are its nodes with `probability` and `impact`.
+- Risks are nodes: arrows (a mitigation → the risk it reduces), comments and links work on them. `x`/`y` on the matrix pin it.
 
 ### Mindmaps
 

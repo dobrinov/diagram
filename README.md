@@ -70,6 +70,7 @@ Whiteboard tools are great for talking. Their output, though, ends up in a forma
   - Boxes, decisions and 11 more shapes, with labelled, dashed or reversed arrows (right-click a block or an arrow).
   - Swimlanes (`lanes { lane … }`): bands the flow runs across, lined up step by step.
   - Gantt charts (`gantt { Design [5d]  Build [2w, after: design] }`): a timeline by day, week, month or quarter. Drag a bar to reschedule it, drag its end to change its duration, draw an arrow between bars to make one wait for the other.
+  - Risk matrices (`risks { Contract slips [p: 4, i: 4, detail: "…"] }`): probability × impact on a heat-map grid, each risk a numbered dot with its description on hover. Drag a dot to another cell to re-rate it.
 - **Links between elements.** Right-click a block → *Link to…* and click another element; the block's link badge takes you there (`link: #id`). Web links work the same way.
 - **Comments become prompts.**
   - Press **C** and click a block (or empty canvas) to start a thread, right where you clicked. Threads support replies, resolving and reopening.

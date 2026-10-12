@@ -1,5 +1,12 @@
 # Changelog
 
+## 0.10.0 — 2026-10-12
+
+- **Risk matrices:** `risks id: Title [scale: 5] {` … `}` with one risk per line, `Label [p: 4, i: 3, owner: ana, detail: "…"]`. Drawn as a probability × impact grid with cells tinted by severity (low, medium, high, critical), each risk a numbered dot in its cell, and a list of the risks with their scores beside it; unrated risks wait in the list. Hover a dot or a row for its rating, owner and description.
+- In the editor: a *Risk matrix* tool; drag a dot to another cell to re-rate it (off the grid clears it); right-click a risk → *Probability…*, *Impact…*, *Description…*, *Owner…*, *Rename*, *Delete* (also on its row in the list); right-click the matrix → *Add risk*, *Size…* (3×3, 4×4, 5×5).
+- Prompts list risks worst first (`… = 16 (critical), owner ana — description`), `brief` includes them, `query` knows `kind:risk` and `kind:matrix`; ops `add_group` (`risks`, `levels`), `update_group` (`levels`), `add_node` / `update_node` (`probability`, `impact`). JS types updated.
+- `examples/risks.diagram`; `scripts/e2e/risks.mjs` (part of `make e2e`).
+
 ## 0.9.0 — 2026-10-12
 
 Tools for agents that drive boards:

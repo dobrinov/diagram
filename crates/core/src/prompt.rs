@@ -60,6 +60,7 @@ pub const OPS_REFERENCE: &str = r#"Operations (fields in [] are optional; ids ar
 - {"op":"resolve_comment","id":"c1",["resolution":"what was done"]}  {"op":"reopen_comment","id":"c1"}
 - {"op":"set","key":"title|description|direction|layout|routing|theme","value":"…"}
 - {"op":"merge","dsl":"cache: Redis [cylinder]\napi -> cache: reads\napi [red]"}   (statements in the diagram language, as if written at the end of the file: adds new elements; one written again by its id gets the attributes given. Cheapest for many changes)
+- Risk matrix: {"op":"add_group","id":"risks","label":"Risks","risks":true,["levels":3|4|5]}; its risks are add_node / update_node with "group":"risks" and ["probability":1-5,"impact":1-5,"owner","detail" (the description)]
 - Gantt: a chart is {"op":"add_group","id":"plan","label":"Plan","gantt":true,["start":"YYYY-MM-DD","scale":"day|week|month|quarter"]}; its tasks are add_node / update_node with "group":"plan" and ["start","days","after":["id"],"milestone":true,"done":60,"owner":"ana"] (after may name tasks in other charts)
 Shapes: box, rounded, pill, circle, diamond, hexagon, cylinder, parallelogram, document, person, cloud, sticky, text.
 Colours: gray, blue, green, yellow, orange, red, purple, pink, teal or #rrggbb.
@@ -148,7 +149,7 @@ pub fn brief(doc: &Document) -> String {
     let computed: Vec<String> = doc
         .groups
         .iter()
-        .filter(|g| g.gantt || g.lanes)
+        .filter(|g| g.gantt || g.lanes || g.risks)
         .map(|g| g.id.clone())
         .collect();
     if !computed.is_empty() {
@@ -490,7 +491,10 @@ fn selection_core(doc: &Document, ids: &[String], titled: bool) -> String {
         if !out.is_empty() {
             out.push('\n');
         }
-        let kind = if g.gantt {
+        let kind = if g.risks {
+            let n = crate::risks::levels(g);
+            format!(" (risk matrix, probability × impact, {n}×{n})")
+        } else if g.gantt {
             match g.start.as_deref() {
                 Some(s) => format!(" (gantt chart from {s})"),
                 None => " (gantt chart)".into(),
@@ -568,6 +572,27 @@ fn selection_core(doc: &Document, ids: &[String], titled: bool) -> String {
                     "- {}: {when}{length}{after}{more}\n",
                     item(doc, n)
                 ));
+            }
+        } else if g.risks {
+            // worst first
+            let n = crate::risks::levels(g);
+            let mut list = crate::risks::risks_of(doc, &g.id);
+            let score = |x: &Node| {
+                crate::risks::rating(x, n).map_or(0, |(p, i)| u16::from(p) * u16::from(i))
+            };
+            list.sort_by_key(|x| std::cmp::Reverse(score(x)));
+            for x in list {
+                seen.push(x.id.clone());
+                let label = link_md(doc, &x.display().replace('\n', " "), x.link.as_deref());
+                let mut line = format!("- {label}: {}", crate::risks::summary(x, n).to_lowercase());
+                if let Some(o) = &x.owner {
+                    line.push_str(&format!(", owner {o}"));
+                }
+                if let Some(d) = &x.detail {
+                    line.push_str(&format!(" — {}", d.replace('\n', " ")));
+                }
+                out.push_str(&line);
+                out.push('\n');
             }
         } else if g.lanes {
             out.push('\n');

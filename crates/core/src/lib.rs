@@ -30,6 +30,7 @@ pub mod patch;
 pub mod prompt;
 pub mod query;
 pub mod render;
+pub mod risks;
 pub mod route;
 pub mod text;
 pub mod theme;
@@ -178,7 +179,9 @@ pub fn json_schema() -> Value {
                 "after": {"type": "array", "items": {"type": "string"}, "description": "gantt task: ids of the tasks it starts after (in any chart)"},
                 "milestone": {"type": "boolean", "description": "gantt task: a point in time (drawn as a diamond), not a bar"},
                 "done": {"type": "number", "minimum": 0, "maximum": 100, "description": "gantt task: percent done"},
-                "owner": {"type": "string", "description": "gantt task: who does it"}
+                "owner": {"type": "string", "description": "gantt task or risk: who does it (owns it)"},
+                "probability": {"type": "integer", "minimum": 1, "maximum": 5, "description": "risk: how likely"},
+                "impact": {"type": "integer", "minimum": 1, "maximum": 5, "description": "risk: how bad"}
             }}},
             "edges": {"type": "array", "items": {"type": "object", "required": ["from", "to"], "additionalProperties": false, "properties": {
                 "id": {"type": "string", "description": "defaults to from->to"},
@@ -194,6 +197,8 @@ pub fn json_schema() -> Value {
                 "gantt": {"type": "boolean", "description": "gantt chart: the nodes inside are tasks"},
                 "start": {"type": "string", "format": "date", "description": "gantt chart: its first day (YYYY-MM-DD)"},
                 "scale": e(&["day", "week", "month", "quarter"]),
+                "risks": {"type": "boolean", "description": "risk matrix: the nodes inside are risks"},
+                "levels": {"type": "integer", "minimum": 3, "maximum": 5, "description": "risk matrix: levels of probability and impact (5 by default)"},
                 "x": {"type": "number", "description": "swimlanes / gantt chart: pinned left edge"},
                 "y": {"type": "number", "description": "swimlanes / gantt chart: pinned top edge"}
             }}},

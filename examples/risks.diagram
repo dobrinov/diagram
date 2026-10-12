@@ -1,0 +1,15 @@
+title: Delivery risks
+
+plan: Delivery plan
+
+risks delivery: Delivery risks {
+  Bank contract slips [p: 4, i: 4, owner: ana, detail: "Legal says 4 weeks; it blocks the FPS pilot"]
+  Local model too weak for ops [p: 3, i: 3, detail: Small models emit invalid JSON]
+  Scope creep [p: 2, i: 3]
+  Key engineer leaves [p: 1, i: 5, owner: deyan]
+  Vendor API rate limits [p: 4, i: 4]
+  GDPR review [p: 3, i: 2]
+  Unknown unknowns
+}
+
+plan -> bank-contract-slips: mitigates

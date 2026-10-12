@@ -157,6 +157,12 @@ pub struct Node {
     /// Gantt task: who does it.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub owner: Option<String>,
+    /// Risk: how likely it is (1 to the matrix's levels).
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub probability: Option<u8>,
+    /// Risk: how bad it would be (1 to the matrix's levels).
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub impact: Option<u8>,
 }
 
 impl Node {
@@ -219,6 +225,14 @@ pub struct Group {
     /// Gantt chart: what one step of its timeline is (week when unset).
     #[serde(skip_serializing_if = "Option::is_none")]
     pub scale: Option<Scale>,
+    /// Risk matrix: the nodes inside are risks, placed by probability and
+    /// impact.
+    #[serde(skip_serializing_if = "std::ops::Not::not")]
+    pub risks: bool,
+    /// Risk matrix: how many levels probability and impact have (3 to 5; 5
+    /// when unset).
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub levels: Option<u8>,
     /// Swimlanes and gantt charts: pinned position (top-left). Their insides
     /// are always laid out automatically; other groups follow their members.
     #[serde(skip_serializing_if = "Option::is_none")]

@@ -79,6 +79,10 @@ export interface Node {
   done?: number;
   /** Gantt task: who does it. */
   owner?: string;
+  /** Risk: how likely, 1–5. */
+  probability?: number;
+  /** Risk: how bad, 1–5. */
+  impact?: number;
 }
 
 export interface Edge {
@@ -110,6 +114,10 @@ export interface Group {
   start?: string;
   /** Gantt chart: timeline resolution (week when unset). */
   scale?: Scale;
+  /** Risk matrix: the nodes inside are risks. */
+  risks?: boolean;
+  /** Risk matrix: levels of probability and impact (3–5, 5 when unset). */
+  levels?: number;
   /** Swimlanes / gantt chart: pinned position (top-left). */
   x?: number;
   y?: number;
@@ -181,6 +189,10 @@ export interface AddNodeOp {
   done?: number;
   /** Gantt task: who does it. */
   owner?: string;
+  /** Risk: how likely, 1–5 (0 clears it in ops). */
+  probability?: number;
+  /** Risk: how bad, 1–5 (0 clears it in ops). */
+  impact?: number;
 }
 
 /** Change a node. An empty string clears an optional field. */
@@ -216,6 +228,10 @@ export interface UpdateNodeOp {
   done?: number;
   /** Gantt task: who does it ("" clears it). */
   owner?: string;
+  /** Risk: how likely, 1–5 (0 clears it in ops). */
+  probability?: number;
+  /** Risk: how bad, 1–5 (0 clears it in ops). */
+  impact?: number;
 }
 
 /** Add topics from an indented outline (or a Markdown list) under `parent`; without `parent` the first line becomes a new mindmap. */
@@ -300,6 +316,10 @@ export interface AddGroupOp {
   lanes?: boolean;
   /** Gantt chart: the nodes inside are tasks. */
   gantt?: boolean;
+  /** Risk matrix: the nodes inside are risks. */
+  risks?: boolean;
+  /** Risk matrix: 3, 4 or 5 levels (5 by default). */
+  levels?: number;
   /** Gantt chart: its first day (`YYYY-MM-DD`). */
   start?: string;
 }
@@ -317,6 +337,8 @@ export interface UpdateGroupOp {
   start?: string;
   /** Gantt chart: timeline resolution ("" resets it). */
   scale?: Scale | "";
+  /** Risk matrix: 3, 4 or 5 levels (0 resets to 5). */
+  levels?: number;
 }
 
 export interface AddCommentOp {
@@ -430,6 +452,22 @@ export interface NodeBox extends Rect {
   map?: MapInfo;
   /** A gantt task (drawn as a bar). */
   task?: boolean;
+  /** A risk: drawn as a numbered dot on its matrix. */
+  risk?: boolean;
+}
+
+/** Where a risk matrix's grid and list are drawn. */
+export interface MatrixBox {
+  levels: number;
+  cell: number;
+  x0: number;
+  y0: number;
+  list: number;
+  /** Risks, in order (numbered from 1). */
+  rows: string[];
+  /** The grid's top-left on the board. */
+  left: number;
+  top: number;
 }
 
 export interface GanttBox {
@@ -460,6 +498,8 @@ export interface GroupBox extends Rect {
   /** A lane's title strip: its width (rows) or height (columns). */
   head?: number;
   gantt?: GanttBox;
+  /** A risk matrix's grid. */
+  matrix?: MatrixBox;
 }
 
 export interface EdgePath {

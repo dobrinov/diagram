@@ -235,7 +235,11 @@ impl Parser {
             }
             "gantt" if c.rest()[5..].starts_with(|ch: char| ch.is_whitespace()) => {
                 c.advance(5);
-                return self.gantt_decl(c);
+                return self.gantt_decl(c, false);
+            }
+            "risks" if c.rest()[5..].starts_with(|ch: char| ch.is_whitespace()) => {
+                c.advance(5);
+                return self.gantt_decl(c, true);
             }
             "reply" if c.rest()[5..].starts_with(|ch: char| ch.is_whitespace()) => {
                 c.advance(5);
@@ -359,18 +363,25 @@ impl Parser {
     }
 
     /// `gantt id: Title [start: YYYY-MM-DD] {` … one task per line … `}`
-    fn gantt_decl(&mut self, mut c: Cursor) -> Result<(), String> {
+    /// A gantt chart, or a risk matrix (`risks id: Title [scale: 5] {` … one
+    /// risk per line … `}`): both are a group with one item per line.
+    fn gantt_decl(&mut self, mut c: Cursor, risks: bool) -> Result<(), String> {
         c.skip_ws();
         let (id, qlabel) = c.reference()?;
         let (label, attrs) = label_and_attrs_until_brace(&mut c)?;
         c.skip_ws();
+        let what = if risks { "risk matrix" } else { "gantt chart" };
         if !c.eat('{') {
-            return Err("a gantt chart needs a body: `gantt id: Title {` … `}`".into());
+            return Err(if risks {
+                "a risk matrix needs a body: `risks id: Title {` … `}`".into()
+            } else {
+                "a gantt chart needs a body: `gantt id: Title {` … `}`".into()
+            });
         }
         c.skip_ws();
         let closes_inline = c.eat('}');
         if !c.at_end() {
-            return Err("put the gantt chart's tasks on the following lines".into());
+            return Err(format!("put the {what}'s items on the following lines"));
         }
         if self.doc.node(&id).is_some() {
             return Err(format!("`{id}` is already a node"));
@@ -384,12 +395,35 @@ impl Parser {
         }
         let g = self.doc.group_mut(&id).unwrap();
         g.parent = parent;
-        g.gantt = true;
+        if risks {
+            g.risks = true;
+        } else {
+            g.gantt = true;
+        }
         if let Some(l) = label.or(qlabel) {
             g.label = l;
         }
         for (k, v) in &attrs {
             match (k.as_str(), v) {
+                ("scale" | "levels", Some(v)) if risks => {
+                    g.levels = Some(
+                        v.parse::<u8>()
+                            .ok()
+                            .filter(|n| (3..=5).contains(n))
+                            .ok_or_else(|| {
+                                format!("a risk matrix has 3, 4 or 5 levels, not `{v}`")
+                            })?,
+                    )
+                }
+                ("color" | "colour", Some(v)) if risks => g.color = Some(color(v)?),
+                ("x", Some(v)) if risks => g.x = Some(num("x", v)?),
+                ("y", Some(v)) if risks => g.y = Some(num("y", v)?),
+                (c, None) if risks && valid_color(c) => g.color = Some(c.to_string()),
+                (k, _) if risks => {
+                    return Err(format!(
+                        "unknown risk matrix attribute `{k}` (scale, color, x, y)"
+                    ))
+                }
                 ("start", Some(v)) => g.start = Some(date(v)?),
                 ("scale", Some(v)) => {
                     g.scale = Some(Scale::parse(v).ok_or_else(|| {
@@ -942,6 +976,8 @@ pub fn apply_node_attrs(n: &mut Node, attrs: &Attrs) -> Result<(), String> {
                 n.done = Some(percent(v)?).filter(|d| *d > 0.0);
             }
             ("owner", Some(v)) => n.owner = Some(v.clone()).filter(|s| !s.is_empty()),
+            ("p" | "probability" | "likelihood", Some(v)) => n.probability = Some(level(k, v)?),
+            ("i" | "impact", Some(v)) => n.impact = Some(level(k, v)?),
             (k, None) if crate::gantt::parse_date(k).is_some() => n.start = Some(k.to_string()),
             (k, None) if k.ends_with(['d', 'w', 'm', 'q']) && crate::gantt::parse_days(k).is_some() => {
                 n.days = crate::gantt::parse_days(k)
@@ -950,7 +986,7 @@ pub fn apply_node_attrs(n: &mut Node, attrs: &Attrs) -> Result<(), String> {
             (k, None) if valid_color(k) => n.color = Some(k.to_string()),
             (k, _) => {
                 return Err(format!(
-                    "unknown node attribute `{k}` (shape, color, detail, link, tags, x, y, w, h, collapsed, layout, parent, start, days, after, milestone, done, owner)"
+                    "unknown node attribute `{k}` (shape, color, detail, link, tags, x, y, w, h, collapsed, layout, parent, start, days, after, milestone, done, owner, p, i)"
                 ))
             }
         }
@@ -1241,6 +1277,9 @@ pub(crate) fn gantt_block(doc: &Document, g: &Group, pad: &str, out: &mut String
     if let Some(sc) = g.scale {
         a.push(format!("scale: {}", sc.as_str()));
     }
+    if let Some(l) = g.levels {
+        a.push(format!("scale: {l}"));
+    }
     if let Some(c) = &g.color {
         a.push(if c.starts_with('#') {
             format!("color: {c}")
@@ -1255,11 +1294,12 @@ pub(crate) fn gantt_block(doc: &Document, g: &Group, pad: &str, out: &mut String
         .iter()
         .filter(|n| n.group.as_deref() == Some(g.id.as_str()))
         .collect();
+    let word = if g.risks { "risks" } else { "gantt" };
     if tasks.is_empty() {
-        out.push_str(&format!("{pad}gantt {head} {{}}\n"));
+        out.push_str(&format!("{pad}{word} {head} {{}}\n"));
         return;
     }
-    out.push_str(&format!("{pad}gantt {head} {{\n"));
+    out.push_str(&format!("{pad}{word} {head} {{\n"));
     // a task in another chart whose id a task here is named after:
     // `chart/task`, so it does not read back as this chart's
     let named = |a: &str| -> String {
@@ -1382,6 +1422,15 @@ fn resolve_after(doc: &mut Document) {
     }
 }
 
+/// A risk's probability or impact: 1 to 5.
+fn level(k: &str, v: &str) -> Result<u8, String> {
+    v.trim()
+        .parse::<u8>()
+        .ok()
+        .filter(|n| (1..=5).contains(n))
+        .ok_or_else(|| format!("`{k}` is a level from 1 to 5, not `{v}`"))
+}
+
 /// A percentage: `60%` or `60`, 0 to 100.
 fn percent(v: &str) -> Result<f64, String> {
     v.trim()
@@ -1419,6 +1468,12 @@ fn node_attrs(n: &Node) -> Vec<String> {
         Some(d) if d >= 100.0 => a.push("done".into()),
         Some(d) => a.push(format!("done: {}%", fmt_num(d))),
         None => {}
+    }
+    if let Some(p) = n.probability {
+        a.push(format!("p: {p}"));
+    }
+    if let Some(i) = n.impact {
+        a.push(format!("i: {i}"));
     }
     if let Some(o) = &n.owner {
         a.push(format!("owner: {}", attr_value(o)));
@@ -1610,7 +1665,7 @@ pub(crate) fn group_block(
     in_map: &dyn Fn(&Node) -> bool,
 ) {
     let pad = "  ".repeat(depth);
-    if g.gantt {
+    if g.gantt || g.risks {
         gantt_block(doc, g, &pad, out);
         return;
     }
