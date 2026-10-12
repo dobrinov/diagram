@@ -111,6 +111,13 @@ impl Diagram {
         diagram_core::mindmap::to_markdown(&self.inner.doc, id)
     }
 
+    /// The selected items (a JSON array of ids) as Markdown to paste into a
+    /// prompt: sections with their blocks, arrows between them, open comments.
+    pub fn selection_markdown(&self, ids: &str) -> String {
+        let ids: Vec<String> = serde_json::from_str(ids).unwrap_or_default();
+        diagram_core::prompt::selection(&self.inner.doc, &ids)
+    }
+
     /// A small prompt asking a model to grow the topic `id`.
     /// Options: `{instructions, count, levels}`. Returns `{prompt}` or `{error}`.
     pub fn expand_prompt(&self, id: &str, options: &str) -> String {

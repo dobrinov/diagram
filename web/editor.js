@@ -873,6 +873,20 @@
 
     /* Right-click actions, by kind of block. */
     function contextItems(t) {
+      var items = itemsFor(t);
+      var many = st.sel.length > 1 && st.sel.indexOf(t.id) >= 0;
+      if (many) return [
+        ["Copy as prompt", function () { copyPrompt(); }, "The selected blocks, the arrows between them and their open comments, as Markdown (" + MOD + "⇧C)"]
+      ].concat(view ? [] : [
+        ["Put in a section", function () { groupSelection(); }, MOD + "G"],
+        "-",
+        ["Delete", function () { deleteSelection(); }]
+      ]);
+      if (t.type === "edge" || mapInfo(t.id)) return items;
+      var copy = ["Copy as prompt", function () { copyPrompt([t.id]); }, "As Markdown to paste into a prompt (" + MOD + "⇧C)"];
+      return view ? [copy] : [copy, "-"].concat(items);
+    }
+    function itemsFor(t) {
       var gr = t.type === "group" && group(t.id);
       if (t.type === "node" && !view && chartOf(t.id)) {
         var tk = node(t.id);
@@ -927,7 +941,7 @@
       if (t.type === "node" && mapInfo(t.id)) return [
         ["Add parent", function () { addParent(t.id); }, mapInfo(t.id).parent ? "A new topic between this one and its parent" : "A new centre above this one (⇧Tab)"],
         "-",
-        ["Copy as prompt", function () { copyPrompt(t.id); }, "This topic and everything under it as Markdown: the topic is the title, its branches are sections"]
+        ["Copy as prompt", function () { copyPrompt([t.id]); }, "This topic and everything under it as Markdown (" + MOD + "⇧C)"]
       ].filter(function (it) { return !view || it[0] === "Copy as prompt"; });
       return [];
     }
@@ -940,9 +954,14 @@
         }));
       });
     }
-    function copyPrompt(id) {
-      var n = node(id), label = n && (n.label || n.id);
-      copyText(st.session.markdown(id)).then(function () { flash("Prompt copied — “" + label + "” and everything under it"); });
+    /* The selection (or `ids`) as Markdown for a prompt. */
+    function copyPrompt(ids) {
+      ids = (ids || st.sel).filter(kindOf);
+      if (!ids.length) return;
+      var n = ids.length === 1 && (node(ids[0]) || group(ids[0])), label = n && (n.label || n.id);
+      copyText(st.session.selection_markdown(JSON.stringify(ids))).then(function () {
+        flash(n ? "Prompt copied — “" + label + "”" + (mapInfo(ids[0]) || group(ids[0]) ? " and everything in it" : "") : "Prompt copied — " + ids.length + " items");
+      });
     }
     canvas.addEventListener("contextmenu", function (e) {
       var t = st.r && hit(e.target);
@@ -1449,12 +1468,13 @@
       if (e.key === " " && !st.space) { st.space = true; canvas.classList.add("space"); e.preventDefault(); return; }
       if (mod && e.key.toLowerCase() === "z") { e.preventDefault(); if (e.shiftKey) redo(); else undo(); return; }
       if (mod && e.key.toLowerCase() === "y") { e.preventDefault(); redo(); return; }
+      if (mod && e.shiftKey && e.key.toLowerCase() === "c" && st.sel.length) { e.preventDefault(); copyPrompt(); return; }
       if (view) {
         if (e.key === "f") fit();
         return;
       }
       var one = st.sel.length === 1 && mapInfo(st.sel[0]) ? st.sel[0] : null;
-      if (one && mod && e.key.toLowerCase() === "c" && !String(root.getSelection ? root.getSelection() : "")) {
+      if (one && mod && !e.shiftKey && e.key.toLowerCase() === "c" && !String(root.getSelection ? root.getSelection() : "")) {
         e.preventDefault();
         copyText(st.session.outline(one)).then(function () { flash("Outline copied"); });
         return;
@@ -1491,7 +1511,7 @@
         case "ArrowRight": e.preventDefault(); nudge(e.shiftKey ? 40 : 8, 0); break;
         case "ArrowUp": e.preventDefault(); nudge(0, e.shiftKey ? -40 : -8); break;
         case "ArrowDown": e.preventDefault(); nudge(0, e.shiftKey ? 40 : 8); break;
-        case "?": flash("V select · H hand · T mindmap · N box · S sticky · X connect · C comment · double-click to add/edit · " + MOD + "G section · " + MOD + "D duplicate · F fit · space+drag pan. Mindmaps: Tab branch · Enter sibling · ⇧Tab outdent (on the centre: a new centre above it) · right-click for more · F2 rename · . fold · arrows move · ⌥↑↓ reorder · paste a list", false, 9000); break;
+        case "?": flash("V select · H hand · T mindmap · N box · S sticky · X connect · C comment · double-click to add/edit · " + MOD + "G section · " + MOD + "⇧C copy as prompt · " + MOD + "D duplicate · F fit · space+drag pan. Mindmaps: Tab branch · Enter sibling · ⇧Tab outdent (on the centre: a new centre above it) · right-click for more · F2 rename · . fold · arrows move · ⌥↑↓ reorder · paste a list", false, 9000); break;
         default: return;
       }
     }

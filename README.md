@@ -50,7 +50,7 @@ mindmap offsite: Team offsite [layout: both] {
 
 **✦ AI that costs few tokens.** *Grow this topic* sends a model only the map as an outline plus the path to the topic, and gets indented lines back, about 5–15 tokens per topic. Any harness works: the editor takes an `ai(prompt) → Promise<string>` function, and `diagram FILE --ai "claude -p --model haiku"` (or `codex exec -`, `llm`, `ollama run …`) wires the local editor and `diagram expand` to a CLI. Without one, the editor shows the prompt to copy and takes the reply back.
 
-**Mindmaps as prompts.** *Copy as prompt* (or `diagram outline FILE --md`) turns a map into Markdown: the centre is the title, main branches are sections, deeper topics are bullets.
+**Mindmaps as prompts.** *Copy as prompt* (or `diagram outline FILE --md`) turns a map into Markdown: the centre is the title and topics are nested bullets; when every main branch has something under it, main branches become `##` sections. It works on any selection too (right-click or `⌘⇧C`): sections become headings with their blocks as bullets, followed by the arrows between them and their open comments.
 
 ## Why
 

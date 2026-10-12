@@ -1,5 +1,11 @@
 # Changelog
 
+## 0.3.1 — 2026-10-12
+
+- **Copy any selection as a prompt:** right-click a block, section, swimlanes, gantt chart or a multi-selection → *Copy as prompt* (or `⌘⇧C`). Markdown with the board's title, the blocks as bullets under their sections' headings (gantt tasks with dates and durations), then the arrows between them and their open comments. Right-clicking a multi-selection also offers *Put in a section* and *Delete*. Core: `prompt::selection`; WASM: `selection_markdown(ids)`.
+- **Mindmap prompts:** main branches are `##` sections only when every one of them has topics or a detail under it; otherwise the map is one nested list under the title (a shopping list stays a list).
+- New mindmaps keep opening to the right.
+
 ## 0.3.0 — 2026-10-12
 
 Flowcharts, swimlanes, gantt charts and comments on the board; a simpler editor that looks like schema; tidier mindmaps.

@@ -2,7 +2,7 @@
 //   make e2e   (or: cd scripts/e2e && npm install && node mindmap.mjs)
 // Starts `diagram` on a scratch file with web/ served from disk and a fake AI
 // harness, types an outline, navigates, reorders, folds, drags, grows a topic
-// with "AI", copies a branch as a prompt from the context menu, pastes a list, places a topic by hand and resets it, pans with the hand tool, adds a parent above a centre, wraps a map in a section and removes it, places a decision and reshapes it, puts a map in swimlanes, makes a gantt chart, comments on a topic and resolves it, then checks
+// with "AI", copies a branch and then a selection as a prompt from the context menu, pastes a list, places a topic by hand and resets it, pans with the hand tool, adds a parent above a centre, wraps a map in a section and removes it, places a decision and reshapes it, puts a map in swimlanes, makes a gantt chart, comments on a topic and resolves it, then checks
 // the saved file.
 import { chromium } from "playwright";
 import { spawn } from "node:child_process";
@@ -169,6 +169,18 @@ try {
   await p.locator(".dge-menu button", { hasText: "Hexagon" }).click();
   await sleep(500);
   assert.match(saved(), /\napproved: Approved\? \[hexagon,/, saved());
+  // two blocks selected: Copy as prompt takes both, the map with its branches
+  await topic("approved").click();
+  await topic("ideas").click({ modifiers: ["Shift"] });
+  await topic("approved").click({ button: "right" });
+  await p.locator(".dge-menu button", { hasText: "Copy as prompt" }).click();
+  await sleep(200);
+  const both = await p.evaluate(() => navigator.clipboard.readText());
+  assert.match(both, /^# .+\n\n/, both);
+  assert.match(both, /^- Approved\?$/m, both);
+  assert.match(both, /^- Ideas$/m, both);
+  await key("Escape");
+  await topic("approved").click();
   await topic("approved").click({ button: "right" });
   await p.locator(".dge-menu button", { hasText: "Delete" }).click();
   await sleep(500);

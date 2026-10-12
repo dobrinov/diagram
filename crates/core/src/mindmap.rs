@@ -716,9 +716,10 @@ pub fn outline(doc: &Document, id: &str, with_root: bool) -> String {
     out
 }
 
-/// The map under `id` as Markdown: the centre is the title, main branches
-/// are sections and deeper topics are nested bullets. Details follow their
-/// topic. This is how a mindmap becomes a prompt.
+/// The map under `id` as Markdown: the centre is the title and deeper topics
+/// are nested bullets. When every main branch has something under it (topics
+/// or a detail), main branches are sections instead (`## Context` …). Details
+/// follow their topic. This is how a mindmap becomes a prompt.
 pub fn to_markdown(doc: &Document, id: &str) -> String {
     let Some(root) = doc.node(id) else {
         return String::new();
@@ -727,38 +728,61 @@ pub fn to_markdown(doc: &Document, id: &str) -> String {
     if let Some(d) = &root.detail {
         out.push_str(&format!("\n{d}\n"));
     }
-    fn walk(doc: &Document, id: &str, depth: usize, out: &mut String, seen: &mut Vec<String>) {
-        if seen.iter().any(|s| s == id) {
-            return;
-        }
-        seen.push(id.to_string());
-        for c in doc.children(id) {
-            let mut label = c.display().replace('\n', " ");
-            if let Some(l) = &c.link {
-                label = format!("[{label}]({l})");
+    let branches = doc.children(id);
+    let sections = !branches.is_empty()
+        && branches
+            .iter()
+            .all(|c| c.detail.is_some() || !doc.children(&c.id).is_empty());
+    let mut seen = vec![id.to_string()];
+    if sections {
+        for c in branches {
+            seen.push(c.id.clone());
+            out.push_str(&format!("\n## {}\n", topic_label(c)));
+            if let Some(d) = &c.detail {
+                out.push_str(&format!("\n{d}\n"));
             }
-            if depth == 1 {
-                out.push_str(&format!("\n## {label}\n"));
-                if let Some(d) = &c.detail {
-                    out.push_str(&format!("\n{d}\n"));
-                }
-                if !doc.children(&c.id).is_empty() {
-                    out.push('\n');
-                }
-            } else {
-                out.push_str(&"  ".repeat(depth - 2));
-                out.push_str(&format!("- {label}"));
-                if let Some(d) = &c.detail {
-                    out.push_str(&format!(": {}", d.replace('\n', " ")));
-                }
+            if !doc.children(&c.id).is_empty() {
                 out.push('\n');
+                bullets(doc, &c.id, 0, &mut out, &mut seen);
             }
-            walk(doc, &c.id, depth + 1, out, seen);
         }
+    } else if !branches.is_empty() {
+        out.push('\n');
+        bullets(doc, id, 0, &mut out, &mut seen);
     }
-    let mut seen = Vec::new();
-    walk(doc, id, 1, &mut out, &mut seen);
     out
+}
+
+/// A topic's label for Markdown: one line, linked when it has a link.
+fn topic_label(n: &crate::model::Node) -> String {
+    let label = n.display().replace('\n', " ");
+    match &n.link {
+        Some(l) => format!("[{label}]({l})"),
+        None => label,
+    }
+}
+
+/// The topics under `id` as nested Markdown bullets, from `depth`.
+pub(crate) fn bullets(
+    doc: &Document,
+    id: &str,
+    depth: usize,
+    out: &mut String,
+    seen: &mut Vec<String>,
+) {
+    for c in doc.children(id) {
+        if seen.iter().any(|s| *s == c.id) {
+            continue;
+        }
+        seen.push(c.id.clone());
+        out.push_str(&"  ".repeat(depth));
+        out.push_str(&format!("- {}", topic_label(c)));
+        if let Some(d) = &c.detail {
+            out.push_str(&format!(": {}", d.replace('\n', " ")));
+        }
+        out.push('\n');
+        bullets(doc, &c.id, depth + 1, out, seen);
+    }
 }
 
 /// Add an outline under `parent` (or as a new mindmap when `parent` is None).
@@ -1079,5 +1103,17 @@ mod tests {
         let d = crate::dsl::parse("mindmap p: Build checkout {\n  Context\n    Rails app\n  Constraints\n    No new services\n}").unwrap();
         let md = to_markdown(&d, "p");
         assert_eq!(md, "# Build checkout\n\n## Context\n\n- Rails app\n\n## Constraints\n\n- No new services\n");
+    }
+
+    #[test]
+    fn markdown_uses_sections_only_when_every_branch_has_content() {
+        let d =
+            crate::dsl::parse("mindmap p: Groceries {\n  Milk\n  Fruit\n    Apples\n}").unwrap();
+        assert_eq!(
+            to_markdown(&d, "p"),
+            "# Groceries\n\n- Milk\n- Fruit\n  - Apples\n"
+        );
+        let d = crate::dsl::parse("mindmap p: Solo {\n}").unwrap();
+        assert_eq!(to_markdown(&d, "p"), "# Solo\n");
     }
 }

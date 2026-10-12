@@ -322,6 +322,251 @@ pub fn prompt(doc: &Document, opts: &PromptOptions) -> String {
     s
 }
 
+/// The selected items (`ids`: nodes, groups, arrows) as Markdown to paste
+/// into a prompt. One mindmap topic is that topic and its branches (see
+/// [`crate::mindmap::to_markdown`]). Otherwise selected sections, swimlanes and
+/// gantt charts bring their contents, topics bring their branches; blocks are
+/// bullets under their section's heading, followed by the arrows between them
+/// and their open comments.
+pub fn selection(doc: &Document, ids: &[String]) -> String {
+    if let [one] = ids {
+        if doc
+            .node(one)
+            .is_some_and(|n| n.parent.is_some() || n.mindmap.is_some())
+        {
+            return crate::mindmap::to_markdown(doc, one);
+        }
+    }
+    // what is in: selected groups with everything inside them, selected nodes
+    let mut groups: Vec<&str> = doc
+        .groups
+        .iter()
+        .filter(|g| ids.contains(&g.id))
+        .map(|g| g.id.as_str())
+        .collect();
+    loop {
+        let more: Vec<&str> = doc
+            .groups
+            .iter()
+            .filter(|g| !groups.contains(&g.id.as_str()))
+            .filter(|g| g.parent.as_deref().is_some_and(|p| groups.contains(&p)))
+            .map(|g| g.id.as_str())
+            .collect();
+        if more.is_empty() {
+            break;
+        }
+        groups.extend(more);
+    }
+    let nodes: Vec<&Node> = doc
+        .nodes
+        .iter()
+        .filter(|n| ids.contains(&n.id) || n.group.as_deref().is_some_and(|g| groups.contains(&g)))
+        .collect();
+    let has = |id: &str| nodes.iter().any(|n| n.id == id);
+    let mut out = String::new();
+    // one section selected: its title is the title
+    let top: Vec<&Group> = doc
+        .groups
+        .iter()
+        .filter(|g| groups.contains(&g.id.as_str()))
+        .filter(|g| !g.parent.as_deref().is_some_and(|p| groups.contains(&p)))
+        .collect();
+    let solo = top.len() == 1
+        && nodes
+            .iter()
+            .all(|n| n.group.is_some() && groups.contains(&n.group.as_deref().unwrap()));
+    let mut seen: Vec<String> = Vec::new();
+    // blocks not inside an included group
+    let loose: Vec<&Node> = nodes
+        .iter()
+        .copied()
+        .filter(|n| !n.group.as_deref().is_some_and(|g| groups.contains(&g)))
+        .filter(|n| !n.parent.as_deref().is_some_and(|p| has(p)))
+        .collect();
+    let block = |n: &Node, out: &mut String, seen: &mut Vec<String>| {
+        seen.push(n.id.clone());
+        out.push_str(&format!("- {}\n", item(n)));
+        crate::mindmap::bullets(doc, &n.id, 1, out, seen);
+    };
+    for n in &loose {
+        block(n, &mut out, &mut seen);
+    }
+    fn section<'a>(
+        doc: &'a Document,
+        g: &Group,
+        level: usize,
+        groups: &[&str],
+        nodes: &[&'a Node],
+        out: &mut String,
+        seen: &mut Vec<String>,
+        block: &dyn Fn(&Node, &mut String, &mut Vec<String>),
+    ) {
+        if !out.is_empty() {
+            out.push('\n');
+        }
+        let kind = if g.gantt {
+            match g.start.as_deref() {
+                Some(s) => format!(" (gantt chart from {s})"),
+                None => " (gantt chart)".into(),
+            }
+        } else if g.lanes {
+            " (swimlanes)".into()
+        } else if g
+            .parent
+            .as_deref()
+            .and_then(|p| doc.group(p))
+            .is_some_and(|p| p.lanes)
+        {
+            " (lane)".into()
+        } else {
+            String::new()
+        };
+        out.push_str(&format!(
+            "{} {}{kind}\n",
+            "#".repeat(level.min(6)),
+            g.display()
+        ));
+        let inside: Vec<&&Node> = nodes
+            .iter()
+            .filter(|n| n.group.as_deref() == Some(&g.id))
+            .collect();
+        if !inside.is_empty() {
+            out.push('\n');
+        }
+        if g.gantt {
+            let s = crate::gantt::schedule(doc, &g.id);
+            for (i, start, days) in s.tasks {
+                let n = &doc.nodes[i];
+                let when = match s.origin {
+                    Some(o) => format!("{}, ", crate::gantt::format_date(o + start.floor() as i64)),
+                    None => String::new(),
+                };
+                let after: Vec<&str> = n
+                    .after
+                    .iter()
+                    .map(|a| doc.node(a).map(|t| t.display()).unwrap_or(a))
+                    .collect();
+                let after = if after.is_empty() {
+                    String::new()
+                } else {
+                    format!(", after {}", after.join(", "))
+                };
+                seen.push(n.id.clone());
+                out.push_str(&format!(
+                    "- {}: {when}{}{after}\n",
+                    item(n),
+                    crate::gantt::format_days(days)
+                ));
+            }
+        } else {
+            for n in inside {
+                if !n
+                    .parent
+                    .as_deref()
+                    .is_some_and(|p| nodes.iter().any(|m| m.id == p))
+                {
+                    block(n, out, seen);
+                }
+            }
+        }
+        for sub in doc
+            .groups
+            .iter()
+            .filter(|s| s.parent.as_deref() == Some(&g.id))
+        {
+            if groups.contains(&sub.id.as_str()) {
+                section(doc, sub, level + 1, groups, nodes, out, seen, block);
+            }
+        }
+    }
+    for g in &top {
+        section(
+            doc,
+            g,
+            if solo { 1 } else { 2 },
+            &groups,
+            &nodes,
+            &mut out,
+            &mut seen,
+            &block,
+        );
+    }
+    // everything listed, topics included
+    let listed = |id: &str| seen.iter().any(|s| s == id) || groups.contains(&id);
+    let label = |id: &str| {
+        doc.node(id)
+            .map(|n| n.display().replace('\n', " "))
+            .or_else(|| doc.group(id).map(|g| g.display().to_string()))
+            .unwrap_or_else(|| id.to_string())
+    };
+    let arrows: Vec<&Edge> = doc
+        .edges
+        .iter()
+        .filter(|e| ids.contains(&e.id) || (listed(&e.from) && listed(&e.to)))
+        .filter(|e| {
+            !doc.node(&e.from).is_some_and(|n| {
+                n.group
+                    .as_deref()
+                    .and_then(|g| doc.group(g))
+                    .is_some_and(|g| g.gantt)
+                    && doc.node(&e.to).is_some_and(|m| m.group == n.group)
+            })
+        })
+        .collect();
+    if !arrows.is_empty() {
+        out.push_str("\n## Connections\n\n");
+        for e in arrows {
+            let l = e
+                .label
+                .as_deref()
+                .map(|l| format!(": {l}"))
+                .unwrap_or_default();
+            out.push_str(&format!("- {} → {}{l}\n", label(&e.from), label(&e.to)));
+        }
+    }
+    let comments: Vec<&Comment> = doc
+        .comments
+        .iter()
+        .filter(|c| c.status == Status::Open)
+        .filter(|c| {
+            c.on.as_deref()
+                .is_some_and(|on| listed(on) || ids.iter().any(|i| i == on))
+        })
+        .collect();
+    if !comments.is_empty() {
+        out.push_str("\n## Comments\n\n");
+        for c in comments {
+            out.push_str(&format!(
+                "- On {}: {}\n",
+                label(c.on.as_deref().unwrap()),
+                c.text.replace('\n', " ")
+            ));
+            for r in &c.replies {
+                out.push_str(&format!("  - {}\n", r.text.replace('\n', " ")));
+            }
+        }
+    }
+    let out = out.trim_start_matches('\n').to_string();
+    if solo {
+        out
+    } else {
+        let title = doc.title.as_deref().unwrap_or("Selection");
+        format!("# {title}\n\n{out}")
+    }
+}
+
+/// A block as one Markdown line: label, then its detail and link.
+fn item(n: &Node) -> String {
+    let mut s = n.display().replace('\n', " ");
+    if let Some(l) = &n.link {
+        s = format!("[{s}]({l})");
+    }
+    if let Some(d) = &n.detail {
+        s.push_str(&format!(" — {}", d.replace('\n', " ")));
+    }
+    s
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -351,6 +596,32 @@ mod tests {
         );
         assert!(p.contains("**c2** on edge `api` → `db` (resolved)"), "{p}");
         assert!(p.contains("diagram apply docs/shop.diagram"));
+    }
+
+    #[test]
+    fn selections_become_prompts() {
+        let d = dsl::parse("title: Shop\ngroup back: Backend {\n  api: Orders API\n  db: Database [detail: Postgres]\n}\nweb: Web app\nweb -> api: places orders\napi -> db\ncomment on db: Which version?\ngantt g: Plan [start: 2026-10-12] {\n  Design [5d]\n  Build [1w, after: design]\n}\nmindmap m: Goals {\n  Fast\n    Under 1s\n}").unwrap();
+        let ids = |v: &[&str]| v.iter().map(|s| s.to_string()).collect::<Vec<_>>();
+        assert_eq!(
+            selection(&d, &ids(&["web", "back"])),
+            "# Shop\n\n- Web app\n\n## Backend\n\n- Orders API\n- Database — Postgres\n\n## Connections\n\n- Web app → Orders API: places orders\n- Orders API → Database\n\n## Comments\n\n- On Database: Which version?\n"
+        );
+        assert_eq!(
+            selection(&d, &ids(&["back"])),
+            "# Backend\n\n- Orders API\n- Database — Postgres\n\n## Connections\n\n- Orders API → Database\n\n## Comments\n\n- On Database: Which version?\n"
+        );
+        assert_eq!(
+            selection(&d, &ids(&["g"])),
+            "# Plan (gantt chart from 2026-10-12)\n\n- Design: 2026-10-12, 5d\n- Build: 2026-10-17, 1w, after Design\n"
+        );
+        assert_eq!(
+            selection(&d, &ids(&["m"])),
+            crate::mindmap::to_markdown(&d, "m")
+        );
+        assert_eq!(
+            selection(&d, &ids(&["m", "web"])),
+            "# Shop\n\n- Web app\n- Goals\n  - Fast\n    - Under 1s\n"
+        );
     }
 
     #[test]
