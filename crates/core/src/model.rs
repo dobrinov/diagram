@@ -93,6 +93,10 @@ keyword_enum!(
 );
 keyword_enum!(Arrow { End = "end", Start = "start", Both = "both", None = "none" } default End);
 keyword_enum!(Line { Solid = "solid", Dashed = "dashed", Dotted = "dotted", Thick = "thick" | "bold" } default Solid);
+keyword_enum!(
+    /// What a chart block draws.
+    ChartKind { Bar = "bar" | "column" | "columns" | "bars", Line = "line", Area = "area", Pie = "pie", Donut = "donut" | "doughnut", Scatter = "scatter" | "xy" } default Bar
+);
 keyword_enum!(Status { Open = "open", Resolved = "resolved" | "done" | "closed" } default Open);
 
 /// Named colours understood everywhere (anything else must be a `#hex`).
@@ -163,6 +167,9 @@ pub struct Node {
     /// Risk: how bad it would be (1 to the matrix's levels).
     #[serde(skip_serializing_if = "Option::is_none")]
     pub impact: Option<u8>,
+    /// A chart's row: one value per series (None where there is none).
+    #[serde(skip_serializing_if = "Vec::is_empty")]
+    pub values: Vec<Option<f64>>,
 }
 
 impl Node {
@@ -233,6 +240,28 @@ pub struct Group {
     /// when unset).
     #[serde(skip_serializing_if = "Option::is_none")]
     pub levels: Option<u8>,
+    /// A chart: its nodes are rows of data, drawn as bars, lines, slices, …
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub chart: Option<ChartKind>,
+    /// Chart: series on top of each other instead of side by side.
+    #[serde(skip_serializing_if = "std::ops::Not::not")]
+    pub stacked: bool,
+    /// Bar chart: bars run left to right.
+    #[serde(skip_serializing_if = "std::ops::Not::not")]
+    pub horizontal: bool,
+    /// Chart: what values are in (`%`, `k€`, `ms`; `$ € £ ¥` go in front).
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub unit: Option<String>,
+    /// Chart: the series' names (the header row), and what the rows are.
+    #[serde(skip_serializing_if = "Vec::is_empty")]
+    pub series: Vec<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub axis: Option<String>,
+    /// Chart: its size (content, without the frame).
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub w: Option<f64>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub h: Option<f64>,
     /// Swimlanes and gantt charts: pinned position (top-left). Their insides
     /// are always laid out automatically; other groups follow their members.
     #[serde(skip_serializing_if = "Option::is_none")]

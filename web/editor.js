@@ -46,6 +46,7 @@
     theme: '<circle cx="12" cy="12" r="8"/><path d="M12 4a8 8 0 000 16z" fill="currentColor"/>',
     tidy: '<path d="M4 6h7M4 12h11M4 18h16"/>',
     decision: '<path d="M12 3l9 9-9 9-9-9z"/>',
+    chart: '<path d="M4 20h16"/><rect x="6" y="11" width="3" height="7" rx="0.5" fill="currentColor" stroke="none"/><rect x="11" y="6" width="3" height="12" rx="0.5" fill="currentColor" stroke="none"/><rect x="16" y="9" width="3" height="9" rx="0.5" fill="currentColor" stroke="none"/>',
     risks: '<rect x="4" y="4" width="16" height="16" rx="2"/><path d="M4 12h16M12 4v16"/><circle cx="16" cy="8" r="2" fill="currentColor" stroke="none"/><circle cx="8.5" cy="15.5" r="1.6" fill="currentColor" stroke="none"/>',
     gantt: '<path d="M4 4v16h16"/><rect x="7" y="6.5" width="7" height="3" rx="1" fill="currentColor" stroke="none"/><rect x="11" y="11" width="8" height="3" rx="1" fill="currentColor" stroke="none"/><rect x="9" y="15.5" width="5" height="3" rx="1" fill="currentColor" stroke="none"/>',
     lanes: '<rect x="3" y="4" width="18" height="16" rx="2"/><path d="M3 9.5h18M3 14.5h18M8 4v16"/>',
@@ -224,6 +225,7 @@
           if (i === 1) {
             tools.appendChild(btn({ class: "dge-tool", "data-act": "lanes", title: "Swimlanes: lanes the flow runs across; the selected blocks go in the first lane. Drop blocks into a lane to move them there.", onclick: function () { canvas.focus({ preventScroll: true }); addSwimlanes(); } }, icon("lanes")));
             tools.appendChild(btn({ class: "dge-tool", "data-act": "gantt", title: "Gantt chart: tasks on a timeline. Drag a bar to reschedule it; right-click a task to change its length or add one after it.", onclick: function () { canvas.focus({ preventScroll: true }); addGantt(); } }, icon("gantt")));
+            tools.appendChild(btn({ class: "dge-tool", "data-act": "chart", title: "Chart: bars, lines, areas, pie, donut or scatter from a small table. Right-click it to change the type or edit the data.", onclick: function () { canvas.focus({ preventScroll: true }); addChart(); } }, icon("chart")));
             tools.appendChild(btn({ class: "dge-tool", "data-act": "risks", title: "Risk matrix: risks by probability and impact. Drag a dot to another cell to re-rate it; hover it for its description.", onclick: function () { canvas.focus({ preventScroll: true }); addRisks(); } }, icon("risks")));
             tools.appendChild(btn({ class: "dge-tool", "data-act": "section", title: "Section (" + MOD + "G): put the selected blocks in a titled section. Drag blocks in or out of a section to change what is in it.", onclick: function () { canvas.focus({ preventScroll: true }); groupSelection(); } }, icon("section")));
           }
@@ -758,7 +760,7 @@
           if (!folded) control("dge-plus", pp, rr, "+", id);
           return;
         }
-        if (matrixOf(id)) return; // a risk's dot is too small for handles
+        if (matrixOf(id) || plotOf(id)) return; // risks' dots and charts' rows have no handles
         var r = 5 / Math.max(st.zoom, 0.4);
         // a task: one dot past the end of its bar (draw to the task that waits for it); the end itself resizes
         var dots = chartOf(id) ? [[g.x + g.w + 3 * r, g.y + g.h / 2]]
@@ -953,6 +955,33 @@
           ["Delete", function () { applyOps([{ op: "remove", id: t.id }]); select([]); }]
         ].filter(Boolean);
       }
+      if (t.type === "node" && !view && plotOf(t.id)) {
+        var row = node(t.id), pg = plotOf(t.id);
+        return [
+          ["Rename", function () { askAt(st.menuAt, row.label || row.id, "Label", function (v) { applyOps([{ op: "update_node", id: t.id, label: v }]); }); }],
+          ["Values…", function () {
+            askAt(st.menuAt, (row.values || []).map(function (v) { return v == null ? "-" : v; }).join(", "), (pg.series || []).join(", ") || "120", function (v) {
+              var vals = v.split(/[,;|]/).map(cellValue);
+              if (vals.some(function (x) { return x === undefined; })) { flash("Write numbers separated by commas (- for none)", true); return; }
+              applyOps([{ op: "update_node", id: t.id, values: vals }]);
+            });
+          }, (pg.series || []).length ? "One per series: " + pg.series.join(", ") : "Its value"],
+          ["Colour…", function () { colourMenu(t.id, "update_node", row.color); }, "Its own colour (single-series charts)"],
+          ["Edit data…", function () { editChartData(pg.id); }, "The whole table"],
+          "-",
+          ["Delete", function () { applyOps([{ op: "remove", id: t.id }]); select([]); }]
+        ];
+      }
+      if (gr && !view && gr.chart) return [
+        ["Rename", function () { editLabel(t.id); }],
+        ["Edit data…", function () { editChartData(t.id); }, "Rows and series as a table"],
+        ["Type…", function () { chartTypeMenu(t.id); }, "Bars, lines, areas, pie, donut or scatter"],
+        gr.chart === "pie" || gr.chart === "donut" || gr.chart === "scatter" ? null : [gr.stacked ? "Side by side" : "Stacked", function () { applyOps([{ op: "update_group", id: t.id, stacked: !gr.stacked }]); }],
+        gr.chart === "bar" ? [gr.horizontal ? "Vertical bars" : "Horizontal bars", function () { applyOps([{ op: "update_group", id: t.id, horizontal: !gr.horizontal }]); }] : null,
+        ["Unit…", function () { askAt(st.menuAt, gr.unit || "", "%, k€, ms, $", function (v) { applyOps([{ op: "update_group", id: t.id, unit: v }]); }); }, "What the values are in"],
+        "-",
+        ["Delete", function () { applyOps([{ op: "remove", id: t.id, keep_members: false }]); select([]); }, "The chart and its data"]
+      ].filter(Boolean);
       if (t.type === "node" && !view && matrixOf(t.id)) {
         var rk = node(t.id);
         return [
@@ -1142,7 +1171,8 @@
         var ids = [], direct = [];
         st.sel.forEach(function (id) {
           if (isBranch(id)) return;
-          if (node(id)) { ids.push(id); direct.push(id); }
+          if (plotOf(id)) ids.push(plotOf(id).id); // a chart's row: the chart moves
+          else if (node(id)) { ids.push(id); direct.push(id); }
           else if (blockOf(id)) ids.push(blockOf(id));
           else if (group(id)) membersOf(id).forEach(function (m) { ids.push(blockOf(node(m).group) || m); });
         });
@@ -1475,12 +1505,93 @@
     function blockOf(gid) {
       var g = gid && group(gid);
       if (!g) return null;
-      if (g.lanes || g.gantt || g.risks) return g.id;
+      if (g.lanes || g.gantt || g.risks || g.chart) return g.id;
       var up = g.parent && group(g.parent);
       return up && up.lanes ? up.id : null;
     }
     function chartOf(id) { var n = node(id), g = n && n.group && group(n.group); return g && g.gantt ? g : null; }
     function matrixOf(id) { var n = node(id), g = n && n.group && group(n.group); return g && g.risks ? g : null; }
+    /* The chart a row belongs to. */
+    function plotOf(id) { var n = node(id), g = n && n.group && group(n.group); return g && g.chart ? g : null; }
+    /* A bar chart with a little data; its title is typed next. */
+    function addChart() {
+      var gid = freshId("chart");
+      var res = applyOps([{ op: "merge", dsl: "chart " + gid + ": Chart [bar] {\n  quarter | Plan | Actual\n  Q1 | 10 | 8\n  Q2 | 14 | 15\n  Q3 | 18 | 16\n}" }]);
+      if (res.ok) {
+        select([gid]);
+        reveal(gid);
+        editLabel(gid, true);
+      }
+    }
+    var CHARTS = [["bar", "Bars"], ["line", "Lines"], ["area", "Areas"], ["pie", "Pie"], ["donut", "Donut"], ["scatter", "Scatter (x, y)"]];
+    function chartTypeMenu(gid) {
+      var cur = group(gid).chart;
+      setTimeout(function () {
+        openMenu(st.menuAt, CHARTS.map(function (c) {
+          return [(c[0] === cur ? "✓ " : "\u2003") + c[1], function () { applyOps([{ op: "update_group", id: gid, chart: c[0] }]); }];
+        }));
+      });
+    }
+    /* A chart's data as the table it is written as: header, then rows. */
+    function chartText(gid) {
+      var g = group(gid), rows = st.doc.nodes.filter(function (n) { return n.group === gid; });
+      var lines = [];
+      if ((g.series || []).length) lines.push([g.axis || ""].concat(g.series).join(" | "));
+      rows.forEach(function (n) {
+        lines.push([n.label || n.id].concat((n.values || []).map(function (v) { return v == null ? "-" : String(v); })).join(" | "));
+      });
+      return lines.join("\n");
+    }
+    function cellValue(c) {
+      var t = String(c).trim().replace(/%$/, "").replace(/[,_]/g, "");
+      if (t === "" || t === "-") return null;
+      var v = Number(t);
+      return isFinite(v) ? v : undefined;
+    }
+    /* Edit data…: the table in a text box; rows keep their ids (and comments) by position. */
+    function editChartData(gid) {
+      var ta = h("textarea", { class: "dge-chart-data", spellcheck: "false", rows: "10" });
+      ta.value = chartText(gid);
+      var save = function () {
+        var lines = ta.value.split("\n").map(function (l) { return l.trim(); }).filter(Boolean);
+        var cells = lines.map(function (l) {
+          var c = l.split("|").map(function (x) { return x.trim(); });
+          if (c.length === 1) { var m = /^(.*\S)\s+(\S+)$/.exec(c[0]); if (m && cellValue(m[2]) != null) c = [m[1], m[2]]; }
+          return c;
+        });
+        var ops = [], series = [], axis = "";
+        if (cells.length && cells[0].length > 1 && cells[0].slice(1).every(function (c) { return cellValue(c) === undefined; })) {
+          axis = cells[0][0]; series = cells[0].slice(1); cells.shift();
+        }
+        for (var i = 0; i < cells.length; i++) {
+          var bad = cells[i].slice(1).filter(function (c) { return cellValue(c) === undefined; })[0];
+          if (bad !== undefined) { flash("“" + bad + "” is not a number (row " + (i + 1) + ")", true); return; }
+        }
+        ops.push({ op: "update_group", id: gid, series: series, axis: axis });
+        var rows = st.doc.nodes.filter(function (n) { return n.group === gid; });
+        var taken = [];
+        cells.forEach(function (c, i) {
+          var values = c.slice(1).map(cellValue);
+          if (rows[i]) ops.push({ op: "update_node", id: rows[i].id, label: c[0], values: values });
+          else {
+            var base = gid + "." + slug(c[0]), id = base, k = 2;
+            while (idTaken(id) || taken.indexOf(id) >= 0) id = base + "-" + k++;
+            taken.push(id);
+            ops.push({ op: "add_node", id: id, label: c[0], group: gid, values: values });
+          }
+        });
+        rows.slice(cells.length).forEach(function (n) { ops.push({ op: "remove", id: n.id }); });
+        if (applyOps(ops).ok) closeModal();
+      };
+      showModal("Data: " + (group(gid).label || gid), h("div", {}, [
+        h("p", { class: "dge-muted" }, ["One row per line: a label, then a value for each series, separated by |. A first row of names is the header (series). Use - for no value."]),
+        ta
+      ]), [
+        h("button", { onclick: closeModal }, ["Cancel"]),
+        h("button", { class: "primary", onclick: save }, ["Save"])
+      ]);
+      setTimeout(function () { ta.focus(); }, 0);
+    }
     /* A 5×5 risk matrix with one risk in the middle; its title is typed next. */
     function addRisks() {
       var ids = freshIds(["risks", "risk-1"]);
@@ -1777,6 +1888,10 @@
       if (ops.length) applyOps(ops);
     }
 
+    /* The Arc browser (it sets its palette as CSS variables on the page). */
+    function isArc() {
+      try { return !!getComputedStyle(document.documentElement).getPropertyValue("--arc-palette-title"); } catch (_) { return false; }
+    }
     function onKey(e) {
       var tag = (e.target && e.target.tagName) || "";
       var typing = tag === "INPUT" || tag === "TEXTAREA" || tag === "SELECT" || (e.target && e.target.isContentEditable);
@@ -1786,7 +1901,11 @@
         return;
       }
       if (mod && e.key.toLowerCase() === "s") {
-        if (opts.onSave) { e.preventDefault(); opts.onSave(st.text, api); }
+        // Arc uses ⌘S for its sidebar: save, but let the browser have the key
+        if (opts.onSave) {
+          if (!isArc()) e.preventDefault();
+          opts.onSave(st.text, api);
+        }
         return;
       }
       if (mod && e.key === "/" && hasCode) { e.preventDefault(); showCode = !showCode; applyChrome(); syncCode(true); return; }

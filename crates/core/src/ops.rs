@@ -76,6 +76,9 @@ pub enum Op {
         /// Risk: impact, 1 to 5 (0 clears it).
         #[serde(default, skip_serializing_if = "Option::is_none")]
         impact: Option<u8>,
+        /// Chart row: one value per series (null for none).
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        values: Option<Vec<Option<f64>>>,
     },
     UpdateNode {
         id: String,
@@ -134,6 +137,9 @@ pub enum Op {
         /// Risk: impact, 1 to 5 (0 clears it).
         #[serde(default, skip_serializing_if = "Option::is_none")]
         impact: Option<u8>,
+        /// Chart row: one value per series (null for none).
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        values: Option<Vec<Option<f64>>>,
     },
     /// Add topics from an indented outline (or a Markdown list) under
     /// `parent`; without `parent` the first line becomes a new mindmap.
@@ -237,6 +243,24 @@ pub enum Op {
         /// Risk matrix: 3, 4 or 5 levels (5 by default).
         #[serde(default, skip_serializing_if = "Option::is_none")]
         levels: Option<u8>,
+        /// Chart: bar, line, area, pie, donut or scatter.
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        chart: Option<String>,
+        /// Chart: series stacked.
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        stacked: Option<bool>,
+        /// Bar chart: bars across.
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        horizontal: Option<bool>,
+        /// Chart: the values' unit ("" clears it).
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        unit: Option<String>,
+        /// Chart: the series' names.
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        series: Option<Vec<String>>,
+        /// Chart: what the rows are (the header's first cell; "" clears it).
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        axis: Option<String>,
     },
     UpdateGroup {
         id: String,
@@ -259,6 +283,24 @@ pub enum Op {
         /// Risk matrix: 3, 4 or 5 levels (0 resets it to 5).
         #[serde(default, skip_serializing_if = "Option::is_none")]
         levels: Option<u8>,
+        /// Chart: bar, line, area, pie, donut or scatter.
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        chart: Option<String>,
+        /// Chart: series stacked.
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        stacked: Option<bool>,
+        /// Bar chart: bars across.
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        horizontal: Option<bool>,
+        /// Chart: the values' unit ("" clears it).
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        unit: Option<String>,
+        /// Chart: the series' names.
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        series: Option<Vec<String>>,
+        /// Chart: what the rows are (the header's first cell; "" clears it).
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        axis: Option<String>,
     },
     AddComment {
         #[serde(default, skip_serializing_if = "Option::is_none")]
@@ -441,6 +483,43 @@ fn task(
     Ok(())
 }
 
+/// A chart's fields, from an add_group or update_group ("" chart: not a
+/// chart any more).
+fn chart_fields(
+    g: &mut Group,
+    chart: &Option<String>,
+    stacked: &Option<bool>,
+    horizontal: &Option<bool>,
+    unit: &Option<String>,
+    series: &Option<Vec<String>>,
+    axis: &Option<String>,
+) -> Result<(), String> {
+    if let Some(c) = opt(chart) {
+        g.chart = c
+            .map(|c| {
+                ChartKind::parse(&c)
+                    .ok_or_else(|| format!("unknown chart type `{c}` (use {})", ChartKind::names()))
+            })
+            .transpose()?;
+    }
+    if let Some(v) = stacked {
+        g.stacked = *v;
+    }
+    if let Some(v) = horizontal {
+        g.horizontal = *v;
+    }
+    if let Some(u) = opt(unit) {
+        g.unit = u;
+    }
+    if let Some(sr) = series {
+        g.series = sr.clone();
+    }
+    if let Some(a) = opt(axis) {
+        g.axis = a;
+    }
+    Ok(())
+}
+
 /// A risk matrix's levels: 3 to 5 (0 or none: the default, 5).
 fn matrix_levels(v: &Option<u8>) -> Result<Option<u8>, String> {
     match v {
@@ -517,7 +596,32 @@ fn new_id(doc: &Document, wanted: Option<&str>, label: &str) -> Result<String, S
     }
 }
 
+/// One op. Renaming a chart renames its rows too (`chart.q1` → `revenue.q1`).
 fn apply_one(doc: &mut Document, op: &Op, created: &mut Vec<String>) -> Result<(), String> {
+    let rows: Vec<String> = match op {
+        Op::Rename { id, .. } if doc.group(id).is_some_and(|g| g.chart.is_some()) => doc
+            .nodes
+            .iter()
+            .filter(|n| {
+                n.group.as_deref() == Some(id.as_str()) && n.id.starts_with(&format!("{id}."))
+            })
+            .map(|n| n.id.clone())
+            .collect(),
+        _ => Vec::new(),
+    };
+    apply_op(doc, op, created)?;
+    if let Op::Rename { id, to } = op {
+        for r in rows {
+            let new = format!("{to}{}", &r[id.len()..]);
+            if !doc.id_taken(&new) {
+                apply_op(doc, &Op::Rename { id: r, to: new }, created)?;
+            }
+        }
+    }
+    Ok(())
+}
+
+fn apply_op(doc: &mut Document, op: &Op, created: &mut Vec<String>) -> Result<(), String> {
     match op {
         Op::AddNode {
             id,
@@ -543,6 +647,7 @@ fn apply_one(doc: &mut Document, op: &Op, created: &mut Vec<String>) -> Result<(
             owner,
             probability,
             impact,
+            values,
         } => {
             let id = new_id(doc, id.as_deref(), label)?;
             let parent = parent.as_deref().filter(|p| !p.is_empty());
@@ -576,6 +681,9 @@ fn apply_one(doc: &mut Document, op: &Op, created: &mut Vec<String>) -> Result<(
             }
             task(&mut n, start, days, after, milestone, done, owner)?;
             risk(&mut n, probability, impact)?;
+            if let Some(v) = values {
+                n.values = v.clone();
+            }
             doc.nodes.push(n);
             if let Some(p) = parent {
                 doc.set_parent(&id, Some(p), *index)?;
@@ -605,6 +713,7 @@ fn apply_one(doc: &mut Document, op: &Op, created: &mut Vec<String>) -> Result<(
             owner,
             probability,
             impact,
+            values,
         } => {
             if let Some(Some(g)) = opt(group) {
                 need_container(doc, &g)?;
@@ -662,6 +771,9 @@ fn apply_one(doc: &mut Document, op: &Op, created: &mut Vec<String>) -> Result<(
             }
             task(n, start, days, after, milestone, done, owner)?;
             risk(n, probability, impact)?;
+            if let Some(v) = values {
+                n.values = v.clone();
+            }
         }
         Op::AddOutline {
             parent,
@@ -905,7 +1017,10 @@ fn apply_one(doc: &mut Document, op: &Op, created: &mut Vec<String>) -> Result<(
             if let Some(n) = doc.node_mut(id) {
                 n.x = Some(x.round());
                 n.y = Some(y.round());
-            } else if let Some(g) = doc.group_mut(id).filter(|g| g.lanes || g.gantt || g.risks) {
+            } else if let Some(g) = doc
+                .group_mut(id)
+                .filter(|g| g.lanes || g.gantt || g.risks || g.chart.is_some())
+            {
                 // swimlanes and gantt charts move as a whole
                 g.x = Some(x.round());
                 g.y = Some(y.round());
@@ -1068,6 +1183,12 @@ fn apply_one(doc: &mut Document, op: &Op, created: &mut Vec<String>) -> Result<(
             start,
             risks,
             levels,
+            chart,
+            stacked,
+            horizontal,
+            unit,
+            series,
+            axis,
         } => {
             let id = new_id(
                 doc,
@@ -1092,6 +1213,7 @@ fn apply_one(doc: &mut Document, op: &Op, created: &mut Vec<String>) -> Result<(
                 levels: matrix_levels(levels)?,
                 ..Default::default()
             };
+            chart_fields(&mut g, chart, stacked, horizontal, unit, series, axis)?;
             if let Some(c) = c.as_deref().filter(|c| !c.is_empty()) {
                 g.color = Some(color(c)?);
             }
@@ -1117,6 +1239,12 @@ fn apply_one(doc: &mut Document, op: &Op, created: &mut Vec<String>) -> Result<(
             start,
             scale,
             levels,
+            chart,
+            stacked,
+            horizontal,
+            unit,
+            series,
+            axis,
         } => {
             if let Some(Some(p)) = opt(parent) {
                 need_container(doc, &p)?;
@@ -1148,6 +1276,7 @@ fn apply_one(doc: &mut Document, op: &Op, created: &mut Vec<String>) -> Result<(
             if levels.is_some() {
                 g.levels = matrix_levels(levels)?;
             }
+            chart_fields(g, chart, stacked, horizontal, unit, series, axis)?;
             if let Some(v) = scale {
                 g.scale = if v.is_empty() {
                     None

@@ -219,7 +219,7 @@ impl Parser {
             a.edge_op().is_some() || a.rest().starts_with(',')
         };
         let word = match word {
-            "group" | "gantt" | "risks" | "mindmap" if !opens => "",
+            "group" | "gantt" | "risks" | "chart" | "mindmap" if !opens => "",
             "comment" | "reply" if arrow_next => "",
             w => w,
         };
@@ -252,6 +252,10 @@ impl Parser {
             "risks" if c.rest()[5..].starts_with(|ch: char| ch.is_whitespace()) => {
                 c.advance(5);
                 return self.gantt_decl(c, true);
+            }
+            "chart" if c.rest()[5..].starts_with(|ch: char| ch.is_whitespace()) => {
+                c.advance(5);
+                return self.chart_decl(c);
             }
             "reply" if c.rest()[5..].starts_with(|ch: char| ch.is_whitespace()) => {
                 c.advance(5);
@@ -461,11 +465,145 @@ impl Parser {
         Ok(())
     }
 
+    /// `chart id: Title [bar, stacked, unit: %] {` … a header row and rows of
+    /// data … `}`.
+    fn chart_decl(&mut self, mut c: Cursor) -> Result<(), String> {
+        c.skip_ws();
+        let (id, qlabel) = c.reference()?;
+        let (label, attrs) = label_and_attrs_until_brace(&mut c)?;
+        c.skip_ws();
+        if !c.eat('{') {
+            return Err("a chart needs a body: `chart id: Title [bar] {` … rows … `}`".into());
+        }
+        c.skip_ws();
+        let closes_inline = c.eat('}');
+        if !c.at_end() {
+            return Err("put the chart's rows on the following lines".into());
+        }
+        if self.doc.node(&id).is_some() {
+            return Err(format!("`{id}` is already a node"));
+        }
+        let parent = self.group();
+        if self.doc.group(&id).is_none() {
+            self.doc.groups.push(Group {
+                id: id.clone(),
+                ..Default::default()
+            });
+        }
+        let g = self.doc.group_mut(&id).unwrap();
+        g.parent = parent;
+        g.chart = Some(g.chart.unwrap_or_default());
+        if let Some(l) = label.or(qlabel) {
+            g.label = l;
+        }
+        for (k, v) in &attrs {
+            match (k.as_str(), v) {
+                (k, None) if ChartKind::parse(k).is_some() => g.chart = ChartKind::parse(k),
+                ("type" | "kind", Some(v)) => {
+                    g.chart = Some(ChartKind::parse(v).ok_or_else(|| {
+                        format!("unknown chart type `{v}` (use {})", ChartKind::names())
+                    })?)
+                }
+                ("stacked", None) => g.stacked = true,
+                ("horizontal", None) => g.horizontal = true,
+                ("unit", Some(v)) => g.unit = Some(v.clone()).filter(|u| !u.is_empty()),
+                ("color" | "colour", Some(v)) => g.color = Some(color(v)?),
+                (c, None) if valid_color(c) => g.color = Some(c.to_string()),
+                ("x", Some(v)) => g.x = Some(num("x", v)?),
+                ("y", Some(v)) => g.y = Some(num("y", v)?),
+                ("w" | "width", Some(v)) => g.w = Some(num("w", v)?),
+                ("h" | "height", Some(v)) => g.h = Some(num("h", v)?),
+                (k, _) => {
+                    return Err(format!(
+                        "unknown chart attribute `{k}` ({}, stacked, horizontal, unit, color, x, y, w, h)",
+                        ChartKind::names()
+                    ))
+                }
+            }
+        }
+        self.touched.push(Elem::Group(id.clone()));
+        if !closes_inline {
+            self.gantt = Some((id, self.line));
+        }
+        Ok(())
+    }
+
+    /// A row of a chart: `Q1 | 120 | 80` or `Linear 40` (with optional
+    /// `[attrs]`); the first row is the header when its cells are not numbers.
+    fn chart_line(&mut self, chart: &str, t: &str) -> Result<(), String> {
+        let t = crate::mindmap::strip_bullet(t);
+        let (text, attrs) = split_attrs(t);
+        let mut cells: Vec<String> = text.split('|').map(|c| c.trim().to_string()).collect();
+        if cells.len() == 1 {
+            // `Linear 40`: a label and a number
+            let one = cells.remove(0);
+            match one.rsplit_once(char::is_whitespace) {
+                Some((l, v)) if value(v).is_ok_and(|v| v.is_some()) => {
+                    cells = vec![l.trim().to_string(), v.to_string()]
+                }
+                _ => cells = vec![one],
+            }
+        }
+        let first = !self
+            .doc
+            .nodes
+            .iter()
+            .any(|n| n.group.as_deref() == Some(chart));
+        let g = self.doc.group(chart).unwrap();
+        if first
+            && g.series.is_empty()
+            && g.axis.is_none()
+            && cells.len() > 1
+            && cells[1..].iter().all(|c| value(c).is_err())
+        {
+            let g = self.doc.group_mut(chart).unwrap();
+            g.axis = Some(cells[0].clone()).filter(|a| !a.is_empty());
+            g.series = cells[1..].to_vec();
+            self.touched.push(Elem::Group(chart.to_string()));
+            return Ok(());
+        }
+        let label = unescape_label(&cells[0]);
+        let values = cells[1..]
+            .iter()
+            .map(|c| value(c))
+            .collect::<Result<Vec<_>, _>>()?;
+        let mut attrs = parse_attrs(attrs.unwrap_or(""))?;
+        let mut explicit = None;
+        attrs.retain(|(k, v)| match (k.as_str(), v) {
+            ("id", Some(v)) => {
+                explicit = Some(v.clone());
+                false
+            }
+            _ => true,
+        });
+        // rows are named within their chart: `revenue.q1`
+        let wanted = explicit.clone().unwrap_or_else(|| row_id(chart, &label));
+        let id = if !self.doc.id_taken(&wanted) {
+            wanted
+        } else if explicit.is_some() {
+            return Err(format!("id `{wanted}` is already used"));
+        } else {
+            self.doc.fresh_id(&wanted)
+        };
+        let mut n = Node::new(&id);
+        n.label = label;
+        n.group = Some(chart.to_string());
+        n.values = values;
+        apply_node_attrs(&mut n, &attrs)?;
+        self.touched.push(Elem::Node(n.id.clone()));
+        self.doc.nodes.push(n);
+        Ok(())
+    }
+
     /// One task of a gantt chart (or the closing `}`): `Label [5d, after: x]`.
     fn task_line(&mut self, t: &str) -> Result<(), String> {
         if t == "}" {
             self.gantt = None;
             return Ok(());
+        }
+        let block = self.gantt.as_ref().unwrap().0.clone();
+        if self.doc.group(&block).is_some_and(|g| g.chart.is_some()) {
+            return self.chart_line(&block, t);
         }
         let t = crate::mindmap::strip_bullet(t);
         let (text, attrs) = split_attrs(t);
@@ -906,6 +1044,9 @@ fn is_flag(item: &str) -> bool {
         || Line::parse(item).is_some()
         || valid_color(&item.to_ascii_lowercase())
         || matches!(item, "resolved" | "open" | "done" | "collapsed" | "folded" | "milestone")
+        // charts
+        || ChartKind::parse(item).is_some()
+        || matches!(item, "stacked" | "horizontal")
         // gantt: a date or a duration
         || crate::gantt::parse_date(item).is_some()
         || (item.ends_with(['d', 'w', 'm', 'q']) && crate::gantt::parse_days(item).is_some())
@@ -954,6 +1095,9 @@ const KEYS: &[&str] = &[
     "by",
     "scale",
     "levels",
+    "type",
+    "kind",
+    "unit",
 ];
 
 /// Attributes whose value is free text: a `,` or `;` in it, followed by
@@ -1426,6 +1570,68 @@ pub(crate) fn gantt_block(doc: &Document, g: &Group, pad: &str, out: &mut String
     out.push_str(&format!("{pad}}}\n"));
 }
 
+/// A chart: its header row and one row per node.
+pub(crate) fn chart_block(doc: &Document, g: &Group, pad: &str, out: &mut String) {
+    let mut head = id_text(&g.id);
+    if !g.label.is_empty() && g.label != g.id {
+        head.push_str(": ");
+        head.push_str(&label_text(&g.label));
+    }
+    let mut a = vec![g.chart.unwrap_or_default().as_str().to_string()];
+    if g.stacked {
+        a.push("stacked".into());
+    }
+    if g.horizontal {
+        a.push("horizontal".into());
+    }
+    if let Some(u) = &g.unit {
+        a.push(format!("unit: {}", attr_value(u)));
+    }
+    if let Some(c) = &g.color {
+        a.push(if c.starts_with('#') {
+            format!("color: {c}")
+        } else {
+            c.clone()
+        });
+    }
+    for (k, v) in [("w", g.w), ("h", g.h)] {
+        if let Some(v) = v {
+            a.push(format!("{k}: {}", fmt_num(v)));
+        }
+    }
+    a.extend(group_pos(g));
+    head.push_str(&attrs_text(&a));
+    let rows: Vec<&Node> = doc
+        .nodes
+        .iter()
+        .filter(|n| n.group.as_deref() == Some(g.id.as_str()))
+        .collect();
+    if rows.is_empty() && g.series.is_empty() {
+        out.push_str(&format!("{pad}chart {head} {{}}\n"));
+        return;
+    }
+    out.push_str(&format!("{pad}chart {head} {{\n"));
+    let cell = |s: &str| s.replace('|', "/");
+    if !g.series.is_empty() {
+        let mut cells = vec![cell(g.axis.as_deref().unwrap_or(""))];
+        cells.extend(g.series.iter().map(|s| cell(s)));
+        out.push_str(&format!("{pad}  {}\n", cells.join(" | ").trim_start()));
+    }
+    for n in rows {
+        let label = n.display();
+        let mut cells = vec![cell(&crate::mindmap::outline_label(label))];
+        cells.extend(n.values.iter().map(|v| fmt_value(*v)));
+        let mut m = n.clone();
+        m.values.clear();
+        let mut a = node_attrs(&m);
+        if row_id(&g.id, label) != n.id {
+            a.insert(0, format!("id: {}", attr_value(&n.id)));
+        }
+        out.push_str(&format!("{pad}  {}{}\n", cells.join(" | "), attrs_text(&a)));
+    }
+    out.push_str(&format!("{pad}}}\n"));
+}
+
 pub(crate) fn map_block(doc: &Document, root: &Node, pad: &str, out: &mut String) {
     let mut head = id_text(&root.id);
     if !root.label.is_empty() && root.label != root.id {
@@ -1519,6 +1725,31 @@ fn resolve_after(doc: &mut Document) {
             }
         }
     }
+}
+
+/// A chart row's id: the chart's, then the row's label (`revenue.q1`).
+pub fn row_id(chart: &str, label: &str) -> String {
+    format!("{chart}.{}", slug(label))
+}
+
+/// A chart cell: a number (`1200`, `1,200`, `-3.5`, `40%`), or `-` / empty
+/// for none.
+fn value(v: &str) -> Result<Option<f64>, String> {
+    let t = v.trim();
+    if t.is_empty() || t == "-" || t == "–" {
+        return Ok(None);
+    }
+    let n = t.trim_end_matches('%').replace([',', '_'], "");
+    n.parse::<f64>()
+        .ok()
+        .filter(|x| x.is_finite())
+        .map(Some)
+        .ok_or_else(|| format!("`{v}` is not a number"))
+}
+
+/// A chart value as written: `120`, `3.5`, `-` for none.
+pub(crate) fn fmt_value(v: Option<f64>) -> String {
+    v.map_or("-".to_string(), fmt_num)
 }
 
 /// A risk's probability or impact: 1 to 5.
@@ -1764,6 +1995,10 @@ pub(crate) fn group_block(
     in_map: &dyn Fn(&Node) -> bool,
 ) {
     let pad = "  ".repeat(depth);
+    if g.chart.is_some() {
+        chart_block(doc, g, &pad, out);
+        return;
+    }
     if g.gantt || g.risks {
         gantt_block(doc, g, &pad, out);
         return;

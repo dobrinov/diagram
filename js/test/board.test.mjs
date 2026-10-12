@@ -221,3 +221,14 @@ test("gantt forecasts: schedule, prompts, render", () => {
   assert.match(b.render({ today: "2026-10-20" }).svg, /dg-slip/);
   b.free();
 });
+
+test("charts", () => {
+  const b = Board.parse("chart rev: Revenue [bar, unit: k€] {\n  quarter | EU | US\n  Q1 | 120 | 80\n}\n");
+  b.apply([{ op: "add_node", id: "rev.q2", label: "Q2", group: "rev", values: [150, null] }]);
+  assert.match(b.source(), /  Q2 \| 150 \| -\n/);
+  const r = b.render();
+  assert.equal(r.groups[0].chart, "bar");
+  assert.ok(r.nodes.every((n) => n.datum));
+  assert.match(b.selection(["rev"]), /\| quarter \| EU \| US \|\n\|---\|---\|---\|\n\| Q1 \| 120 \| 80 \|/);
+  b.free();
+});

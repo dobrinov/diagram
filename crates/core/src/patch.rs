@@ -89,6 +89,10 @@ fn block_text(doc: &Document, head: &Elem, pad: &str) -> Option<String> {
         }
         Elem::Group(g) => {
             let g = doc.group(g)?;
+            if g.chart.is_some() {
+                dsl::chart_block(doc, g, pad, &mut out);
+                return Some(out);
+            }
             if !g.gantt && !g.risks {
                 return None;
             }
@@ -310,7 +314,8 @@ fn edit_lines(
                 if n.parent != g.parent
                     || n.lanes != g.lanes
                     || n.gantt != g.gantt
-                    || n.risks != g.risks =>
+                    || n.risks != g.risks
+                    || n.chart.is_some() != g.chart.is_some() =>
             {
                 return None
             }
@@ -375,7 +380,9 @@ fn edit_lines(
                 .unwrap_or(i);
             match (block_text(old, head, pad), block_text(new, head, pad)) {
                 (_, None) => {}
-                (Some(o), Some(n)) if o == n => {
+                (Some(o), Some(n))
+                    if o == n && !block_elems(new, head).iter().any(|e| renamed.contains(e)) =>
+                {
                     out.extend(lines[i..=end].iter().map(|l| l.to_string()))
                 }
                 (_, Some(n)) => push_text(&mut out, &n),

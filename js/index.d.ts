@@ -83,6 +83,8 @@ export interface Node {
   probability?: number;
   /** Risk: how bad, 1–5. */
   impact?: number;
+  /** Chart row: one value per series (null for none). */
+  values?: (number | null)[];
 }
 
 export interface Edge {
@@ -118,6 +120,21 @@ export interface Group {
   risks?: boolean;
   /** Risk matrix: levels of probability and impact (3–5, 5 when unset). */
   levels?: number;
+  /** Chart: what it draws. */
+  chart?: ChartKind;
+  /** Chart: series stacked. */
+  stacked?: boolean;
+  /** Bar chart: bars across. */
+  horizontal?: boolean;
+  /** Chart: the values' unit (`$ € £ ¥` go in front). */
+  unit?: string;
+  /** Chart: the series' names (its header). */
+  series?: string[];
+  /** Chart: what the rows are (the header's first cell). */
+  axis?: string;
+  /** Chart: its size. */
+  w?: number;
+  h?: number;
   /** Swimlanes / gantt chart: pinned position (top-left). */
   x?: number;
   y?: number;
@@ -193,6 +210,8 @@ export interface AddNodeOp {
   probability?: number;
   /** Risk: how bad, 1–5 (0 clears it in ops). */
   impact?: number;
+  /** Chart row: one value per series (null for none). */
+  values?: (number | null)[];
 }
 
 /** Change a node. An empty string clears an optional field. */
@@ -232,6 +251,8 @@ export interface UpdateNodeOp {
   probability?: number;
   /** Risk: how bad, 1–5 (0 clears it in ops). */
   impact?: number;
+  /** Chart row: one value per series (null for none). */
+  values?: (number | null)[];
 }
 
 /** Add topics from an indented outline (or a Markdown list) under `parent`; without `parent` the first line becomes a new mindmap. */
@@ -320,6 +341,18 @@ export interface AddGroupOp {
   risks?: boolean;
   /** Risk matrix: 3, 4 or 5 levels (5 by default). */
   levels?: number;
+  /** Chart: what it draws. */
+  chart?: ChartKind;
+  /** Chart: series stacked. */
+  stacked?: boolean;
+  /** Bar chart: bars across. */
+  horizontal?: boolean;
+  /** Chart: the values' unit (`$ € £ ¥` go in front). */
+  unit?: string;
+  /** Chart: the series' names (its header). */
+  series?: string[];
+  /** Chart: what the rows are (the header's first cell). */
+  axis?: string;
   /** Gantt chart: its first day (`YYYY-MM-DD`). */
   start?: string;
 }
@@ -339,6 +372,18 @@ export interface UpdateGroupOp {
   scale?: Scale | "";
   /** Risk matrix: 3, 4 or 5 levels (0 resets to 5). */
   levels?: number;
+  /** Chart: what it draws. */
+  chart?: ChartKind | "";
+  /** Chart: series stacked. */
+  stacked?: boolean;
+  /** Bar chart: bars across. */
+  horizontal?: boolean;
+  /** Chart: the values' unit (`$ € £ ¥` go in front). */
+  unit?: string;
+  /** Chart: the series' names (its header). */
+  series?: string[];
+  /** Chart: what the rows are (the header's first cell). */
+  axis?: string;
 }
 
 export interface AddCommentOp {
@@ -389,6 +434,8 @@ export interface MergeOp {
   op: "merge";
   dsl: string;
 }
+
+export type ChartKind = "bar" | "line" | "area" | "pie" | "donut" | "scatter";
 
 /** One edit. A batch of ops is applied atomically. */
 export type Op =
@@ -454,6 +501,8 @@ export interface NodeBox extends Rect {
   task?: boolean;
   /** A risk: drawn as a numbered dot on its matrix. */
   risk?: boolean;
+  /** A chart's row (its box covers its bars, points or slice). */
+  datum?: boolean;
 }
 
 /** Where a risk matrix's grid and list are drawn. */
@@ -500,6 +549,8 @@ export interface GroupBox extends Rect {
   gantt?: GanttBox;
   /** A risk matrix's grid. */
   matrix?: MatrixBox;
+  /** A chart: what it draws. */
+  chart?: ChartKind;
 }
 
 export interface EdgePath {

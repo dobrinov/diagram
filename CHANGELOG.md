@@ -1,5 +1,12 @@
 # Changelog
 
+## 0.13.0 — 2026-10-12
+
+- **Charts:** `chart id: Title [bar|line|area|pie|donut|scatter] {` … `}` holding a small table (`quarter | EU | US`, `Q1 | 120 | 80`, or `Jira 45`). Bars side by side, `stacked` or `horizontal`; lines; stacked areas; pie; donut with the total in the middle; scatter (`label | x | y`). Axes with round ticks, a legend for several series, `unit:` (`k€`, `%`, `$` in front), `w:`/`h:`. Rows are nodes named in their chart (`revenue.q1`): point arrows, comments and links at a bar or a slice; hover for its values; a colour on a row colours it.
+- In the editor: a *Chart* tool; right-click a chart → *Edit data…* (the table as text, rows keep their ids), *Type…*, *Stacked*, *Horizontal bars*, *Unit…*; right-click a row → *Values…*, *Rename*, *Colour…*, *Delete*. Dragging a bar moves the chart.
+- Prompts show charts as Markdown tables (pies with each slice's share); ops `add_group`/`update_group` take `chart`, `stacked`, `horizontal`, `unit`, `series`, `axis`, and nodes `values`; `query kind:plot`, `kind:row`. Renaming a chart renames its rows. `examples/charts.diagram`; `scripts/e2e/charts.mjs` in `make e2e`.
+- **⌘S in Arc:** the editor saves on its own; in Arc it no longer takes ⌘S, so Arc's sidebar shortcut works (other browsers still get "saved" instead of the browser's *Save page*).
+
 ## 0.12.0 — 2026-10-12
 
 - **Gantt forecasts.** As of today, an unfinished task that has started is forecast to take until today plus the part not done yet (by its `done`), and what waits for it moves with it, also in other charts and past fixed start dates. Charts draw a slip as a red dashed extension with `+5d`, and a hollow diamond where a milestone will now land; the timeline grows to fit. The editor shows it live; exports take `--today` or `--as-of DATE`.

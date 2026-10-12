@@ -135,6 +135,7 @@ pub const OPS_REFERENCE: &str = r#"Operations (fields in [] are optional; ids ar
 - {"op":"resolve_comment","id":"c1",["resolution":"what was done"]}  {"op":"reopen_comment","id":"c1"}
 - {"op":"set","key":"title|description|direction|layout|routing|theme","value":"…"}
 - {"op":"merge","dsl":"cache: Redis [cylinder]\napi -> cache: reads\napi [red]"}   (statements in the diagram language, as if written at the end of the file: adds new elements; one written again by its id gets the attributes given. Cheapest for many changes)
+- Chart: {"op":"add_group","id":"rev","label":"Revenue","chart":"bar|line|area|pie|donut|scatter",["stacked":true,"horizontal":true,"unit":"%","series":["EU","US"],"axis":"quarter"]}; its rows are add_node / update_node with "group":"rev","label":"Q1","values":[120,80] (one per series, null for none). Or simpler, merge: "chart rev: Revenue [bar] {\n  quarter | EU | US\n  Q1 | 120 | 80\n}"
 - Risk matrix: {"op":"add_group","id":"risks","label":"Risks","risks":true,["levels":3|4|5]}; its risks are add_node / update_node with "group":"risks" and ["probability":1-5,"impact":1-5,"owner","detail" (the description)]
 - Gantt: a chart is {"op":"add_group","id":"plan","label":"Plan","gantt":true,["start":"YYYY-MM-DD","scale":"day|week|month|quarter"]}; its tasks are add_node / update_node with "group":"plan" and ["start","days","after":["id"],"milestone":true,"done":60,"owner":"ana"] (after may name tasks in other charts)
 Shapes: box, rounded, pill, circle, diamond, hexagon, cylinder, parallelogram, document, person, cloud, sticky, text.
@@ -598,7 +599,20 @@ fn selection_core(doc: &Document, ids: &[String], titled: bool) -> String {
         if !out.is_empty() {
             out.push('\n');
         }
-        let kind = if g.risks {
+        let kind = if let Some(c) = g.chart {
+            let mut k = format!(" ({} chart", c.as_str());
+            if g.stacked {
+                k.push_str(", stacked");
+            }
+            if g.horizontal {
+                k.push_str(", horizontal");
+            }
+            if let Some(u) = &g.unit {
+                k.push_str(&format!(", values in {u}"));
+            }
+            k.push(')');
+            k
+        } else if g.risks {
             let n = crate::risks::levels(g);
             format!(" (risk matrix, probability × impact, {n}×{n})")
         } else if g.gantt {
@@ -700,6 +714,8 @@ fn selection_core(doc: &Document, ids: &[String], titled: bool) -> String {
                     item(doc, n)
                 ));
             }
+        } else if g.chart.is_some() {
+            chart_table(doc, g, out, seen);
         } else if g.risks {
             // worst first
             let n = crate::risks::levels(g);
@@ -820,6 +836,49 @@ fn selection_core(doc: &Document, ids: &[String], titled: bool) -> String {
     } else {
         let title = doc.title.as_deref().unwrap_or("Selection");
         format!("# {title}\n\n{out}")
+    }
+}
+
+/// A chart as a Markdown table: the header, one row per row (a pie's also
+/// with each slice's share).
+fn chart_table(doc: &Document, g: &Group, out: &mut String, seen: &mut Vec<String>) {
+    let rows = crate::charts::rows_of(doc, &g.id);
+    let n = crate::charts::series_count(doc, g);
+    let pie = matches!(g.chart, Some(ChartKind::Pie | ChartKind::Donut));
+    let total: f64 = rows
+        .iter()
+        .map(|r| r.values.first().copied().flatten().unwrap_or(0.0).max(0.0))
+        .sum();
+    let mut head = vec![g.axis.clone().unwrap_or_default()];
+    head.extend((0..n).map(|k| {
+        if g.series.is_empty() && n == 1 {
+            "value".to_string()
+        } else {
+            crate::charts::series_name(g, k)
+        }
+    }));
+    if pie {
+        head.push("share".into());
+    }
+    let cell = |s: &str| s.replace('|', "/").replace('\n', " ");
+    out.push_str(&format!(
+        "| {} |\n|{}\n",
+        head.iter().map(|h| cell(h)).collect::<Vec<_>>().join(" | "),
+        "---|".repeat(head.len())
+    ));
+    for r in rows {
+        seen.push(r.id.clone());
+        let mut cells = vec![link_md(doc, &cell(r.display()), r.link.as_deref())];
+        cells.extend((0..n).map(|k| dsl::fmt_value(r.values.get(k).copied().flatten())));
+        if pie {
+            let v = r.values.first().copied().flatten().unwrap_or(0.0).max(0.0);
+            cells.push(if total > 0.0 {
+                format!("{}%", (v / total * 100.0).round())
+            } else {
+                "-".into()
+            });
+        }
+        out.push_str(&format!("| {} |\n", cells.join(" | ")));
     }
 }
 

@@ -107,6 +107,9 @@ pub struct NodeBox {
     /// A risk: drawn as a numbered dot on its matrix.
     #[serde(skip_serializing_if = "std::ops::Not::not")]
     pub risk: bool,
+    /// A chart's row: its bars, points or slice (drawn with the chart).
+    #[serde(skip_serializing_if = "std::ops::Not::not")]
+    pub datum: bool,
 }
 
 #[derive(Debug, Clone, Serialize)]
@@ -149,6 +152,9 @@ pub struct GroupBox {
     /// A risk matrix's grid.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub matrix: Option<MatrixBox>,
+    /// A chart (its kind).
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub chart: Option<crate::model::ChartKind>,
 }
 
 /// Where a risk matrix's grid and list are (offsets from the matrix's content
@@ -297,6 +303,7 @@ struct Ctx<'a> {
     lane: Vec<Option<(&'static str, f64)>>,
     gantt: Vec<Option<GanttBox>>,
     matrix: Vec<Option<MatrixBox>>,
+    chart: Vec<bool>,
     /// Position of each node / group relative to its parent block.
     node_pos: Vec<(f64, f64)>,
     group_pos: Vec<(f64, f64)>,
@@ -360,6 +367,7 @@ pub fn layout_at(doc: &Document, today: Option<i64>) -> Layout {
         lane: vec![None; doc.groups.len()],
         gantt: vec![None; doc.groups.len()],
         matrix: vec![None; doc.groups.len()],
+        chart: vec![false; doc.groups.len()],
         node_pos: vec![(0.0, 0.0); doc.nodes.len()],
         group_pos: vec![(0.0, 0.0); doc.groups.len()],
         group_index: doc
@@ -427,7 +435,10 @@ pub fn layout_at(doc: &Document, today: Option<i64>) -> Layout {
         // pinned swimlanes and gantt charts (not a lane: lanes are bands)
         let g = &ctx.doc.groups[i];
         let (ox, oy, rx, ry) = match (g.x, g.y) {
-            (Some(x), Some(y)) if (g.lanes || g.gantt || g.risks) && ctx.lane[i].is_none() => {
+            (Some(x), Some(y))
+                if (g.lanes || g.gantt || g.risks || g.chart.is_some())
+                    && ctx.lane[i].is_none() =>
+            {
                 (x, y, 0.0, 0.0)
             }
             _ => (ox, oy, rx, ry),
@@ -533,6 +544,7 @@ pub fn layout_at(doc: &Document, today: Option<i64>) -> Layout {
             map,
             task: parent_of_node[i].is_some_and(|g| ctx.gantt[g].is_some()),
             risk: parent_of_node[i].is_some_and(|g| ctx.matrix[g].is_some()),
+            datum: parent_of_node[i].is_some_and(|g| ctx.chart[g]),
         });
     }
 
@@ -594,6 +606,7 @@ pub fn layout_at(doc: &Document, today: Option<i64>) -> Layout {
                 gb.left = rects[i].x + GROUP_PAD + gb.x0;
                 gb
             }),
+            chart: g.chart,
             matrix: ctx.matrix[i].clone().map(|mut m| {
                 m.left = rects[i].x + GROUP_PAD + m.x0;
                 m.top = rects[i].y + GROUP_HEAD + m.y0;
@@ -690,6 +703,8 @@ fn members(
                 gantt_block(ctx, i)
             } else if ctx.doc.groups[i].risks {
                 matrix_block(ctx, i)
+            } else if ctx.doc.groups[i].chart.is_some() {
+                chart_block(ctx, i)
             } else {
                 block(ctx, Some(i), pn, pg)
             };
@@ -713,7 +728,10 @@ impl Ctx<'_> {
     /// Laid out by its own rules (lanes, a timeline, a grid): members are
     /// not placed by the flow, and pins inside it do not count.
     fn fixed(&self, g: usize) -> bool {
-        self.lane[g].is_some() || self.gantt[g].is_some() || self.matrix[g].is_some()
+        self.lane[g].is_some()
+            || self.gantt[g].is_some()
+            || self.matrix[g].is_some()
+            || self.chart[g]
     }
 }
 
@@ -772,6 +790,8 @@ fn lanes_block(ctx: &mut Ctx, g: usize, pn: &[Option<usize>], pg: &[Option<usize
                 gantt_block(ctx, c)
             } else if ctx.doc.groups[c].risks {
                 matrix_block(ctx, c)
+            } else if ctx.doc.groups[c].chart.is_some() {
+                chart_block(ctx, c)
             } else {
                 block(ctx, Some(c), pn, pg)
             };
@@ -918,6 +938,20 @@ fn lanes_block(ctx: &mut Ctx, g: usize, pn: &[Option<usize>], pg: &[Option<usize
     } else {
         (at, length)
     }
+}
+
+/// A chart: its rows are where [`crate::charts::plot`] puts their bars,
+/// points or slices. Returns the chart's content size.
+fn chart_block(ctx: &mut Ctx, g: usize) -> (f64, f64) {
+    let plot = crate::charts::plot(ctx.doc, &ctx.doc.groups[g]);
+    ctx.chart[g] = true;
+    for (id, r) in &plot.rows {
+        if let Some(&i) = ctx.node_index.get(id.as_str()) {
+            ctx.sizes[i] = (r.w.max(1.0), r.h.max(1.0));
+            ctx.node_pos[i] = (r.x, r.y);
+        }
+    }
+    (plot.w, plot.h)
 }
 
 /// A risk matrix: a grid of probability (rows, likeliest on top) by impact

@@ -308,6 +308,11 @@ pub fn render(doc: &Document, opts: &RenderOptions) -> Rendered {
         if let Some(m) = &gb.matrix {
             matrix_svg(&mut s, doc, gb, m, p, t);
         }
+        if gb.chart.is_some() {
+            if let Some(g) = doc.group(&gb.id) {
+                chart_svg(&mut s, doc, g, gb, p, t);
+            }
+        }
     }
     s.push_str("</g>");
 
@@ -421,6 +426,7 @@ pub fn render(doc: &Document, opts: &RenderOptions) -> Rendered {
         match nb.map.as_ref().and_then(|m| m.style) {
             _ if nb.task => task_svg(&mut s, node, nb, p, t, change),
             _ if nb.risk => risk_svg(&mut s, doc, node, nb, p, t, change),
+            _ if nb.datum => datum_svg(&mut s, doc, node, nb, p, change),
             Some(st) => map_node_svg(&mut s, node, nb, st, p, t, change),
             None => node_svg(&mut s, node, nb, p, t, change),
         }
@@ -836,6 +842,142 @@ fn gantt_svg(
         }
     }
     s.push_str("</g>");
+}
+
+/// A chart's marks (see [`crate::charts::plot`]), under its rows' hit areas.
+fn chart_svg(
+    s: &mut String,
+    doc: &Document,
+    g: &Group,
+    gb: &layout::GroupBox,
+    p: &Palette,
+    t: Theme,
+) {
+    use crate::charts::{Mark, Paint};
+    let (ox, oy) = (
+        gb.rect.x + layout::GROUP_PAD,
+        gb.rect.y + layout::GROUP_HEAD,
+    );
+    let plot = crate::charts::plot(doc, g);
+    let paint = |k: &Paint| -> String {
+        match k {
+            Paint::Color(c) => theme::tint(c, t)
+                .map(|k| k.accent)
+                .unwrap_or_else(|| c.clone()),
+            Paint::Fg => p.fg.to_string(),
+            Paint::Muted => p.muted.to_string(),
+            Paint::Grid => p.node_stroke.to_string(),
+            Paint::Bg => p.group_fill.to_string(),
+        }
+    };
+    s.push_str(r#"<g class="dg-chart">"#);
+    for m in &plot.marks {
+        let _ = match m {
+            Mark::Rect { r, paint: k, round } => write!(
+                s,
+                r#"<rect x="{}" y="{}" width="{}" height="{}" rx="{}" fill="{}"/>"#,
+                n(ox + r.x),
+                n(oy + r.y),
+                n(r.w),
+                n(r.h),
+                n(round.min(r.w / 2.0).min(r.h / 2.0)),
+                paint(k)
+            ),
+            Mark::Line {
+                x1,
+                y1,
+                x2,
+                y2,
+                paint: k,
+                width,
+            } => write!(
+                s,
+                r#"<line x1="{}" y1="{}" x2="{}" y2="{}" stroke="{}" stroke-width="{}"/>"#,
+                n(ox + x1),
+                n(oy + y1),
+                n(ox + x2),
+                n(oy + y2),
+                paint(k),
+                n(*width)
+            ),
+            Mark::Path {
+                d,
+                stroke,
+                fill,
+                width,
+                opacity,
+            } => write!(
+                s,
+                r#"<path transform="translate({},{})" d="{d}" fill="{}" fill-opacity="{}" stroke="{}" stroke-width="{}" stroke-linejoin="round" fill-rule="evenodd"/>"#,
+                n(ox),
+                n(oy),
+                fill.as_ref().map_or("none".into(), paint),
+                n(*opacity),
+                stroke.as_ref().map_or("none".into(), paint),
+                n(*width)
+            ),
+            Mark::Circle {
+                cx,
+                cy,
+                r,
+                paint: k,
+            } => write!(
+                s,
+                r#"<circle cx="{}" cy="{}" r="{}" fill="{}" stroke="{}" stroke-width="1.5"/>"#,
+                n(ox + cx),
+                n(oy + cy),
+                n(*r),
+                paint(k),
+                p.group_fill
+            ),
+            Mark::Text {
+                x,
+                y,
+                text,
+                size,
+                anchor,
+                paint: k,
+                bold,
+            } => write!(
+                s,
+                r#"<text x="{}" y="{}" font-size="{}" text-anchor="{anchor}" fill="{}"{}>{}</text>"#,
+                n(ox + x),
+                n(oy + y),
+                n(*size),
+                paint(k),
+                if *bold { r#" font-weight="700""# } else { "" },
+                esc(text)
+            ),
+        };
+    }
+    s.push_str("</g>");
+}
+
+/// A chart's row: an invisible area over its bars, points or slice, to
+/// select, comment on and hover (its values show).
+fn datum_svg(
+    s: &mut String,
+    doc: &Document,
+    node: &Node,
+    nb: &layout::NodeBox,
+    p: &Palette,
+    change: Option<Change>,
+) {
+    let r = nb.rect;
+    let stroke = match change {
+        Some(c) => change_colors(c, p).1,
+        None => "transparent".into(),
+    };
+    let _ = write!(
+        s,
+        r#"<g class="dg-node dg-datum" data-id="{}"><title>{}</title><rect class="dg-shape" x="{}" y="{}" width="{}" height="{}" rx="3" fill="transparent" stroke="{stroke}" stroke-width="2"/></g>"#,
+        esc(&node.id),
+        esc(&crate::charts::tooltip(doc, node)),
+        n(r.x - 2.0),
+        n(r.y - 2.0),
+        n(r.w + 4.0),
+        n(r.h + 4.0)
+    );
 }
 
 /// A risk matrix's grid (cells tinted by severity), axes and the list of

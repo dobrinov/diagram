@@ -18,6 +18,7 @@
 //! - [`Session`]: a stateful wrapper used by the WASM build and editors
 // the JSON Schema is one large `json!` literal
 #![recursion_limit = "256"]
+pub mod charts;
 pub mod diff;
 pub mod dsl;
 pub mod gantt;
@@ -181,7 +182,8 @@ pub fn json_schema() -> Value {
                 "done": {"type": "number", "minimum": 0, "maximum": 100, "description": "gantt task: percent done"},
                 "owner": {"type": "string", "description": "gantt task or risk: who does it (owns it)"},
                 "probability": {"type": "integer", "minimum": 1, "maximum": 5, "description": "risk: how likely"},
-                "impact": {"type": "integer", "minimum": 1, "maximum": 5, "description": "risk: how bad"}
+                "impact": {"type": "integer", "minimum": 1, "maximum": 5, "description": "risk: how bad"},
+                "values": {"type": "array", "items": {"type": ["number", "null"]}, "description": "chart row: one value per series"}
             }}},
             "edges": {"type": "array", "items": {"type": "object", "required": ["from", "to"], "additionalProperties": false, "properties": {
                 "id": {"type": "string", "description": "defaults to from->to"},
@@ -199,6 +201,13 @@ pub fn json_schema() -> Value {
                 "scale": e(&["day", "week", "month", "quarter"]),
                 "risks": {"type": "boolean", "description": "risk matrix: the nodes inside are risks"},
                 "levels": {"type": "integer", "minimum": 3, "maximum": 5, "description": "risk matrix: levels of probability and impact (5 by default)"},
+                "chart": e(&["bar", "line", "area", "pie", "donut", "scatter"]),
+                "stacked": {"type": "boolean", "description": "chart: series stacked"},
+                "horizontal": {"type": "boolean", "description": "bar chart: bars across"},
+                "unit": {"type": "string", "description": "chart: what values are in ($ € £ ¥ go in front)"},
+                "series": {"type": "array", "items": {"type": "string"}, "description": "chart: the series' names"},
+                "axis": {"type": "string", "description": "chart: what the rows are"},
+                "w": {"type": "number"}, "h": {"type": "number"},
                 "x": {"type": "number", "description": "swimlanes / gantt chart: pinned left edge"},
                 "y": {"type": "number", "description": "swimlanes / gantt chart: pinned top edge"}
             }}},

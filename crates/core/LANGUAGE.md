@@ -51,6 +51,7 @@ Edits keep the file as it is written. Ops, the editor and `diagram apply` rewrit
 | `group id: Label [attrs] {` … `}` | a group (a *section* in the editor): a titled frame around what is declared or listed inside. Groups nest. |
 | `lanes id: Title {` … `lane id: Title {` … `}` … `}` | swimlanes: each `lane` is a band (a row when the flow runs right or left, a column when it runs down or up) with its title at the side; the flow runs across lanes |
 | `gantt id: Title [start: YYYY-MM-DD] {` … `}` | a gantt chart: one task per line, `Label [5d, after: other-task]` (see *Gantt charts*) |
+| `chart id: Title [bar] {` … `}` | a chart: a small table, `Q1 \| 120 \| 80` (see *Charts*) |
 | `risks id: Title [scale: 5] {` … `}` | a risk matrix: one risk per line, `Label [p: 4, i: 3, owner: ana, detail: "…"]` (see *Risk matrices*) |
 | `mindmap id: Topic [attrs] {` … `}` | a mindmap: the line is its central topic and the body is an indented outline (see *Mindmaps*) |
 | `comment [id] [on target] [at x,y] [by author]: text [attrs]` | a review comment. Ids default to `c1`, `c2`, … |
@@ -139,6 +140,27 @@ gantt launch: Launch plan [start: 2026-10-12] {
 - `x`/`y` on the chart (`[start: …, x: 400, y: 120]`) pin it, as dragging it in the editor does.
 - `scale: day | week | month | quarter` sets the timeline's resolution (week when left out): lines and dates at each day, Monday, 1st of the month or quarter. In JSON it is the group's `scale`.
 - In the editor: drag a bar to reschedule it and its end to change its duration (right-click → *Duration…* to type one); draw an arrow from one bar to another to make the second wait for the first (right-click the dependency line to remove it, or a task → *Starts after…*); right-click a task → *Colour…* to colour its bar, *Progress…*, *Owner…* or *Make it a milestone*; a red line marks today; right-click the chart → *Scale…*.
+
+### Charts
+
+```diagram
+chart revenue: Revenue by quarter [bar, stacked, unit: k€] {
+  quarter | EU  | US
+  Q1      | 120 | 80
+  Q2      | 150 | 95
+}
+chart share: Market share [pie, unit: %] {
+  Jira 45
+  Linear 25
+  Other 30
+}
+```
+
+- The type: `bar` (also `stacked`, `horizontal`), `line`, `area` (`stacked`), `pie`, `donut` (the total in the middle) or `scatter` (each row is `label | x | y`). `unit: %` / `k€` / `ms` goes after values (`$ € £ ¥` in front); `w:` / `h:` size it; `x:` / `y:` pin it.
+- Each line is a row: its label, then one value per series, separated by `|` (`-` or nothing for none; `1,200` and `40%` are numbers). One value can follow the label after a space (`Jira 45`). A first row whose cells are not numbers is the header: what the rows are, then the series' names (shown in the legend).
+- Rows are nodes with ids from their chart and label (`revenue.q1`), so arrows, comments and links can point at a bar, a point or a slice; hovering one shows its values. A colour on a row colours its bar or slice. Renaming a chart renames its rows.
+- In the editor: the *Chart* tool; right-click a chart → *Edit data…* (the table as text), *Type…*, *Stacked*, *Horizontal bars*, *Unit…*; right-click a row → *Values…*, *Rename*, *Colour…*. Dragging a row moves the chart.
+- Prompts show a chart as a Markdown table (a pie also with each slice's share). In JSON a chart is a group with `chart` (and `stacked`, `horizontal`, `unit`, `series`, `axis`); its rows are nodes with `values`.
 
 ### Risk matrices
 
