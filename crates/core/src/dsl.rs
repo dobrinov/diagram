@@ -219,7 +219,7 @@ impl Parser {
             a.edge_op().is_some() || a.rest().starts_with(',')
         };
         let word = match word {
-            "group" | "gantt" | "risks" | "chart" | "mindmap" if !opens => "",
+            "group" | "gantt" | "risks" | "chart" | "table" | "mindmap" if !opens => "",
             "comment" | "reply" if arrow_next => "",
             w => w,
         };
@@ -256,6 +256,10 @@ impl Parser {
             "chart" if c.rest()[5..].starts_with(|ch: char| ch.is_whitespace()) => {
                 c.advance(5);
                 return self.chart_decl(c);
+            }
+            "table" if c.rest()[5..].starts_with(|ch: char| ch.is_whitespace()) => {
+                c.advance(5);
+                return self.table_decl(c);
             }
             "reply" if c.rest()[5..].starts_with(|ch: char| ch.is_whitespace()) => {
                 c.advance(5);
@@ -528,6 +532,97 @@ impl Parser {
         Ok(())
     }
 
+    /// `table id: Title [attrs] {` … a header row, then rows … `}`.
+    fn table_decl(&mut self, mut c: Cursor) -> Result<(), String> {
+        c.skip_ws();
+        let (id, qlabel) = c.reference()?;
+        let (label, attrs) = label_and_attrs_until_brace(&mut c)?;
+        c.skip_ws();
+        if !c.eat('{') {
+            return Err(
+                "a table needs a body: `table id: Title {` … a header row, then rows … `}`".into(),
+            );
+        }
+        c.skip_ws();
+        let closes_inline = c.eat('}');
+        if !c.at_end() {
+            return Err("put the table's rows on the following lines".into());
+        }
+        if self.doc.node(&id).is_some() {
+            return Err(format!("`{id}` is already a node"));
+        }
+        let parent = self.group();
+        if self.doc.group(&id).is_none() {
+            self.doc.groups.push(Group {
+                id: id.clone(),
+                ..Default::default()
+            });
+        }
+        let g = self.doc.group_mut(&id).unwrap();
+        g.parent = parent;
+        g.table = true;
+        if let Some(l) = label.or(qlabel) {
+            g.label = l;
+        }
+        for (k, v) in &attrs {
+            match (k.as_str(), v) {
+                ("color" | "colour", Some(v)) => g.color = Some(color(v)?),
+                (c, None) if valid_color(c) => g.color = Some(c.to_string()),
+                ("x", Some(v)) => g.x = Some(num("x", v)?),
+                ("y", Some(v)) => g.y = Some(num("y", v)?),
+                ("w" | "width", Some(v)) => g.w = Some(num("w", v)?),
+                (k, _) => return Err(format!("unknown table attribute `{k}` (color, x, y, w)")),
+            }
+        }
+        self.touched.push(Elem::Group(id.clone()));
+        if !closes_inline {
+            self.gantt = Some((id, self.line));
+        }
+        Ok(())
+    }
+
+    /// A row of a table, `Local | $0 | 40 ms [green]`; the first is the header.
+    fn table_line(&mut self, table: &str, t: &str) -> Result<(), String> {
+        let (text, attrs) = split_attrs(t);
+        let cells: Vec<String> = split_cells(text);
+        let g = self.doc.group(table).unwrap();
+        if g.columns.is_empty() {
+            self.doc.group_mut(table).unwrap().columns = cells;
+            self.touched.push(Elem::Group(table.to_string()));
+            return Ok(());
+        }
+        let label = unescape_label(&cells[0]);
+        let mut attrs = parse_attrs(attrs.unwrap_or(""))?;
+        let mut explicit = None;
+        attrs.retain(|(k, v)| match (k.as_str(), v) {
+            ("id", Some(v)) => {
+                explicit = Some(v.clone());
+                false
+            }
+            _ => true,
+        });
+        let wanted = explicit.clone().unwrap_or_else(|| row_id(table, &label));
+        let id = if !self.doc.id_taken(&wanted) {
+            wanted
+        } else if explicit.is_some() {
+            return Err(format!("id `{wanted}` is already used"));
+        } else {
+            self.doc.fresh_id(&wanted)
+        };
+        let mut n = Node::new(&id);
+        n.label = label;
+        n.group = Some(table.to_string());
+        n.cells = cells[1..].iter().map(|c| unescape_label(c)).collect();
+        // empty cells at the end are no cells
+        while n.cells.last().is_some_and(|c| c.is_empty()) {
+            n.cells.pop();
+        }
+        apply_node_attrs(&mut n, &attrs)?;
+        self.touched.push(Elem::Node(n.id.clone()));
+        self.doc.nodes.push(n);
+        Ok(())
+    }
+
     /// A row of a chart: `Q1 | 120 | 80` or `Linear 40` (with optional
     /// `[attrs]`); the first row is the header when its cells are not numbers.
     fn chart_line(&mut self, chart: &str, t: &str) -> Result<(), String> {
@@ -604,6 +699,9 @@ impl Parser {
         let block = self.gantt.as_ref().unwrap().0.clone();
         if self.doc.group(&block).is_some_and(|g| g.chart.is_some()) {
             return self.chart_line(&block, t);
+        }
+        if self.doc.group(&block).is_some_and(|g| g.table) {
+            return self.table_line(&block, t);
         }
         let t = crate::mindmap::strip_bullet(t);
         let (text, attrs) = split_attrs(t);
@@ -1570,6 +1668,85 @@ pub(crate) fn gantt_block(doc: &Document, g: &Group, pad: &str, out: &mut String
     out.push_str(&format!("{pad}}}\n"));
 }
 
+/// A table: its header and one row per node, columns lined up.
+pub(crate) fn table_block(doc: &Document, g: &Group, pad: &str, out: &mut String) {
+    let mut head = id_text(&g.id);
+    if !g.label.is_empty() && g.label != g.id {
+        head.push_str(": ");
+        head.push_str(&label_text(&g.label));
+    }
+    let mut a = Vec::new();
+    if let Some(c) = &g.color {
+        a.push(if c.starts_with('#') {
+            format!("color: {c}")
+        } else {
+            c.clone()
+        });
+    }
+    if let Some(w) = g.w {
+        a.push(format!("w: {}", fmt_num(w)));
+    }
+    a.extend(group_pos(g));
+    head.push_str(&attrs_text(&a));
+    let rows: Vec<&Node> = doc
+        .nodes
+        .iter()
+        .filter(|n| n.group.as_deref() == Some(g.id.as_str()))
+        .collect();
+    if rows.is_empty() && g.columns.is_empty() {
+        out.push_str(&format!("{pad}table {head} {{}}\n"));
+        return;
+    }
+    out.push_str(&format!("{pad}table {head} {{\n"));
+    // every line's cells, then each column as wide as its widest cell
+    let mut lines: Vec<(Vec<String>, String)> = vec![(
+        g.columns.iter().map(|c| cell_text(c)).collect(),
+        String::new(),
+    )];
+    for n in rows {
+        let mut cells = vec![cell_text(n.display())];
+        cells.extend(n.cells.iter().map(|c| cell_text(c)));
+        while cells.len() > 1 && cells.last().is_some_and(|c| c.is_empty()) {
+            cells.pop();
+        }
+        let mut m = n.clone();
+        m.cells.clear();
+        let mut a = node_attrs(&m);
+        if row_id(&g.id, n.display()) != n.id {
+            a.insert(0, format!("id: {}", attr_value(&n.id)));
+        }
+        lines.push((cells, attrs_text(&a)));
+    }
+    let cols = lines.iter().map(|l| l.0.len()).max().unwrap_or(0);
+    let width: Vec<usize> = (0..cols)
+        .map(|k| {
+            lines
+                .iter()
+                .filter_map(|l| l.0.get(k))
+                .map(|c| c.chars().count())
+                .max()
+                .unwrap_or(0)
+                .min(24)
+        })
+        .collect();
+    for (cells, attrs) in lines {
+        let n = cells.len();
+        let row: Vec<String> = cells
+            .into_iter()
+            .enumerate()
+            .map(|(k, c)| {
+                if k + 1 < n {
+                    format!("{c:<w$}", w = width[k])
+                } else {
+                    c
+                }
+            })
+            .collect();
+        out.push_str(&format!("{pad}  {}{attrs}\n", row.join(" | ").trim_end()));
+    }
+    out.push_str(&format!("{pad}}}\n"));
+}
+
 /// A chart: its header row and one row per node.
 pub(crate) fn chart_block(doc: &Document, g: &Group, pad: &str, out: &mut String) {
     let mut head = id_text(&g.id);
@@ -1725,6 +1902,28 @@ fn resolve_after(doc: &mut Document) {
             }
         }
     }
+}
+
+/// A table row's cells: split at `|` (`\\|` is a `|` in a cell), trimmed.
+fn split_cells(text: &str) -> Vec<String> {
+    let mut out = vec![String::new()];
+    let mut chars = text.chars().peekable();
+    while let Some(c) = chars.next() {
+        match c {
+            '\\' if chars.peek() == Some(&'|') => {
+                out.last_mut().unwrap().push('|');
+                chars.next();
+            }
+            '|' => out.push(String::new()),
+            c => out.last_mut().unwrap().push(c),
+        }
+    }
+    out.into_iter().map(|c| c.trim().to_string()).collect()
+}
+
+/// A table cell as written: `|` escaped, line breaks as `\\n`.
+fn cell_text(s: &str) -> String {
+    s.replace('|', "\\|").replace('\n', "\\n")
 }
 
 /// A chart row's id: the chart's, then the row's label (`revenue.q1`).
@@ -1997,6 +2196,10 @@ pub(crate) fn group_block(
     let pad = "  ".repeat(depth);
     if g.chart.is_some() {
         chart_block(doc, g, &pad, out);
+        return;
+    }
+    if g.table {
+        table_block(doc, g, &pad, out);
         return;
     }
     if g.gantt || g.risks {

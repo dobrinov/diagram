@@ -135,6 +135,7 @@ pub const OPS_REFERENCE: &str = r#"Operations (fields in [] are optional; ids ar
 - {"op":"resolve_comment","id":"c1",["resolution":"what was done"]}  {"op":"reopen_comment","id":"c1"}
 - {"op":"set","key":"title|description|direction|layout|routing|theme","value":"…"}
 - {"op":"merge","dsl":"cache: Redis [cylinder]\napi -> cache: reads\napi [red]"}   (statements in the diagram language, as if written at the end of the file: adds new elements; one written again by its id gets the attributes given. Cheapest for many changes)
+- Table: {"op":"add_group","id":"opts","label":"Options","columns":["option","cost","notes"]}; its rows are add_node / update_node with "group":"opts","label":"Local" (the first cell),"cells":["$0","needs a GPU"]. Or merge: "table opts: Options {\n  option | cost | notes\n  Local | $0 | needs a GPU\n}"
 - Chart: {"op":"add_group","id":"rev","label":"Revenue","chart":"bar|line|area|pie|donut|scatter",["stacked":true,"horizontal":true,"unit":"%","series":["EU","US"],"axis":"quarter"]}; its rows are add_node / update_node with "group":"rev","label":"Q1","values":[120,80] (one per series, null for none). Or simpler, merge: "chart rev: Revenue [bar] {\n  quarter | EU | US\n  Q1 | 120 | 80\n}"
 - Risk matrix: {"op":"add_group","id":"risks","label":"Risks","risks":true,["levels":3|4|5]}; its risks are add_node / update_node with "group":"risks" and ["probability":1-5,"impact":1-5,"owner","detail" (the description)]
 - Gantt: a chart is {"op":"add_group","id":"plan","label":"Plan","gantt":true,["start":"YYYY-MM-DD","scale":"day|week|month|quarter"]}; its tasks are add_node / update_node with "group":"plan" and ["start","days","after":["id"],"milestone":true,"done":60,"owner":"ana"] (after may name tasks in other charts)
@@ -599,7 +600,9 @@ fn selection_core(doc: &Document, ids: &[String], titled: bool) -> String {
         if !out.is_empty() {
             out.push('\n');
         }
-        let kind = if let Some(c) = g.chart {
+        let kind = if g.table {
+            " (table)".to_string()
+        } else if let Some(c) = g.chart {
             let mut k = format!(" ({} chart", c.as_str());
             if g.stacked {
                 k.push_str(", stacked");
@@ -716,6 +719,8 @@ fn selection_core(doc: &Document, ids: &[String], titled: bool) -> String {
             }
         } else if g.chart.is_some() {
             chart_table(doc, g, out, seen);
+        } else if g.table {
+            data_table(doc, g, out, seen);
         } else if g.risks {
             // worst first
             let n = crate::risks::levels(g);
@@ -836,6 +841,33 @@ fn selection_core(doc: &Document, ids: &[String], titled: bool) -> String {
     } else {
         let title = doc.title.as_deref().unwrap_or("Selection");
         format!("# {title}\n\n{out}")
+    }
+}
+
+/// A table as a Markdown table.
+fn data_table(doc: &Document, g: &Group, out: &mut String, seen: &mut Vec<String>) {
+    let rows = crate::tables::rows_of(doc, &g.id);
+    let n = rows
+        .iter()
+        .map(|r| r.cells.len() + 1)
+        .max()
+        .unwrap_or(1)
+        .max(g.columns.len())
+        .max(1);
+    let cell = |s: &str| s.replace('|', "\\|").replace('\n', "<br>");
+    let head: Vec<String> = (0..n)
+        .map(|k| cell(g.columns.get(k).map(|s| s.as_str()).unwrap_or("")))
+        .collect();
+    out.push_str(&format!(
+        "| {} |\n|{}\n",
+        head.join(" | "),
+        "---|".repeat(n)
+    ));
+    for r in rows {
+        seen.push(r.id.clone());
+        let mut cells = vec![link_md(doc, &cell(r.display()), r.link.as_deref())];
+        cells.extend((1..n).map(|k| cell(r.cells.get(k - 1).map(|s| s.as_str()).unwrap_or(""))));
+        out.push_str(&format!("| {} |\n", cells.join(" | ")));
     }
 }
 

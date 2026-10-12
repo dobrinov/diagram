@@ -46,6 +46,7 @@
     theme: '<circle cx="12" cy="12" r="8"/><path d="M12 4a8 8 0 000 16z" fill="currentColor"/>',
     tidy: '<path d="M4 6h7M4 12h11M4 18h16"/>',
     decision: '<path d="M12 3l9 9-9 9-9-9z"/>',
+    table: '<rect x="4" y="5" width="16" height="14" rx="2"/><path d="M4 5h16v4.5H4z" fill="currentColor" stroke="none"/><path d="M4 14.25h16M10 9.5V19M15 9.5V19"/>',
     chart: '<path d="M4 20h16"/><rect x="6" y="11" width="3" height="7" rx="0.5" fill="currentColor" stroke="none"/><rect x="11" y="6" width="3" height="12" rx="0.5" fill="currentColor" stroke="none"/><rect x="16" y="9" width="3" height="9" rx="0.5" fill="currentColor" stroke="none"/>',
     risks: '<rect x="4" y="4" width="16" height="16" rx="2"/><path d="M4 12h16M12 4v16"/><circle cx="16" cy="8" r="2" fill="currentColor" stroke="none"/><circle cx="8.5" cy="15.5" r="1.6" fill="currentColor" stroke="none"/>',
     gantt: '<path d="M4 4v16h16"/><rect x="7" y="6.5" width="7" height="3" rx="1" fill="currentColor" stroke="none"/><rect x="11" y="11" width="8" height="3" rx="1" fill="currentColor" stroke="none"/><rect x="9" y="15.5" width="5" height="3" rx="1" fill="currentColor" stroke="none"/>',
@@ -225,6 +226,7 @@
           if (i === 1) {
             tools.appendChild(btn({ class: "dge-tool", "data-act": "lanes", title: "Swimlanes: lanes the flow runs across; the selected blocks go in the first lane. Drop blocks into a lane to move them there.", onclick: function () { canvas.focus({ preventScroll: true }); addSwimlanes(); } }, icon("lanes")));
             tools.appendChild(btn({ class: "dge-tool", "data-act": "gantt", title: "Gantt chart: tasks on a timeline. Drag a bar to reschedule it; right-click a task to change its length or add one after it.", onclick: function () { canvas.focus({ preventScroll: true }); addGantt(); } }, icon("gantt")));
+            tools.appendChild(btn({ class: "dge-tool", "data-act": "table", title: "Table: rows and columns of text. Right-click it to edit it as text or add a row.", onclick: function () { canvas.focus({ preventScroll: true }); addTable(); } }, icon("table")));
             tools.appendChild(btn({ class: "dge-tool", "data-act": "chart", title: "Chart: bars, lines, areas, pie, donut or scatter from a small table. Right-click it to change the type or edit the data.", onclick: function () { canvas.focus({ preventScroll: true }); addChart(); } }, icon("chart")));
             tools.appendChild(btn({ class: "dge-tool", "data-act": "risks", title: "Risk matrix: risks by probability and impact. Drag a dot to another cell to re-rate it; hover it for its description.", onclick: function () { canvas.focus({ preventScroll: true }); addRisks(); } }, icon("risks")));
             tools.appendChild(btn({ class: "dge-tool", "data-act": "section", title: "Section (" + MOD + "G): put the selected blocks in a titled section. Drag blocks in or out of a section to change what is in it.", onclick: function () { canvas.focus({ preventScroll: true }); groupSelection(); } }, icon("section")));
@@ -955,6 +957,40 @@
           ["Delete", function () { applyOps([{ op: "remove", id: t.id }]); select([]); }]
         ].filter(Boolean);
       }
+      if (t.type === "node" && !view && tableOf(t.id)) {
+        var tr = node(t.id), tg = tableOf(t.id);
+        return [
+          ["Edit row…", function () {
+            askAt(st.menuAt, [tr.label || tr.id].concat(tr.cells || []).join(" | "), (tg.columns || []).join(" | "), function (v) {
+              var c = splitCells(v), ops = [];
+              ops.push({ op: "update_node", id: relabel(tr, tg.id, c[0] || "—", ops), label: c[0] || "—", cells: c.slice(1) });
+              applyOps(ops);
+            });
+          }, "Its cells, separated by |"],
+          ["Add row below", function () {
+            var all = st.doc.nodes.filter(function (n) { return n.group === tg.id; });
+            applyOps([{ op: "add_node", id: freshId(tg.id + ".new-row"), label: "New row", group: tg.id, index: all.indexOf(tr) + 1 }]);
+          }],
+          ["Colour…", function () { colourMenu(t.id, "update_node", tr.color); }, "Tint the row"],
+          ["Edit as text…", function () { editTable(tg.id); }, "The whole table"],
+          "-",
+          ["Delete row", function () { applyOps([{ op: "remove", id: t.id }]); select([]); }]
+        ];
+      }
+      if (gr && !view && gr.table) return [
+        ["Rename", function () { editLabel(t.id); }],
+        ["Edit as text…", function () { editTable(t.id); }, "Rows and columns, separated by |"],
+        ["Add row", function () {
+          var rows = [gr.columns || []].concat(st.doc.nodes.filter(function (n) { return n.group === t.id; }).map(function (n) { return [n.label || n.id].concat(n.cells || []); }));
+          rows.push(["New row"]);
+          applyOps(tableOps(t.id, rows));
+        }],
+        ["Add column", function () {
+          askAt(st.menuAt, "", "Column name", function (v) { applyOps([{ op: "update_group", id: t.id, columns: (gr.columns || []).concat([v]) }]); });
+        }],
+        "-",
+        ["Delete", function () { applyOps([{ op: "remove", id: t.id, keep_members: false }]); select([]); }, "The table and its rows"]
+      ];
       if (t.type === "node" && !view && plotOf(t.id)) {
         var row = node(t.id), pg = plotOf(t.id);
         return [
@@ -1505,14 +1541,80 @@
     function blockOf(gid) {
       var g = gid && group(gid);
       if (!g) return null;
-      if (g.lanes || g.gantt || g.risks || g.chart) return g.id;
+      if (g.lanes || g.gantt || g.risks || g.chart || g.table) return g.id;
       var up = g.parent && group(g.parent);
       return up && up.lanes ? up.id : null;
     }
     function chartOf(id) { var n = node(id), g = n && n.group && group(n.group); return g && g.gantt ? g : null; }
     function matrixOf(id) { var n = node(id), g = n && n.group && group(n.group); return g && g.risks ? g : null; }
     /* The chart a row belongs to. */
-    function plotOf(id) { var n = node(id), g = n && n.group && group(n.group); return g && g.chart ? g : null; }
+    function plotOf(id) { var n = node(id), g = n && n.group && group(n.group); return g && (g.chart || g.table) ? g : null; }
+    function tableOf(id) { var n = node(id), g = n && n.group && group(n.group); return g && g.table ? g : null; }
+    /* A table with a header and two rows; its title is typed next. */
+    function addTable() {
+      var gid = freshId("table");
+      var res = applyOps([{ op: "merge", dsl: "table " + gid + ": Table {\n  item | owner | notes\n  First | | \n  Second | | \n}" }]);
+      if (res.ok) {
+        select([gid]);
+        reveal(gid);
+        editLabel(gid, true);
+      }
+    }
+    /* A row whose id came from its label (`table.first`) follows a new label: a
+       rename op (comments, links and arrows go along). Returns the id to use. */
+    function relabel(row, gid, label, ops, taken) {
+      var auto = gid + "." + slug(row.label || row.id), want = gid + "." + slug(label);
+      if (row.id !== auto || want === row.id || idTaken(want) || (taken && taken.indexOf(want) >= 0)) return row.id;
+      ops.push({ op: "rename", id: row.id, to: want });
+      if (taken) taken.push(want);
+      return want;
+    }
+    function splitCells(line) {
+      return line.split(/(?<!\\)\|/).map(function (c) { return c.replace(/\\\|/g, "|").trim(); });
+    }
+    function tableText(gid) {
+      var g = group(gid), esc = function (c) { return String(c).replace(/\|/g, "\\|"); };
+      var lines = [(g.columns || []).map(esc).join(" | ")];
+      st.doc.nodes.filter(function (n) { return n.group === gid; }).forEach(function (n) {
+        lines.push([n.label || n.id].concat(n.cells || []).map(esc).join(" | "));
+      });
+      return lines.join("\n");
+    }
+    /* Ops that make table `gid` hold `rows` (the first is the header); rows keep their ids by position. */
+    function tableOps(gid, rows) {
+      var ops = [{ op: "update_group", id: gid, columns: rows.length ? rows[0] : [] }];
+      var have = st.doc.nodes.filter(function (n) { return n.group === gid; }), taken = [];
+      rows.slice(1).forEach(function (c, i) {
+        var label = c[0] || "—", cells = c.slice(1);
+        while (cells.length && cells[cells.length - 1] === "") cells.pop();
+        if (have[i]) ops.push({ op: "update_node", id: relabel(have[i], gid, label, ops, taken), label: label, cells: cells });
+        else {
+          var base = gid + "." + slug(label), id = base, k = 2;
+          while (idTaken(id) || taken.indexOf(id) >= 0) id = base + "-" + k++;
+          taken.push(id);
+          ops.push({ op: "add_node", id: id, label: label, group: gid, cells: cells });
+        }
+      });
+      have.slice(Math.max(rows.length - 1, 0)).forEach(function (n) { ops.push({ op: "remove", id: n.id }); });
+      return ops;
+    }
+    /* Edit as text…: the table as lines of cells separated by |. */
+    function editTable(gid) {
+      var ta = h("textarea", { class: "dge-chart-data", spellcheck: "false", rows: "12" });
+      ta.value = tableText(gid);
+      var save = function () {
+        var rows = ta.value.split("\n").filter(function (l) { return l.trim(); }).map(splitCells);
+        if (applyOps(tableOps(gid, rows)).ok) closeModal();
+      };
+      showModal("Table: " + (group(gid).label || gid), h("div", {}, [
+        h("p", { class: "dge-muted" }, ["One row per line, cells separated by | (write \\| for a | in a cell). The first line is the header."]),
+        ta
+      ]), [
+        h("button", { onclick: closeModal }, ["Cancel"]),
+        h("button", { class: "primary", onclick: save }, ["Save"])
+      ]);
+      setTimeout(function () { ta.focus(); }, 0);
+    }
     /* A bar chart with a little data; its title is typed next. */
     function addChart() {
       var gid = freshId("chart");
@@ -1572,7 +1674,7 @@
         var taken = [];
         cells.forEach(function (c, i) {
           var values = c.slice(1).map(cellValue);
-          if (rows[i]) ops.push({ op: "update_node", id: rows[i].id, label: c[0], values: values });
+          if (rows[i]) ops.push({ op: "update_node", id: relabel(rows[i], gid, c[0], ops, taken), label: c[0], values: values });
           else {
             var base = gid + "." + slug(c[0]), id = base, k = 2;
             while (idTaken(id) || taken.indexOf(id) >= 0) id = base + "-" + k++;
@@ -1648,7 +1750,11 @@
     }
     function addTask(chart, after) {
       var nid = freshId("task"), op = { op: "add_node", id: nid, label: "New task", group: chart, days: 3 };
-      if (after) op.after = [after];
+      if (after) {
+        op.after = [after];
+        // right below the task it follows
+        op.index = st.doc.nodes.filter(function (n) { return n.group === chart; }).map(function (n) { return n.id; }).indexOf(after) + 1;
+      }
       if (applyOps([op]).ok) {
         select([nid]);
         editLabel(nid, true);

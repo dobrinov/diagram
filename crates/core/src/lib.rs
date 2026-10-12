@@ -31,6 +31,7 @@ pub mod patch;
 pub mod prompt;
 pub mod query;
 pub mod render;
+pub mod tables;
 pub mod risks;
 pub mod route;
 pub mod text;
@@ -183,7 +184,8 @@ pub fn json_schema() -> Value {
                 "owner": {"type": "string", "description": "gantt task or risk: who does it (owns it)"},
                 "probability": {"type": "integer", "minimum": 1, "maximum": 5, "description": "risk: how likely"},
                 "impact": {"type": "integer", "minimum": 1, "maximum": 5, "description": "risk: how bad"},
-                "values": {"type": "array", "items": {"type": ["number", "null"]}, "description": "chart row: one value per series"}
+                "values": {"type": "array", "items": {"type": ["number", "null"]}, "description": "chart row: one value per series"},
+                "cells": {"type": "array", "items": {"type": "string"}, "description": "table row: its cells after the first (the label)"}
             }}},
             "edges": {"type": "array", "items": {"type": "object", "required": ["from", "to"], "additionalProperties": false, "properties": {
                 "id": {"type": "string", "description": "defaults to from->to"},
@@ -207,6 +209,8 @@ pub fn json_schema() -> Value {
                 "unit": {"type": "string", "description": "chart: what values are in ($ € £ ¥ go in front)"},
                 "series": {"type": "array", "items": {"type": "string"}, "description": "chart: the series' names"},
                 "axis": {"type": "string", "description": "chart: what the rows are"},
+                "table": {"type": "boolean", "description": "table: the nodes inside are rows"},
+                "columns": {"type": "array", "items": {"type": "string"}, "description": "table: the columns' names"},
                 "w": {"type": "number"}, "h": {"type": "number"},
                 "x": {"type": "number", "description": "swimlanes / gantt chart: pinned left edge"},
                 "y": {"type": "number", "description": "swimlanes / gantt chart: pinned top edge"}

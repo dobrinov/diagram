@@ -1,0 +1,18 @@
+title: Tables
+
+plan: Delivery plan
+
+table options: Hosting options {
+  option | cost          | latency | notes
+  Local  | $0            | 40 ms   | Needs an 8B model on every laptop; no data leaves the machine
+  Hosted | $1.2k / month | 300 ms  | Data leaves the laptop [red]
+  Hybrid | $400 / month  | 90 ms   | Local first, hosted when the local model fails twice [green]
+}
+table raci: Who does what {
+  task      | lead | PM | VP Eng
+  Discovery | R    | A  | I
+  Spec      | A    | R  | C
+  Release   | R    | C  | A
+}
+
+plan -> options.hybrid: picks

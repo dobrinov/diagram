@@ -131,6 +131,7 @@ fn pick(doc: &Document, sel: &str) -> Result<Vec<String>, String> {
                     "chart" | "gantt" => doc.groups.iter().filter(|g| g.gantt).map(|g| g.id.clone()).collect(),
                     "matrix" | "risks" => doc.groups.iter().filter(|g| g.risks).map(|g| g.id.clone()).collect(),
                     "plot" | "graph" | "data" => doc.groups.iter().filter(|g| g.chart.is_some()).map(|g| g.id.clone()).collect(),
+                    "table" => doc.groups.iter().filter(|g| g.table).map(|g| g.id.clone()).collect(),
                     "lanes" | "swimlanes" => doc.groups.iter().filter(|g| g.lanes).map(|g| g.id.clone()).collect(),
                     k => doc
                         .nodes
@@ -141,7 +142,9 @@ fn pick(doc: &Document, sel: &str) -> Result<Vec<String>, String> {
                             "task" => task(n),
                             "milestone" => n.milestone,
                             "risk" => crate::risks::matrix_of(doc, n).is_some(),
-                            "row" | "datum" => crate::charts::chart_of(doc, n).is_some(),
+                            "row" | "datum" => {
+                                crate::charts::chart_of(doc, n).is_some() || crate::tables::table_of(doc, n).is_some()
+                            }
                             "sticky" => n.shape == Shape::Sticky,
                             "decision" => n.shape == Shape::Diamond,
                             "box" | "node" => !in_map(n) && !task(n),

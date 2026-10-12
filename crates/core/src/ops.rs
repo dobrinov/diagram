@@ -79,6 +79,9 @@ pub enum Op {
         /// Chart row: one value per series (null for none).
         #[serde(default, skip_serializing_if = "Option::is_none")]
         values: Option<Vec<Option<f64>>>,
+        /// Table row: its cells after the first (the label).
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        cells: Option<Vec<String>>,
     },
     UpdateNode {
         id: String,
@@ -140,6 +143,9 @@ pub enum Op {
         /// Chart row: one value per series (null for none).
         #[serde(default, skip_serializing_if = "Option::is_none")]
         values: Option<Vec<Option<f64>>>,
+        /// Table row: its cells after the first (the label).
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        cells: Option<Vec<String>>,
     },
     /// Add topics from an indented outline (or a Markdown list) under
     /// `parent`; without `parent` the first line becomes a new mindmap.
@@ -261,6 +267,12 @@ pub enum Op {
         /// Chart: what the rows are (the header's first cell; "" clears it).
         #[serde(default, skip_serializing_if = "Option::is_none")]
         axis: Option<String>,
+        /// A table (its nodes are rows).
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        table: Option<bool>,
+        /// Table: the columns' names (the header row).
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        columns: Option<Vec<String>>,
     },
     UpdateGroup {
         id: String,
@@ -301,6 +313,12 @@ pub enum Op {
         /// Chart: what the rows are (the header's first cell; "" clears it).
         #[serde(default, skip_serializing_if = "Option::is_none")]
         axis: Option<String>,
+        /// A table (its nodes are rows).
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        table: Option<bool>,
+        /// Table: the columns' names (the header row).
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        columns: Option<Vec<String>>,
     },
     AddComment {
         #[serde(default, skip_serializing_if = "Option::is_none")]
@@ -599,7 +617,7 @@ fn new_id(doc: &Document, wanted: Option<&str>, label: &str) -> Result<String, S
 /// One op. Renaming a chart renames its rows too (`chart.q1` → `revenue.q1`).
 fn apply_one(doc: &mut Document, op: &Op, created: &mut Vec<String>) -> Result<(), String> {
     let rows: Vec<String> = match op {
-        Op::Rename { id, .. } if doc.group(id).is_some_and(|g| g.chart.is_some()) => doc
+        Op::Rename { id, .. } if doc.group(id).is_some_and(|g| g.chart.is_some() || g.table) => doc
             .nodes
             .iter()
             .filter(|n| {
@@ -648,6 +666,7 @@ fn apply_op(doc: &mut Document, op: &Op, created: &mut Vec<String>) -> Result<()
             probability,
             impact,
             values,
+            cells,
         } => {
             let id = new_id(doc, id.as_deref(), label)?;
             let parent = parent.as_deref().filter(|p| !p.is_empty());
@@ -684,9 +703,15 @@ fn apply_op(doc: &mut Document, op: &Op, created: &mut Vec<String>) -> Result<()
             if let Some(v) = values {
                 n.values = v.clone();
             }
+            if let Some(c) = cells {
+                n.cells = c.clone();
+            }
             doc.nodes.push(n);
             if let Some(p) = parent {
                 doc.set_parent(&id, Some(p), *index)?;
+            } else if index.is_some() {
+                // among the other members of its group (rows, tasks)
+                doc.move_among_siblings(&id, *index);
             }
             created.push(id);
         }
@@ -714,6 +739,7 @@ fn apply_op(doc: &mut Document, op: &Op, created: &mut Vec<String>) -> Result<()
             probability,
             impact,
             values,
+            cells,
         } => {
             if let Some(Some(g)) = opt(group) {
                 need_container(doc, &g)?;
@@ -773,6 +799,9 @@ fn apply_op(doc: &mut Document, op: &Op, created: &mut Vec<String>) -> Result<()
             risk(n, probability, impact)?;
             if let Some(v) = values {
                 n.values = v.clone();
+            }
+            if let Some(c) = cells {
+                n.cells = c.clone();
             }
         }
         Op::AddOutline {
@@ -1019,7 +1048,7 @@ fn apply_op(doc: &mut Document, op: &Op, created: &mut Vec<String>) -> Result<()
                 n.y = Some(y.round());
             } else if let Some(g) = doc
                 .group_mut(id)
-                .filter(|g| g.lanes || g.gantt || g.risks || g.chart.is_some())
+                .filter(|g| g.lanes || g.gantt || g.risks || g.chart.is_some() || g.table)
             {
                 // swimlanes and gantt charts move as a whole
                 g.x = Some(x.round());
@@ -1189,6 +1218,8 @@ fn apply_op(doc: &mut Document, op: &Op, created: &mut Vec<String>) -> Result<()
             unit,
             series,
             axis,
+            table,
+            columns,
         } => {
             let id = new_id(
                 doc,
@@ -1214,6 +1245,8 @@ fn apply_op(doc: &mut Document, op: &Op, created: &mut Vec<String>) -> Result<()
                 ..Default::default()
             };
             chart_fields(&mut g, chart, stacked, horizontal, unit, series, axis)?;
+            g.table = table.unwrap_or(false) || columns.is_some();
+            g.columns = columns.clone().unwrap_or_default();
             if let Some(c) = c.as_deref().filter(|c| !c.is_empty()) {
                 g.color = Some(color(c)?);
             }
@@ -1245,6 +1278,8 @@ fn apply_op(doc: &mut Document, op: &Op, created: &mut Vec<String>) -> Result<()
             unit,
             series,
             axis,
+            table,
+            columns,
         } => {
             if let Some(Some(p)) = opt(parent) {
                 need_container(doc, &p)?;
@@ -1277,6 +1312,12 @@ fn apply_op(doc: &mut Document, op: &Op, created: &mut Vec<String>) -> Result<()
                 g.levels = matrix_levels(levels)?;
             }
             chart_fields(g, chart, stacked, horizontal, unit, series, axis)?;
+            if let Some(t) = table {
+                g.table = *t;
+            }
+            if let Some(c) = columns {
+                g.columns = c.clone();
+            }
             if let Some(v) = scale {
                 g.scale = if v.is_empty() {
                     None

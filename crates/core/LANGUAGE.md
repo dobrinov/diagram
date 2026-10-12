@@ -51,6 +51,7 @@ Edits keep the file as it is written. Ops, the editor and `diagram apply` rewrit
 | `group id: Label [attrs] {` … `}` | a group (a *section* in the editor): a titled frame around what is declared or listed inside. Groups nest. |
 | `lanes id: Title {` … `lane id: Title {` … `}` … `}` | swimlanes: each `lane` is a band (a row when the flow runs right or left, a column when it runs down or up) with its title at the side; the flow runs across lanes |
 | `gantt id: Title [start: YYYY-MM-DD] {` … `}` | a gantt chart: one task per line, `Label [5d, after: other-task]` (see *Gantt charts*) |
+| `table id: Title {` … `}` | a table: a header row, then rows of cells separated by `\|` (see *Tables*) |
 | `chart id: Title [bar] {` … `}` | a chart: a small table, `Q1 \| 120 \| 80` (see *Charts*) |
 | `risks id: Title [scale: 5] {` … `}` | a risk matrix: one risk per line, `Label [p: 4, i: 3, owner: ana, detail: "…"]` (see *Risk matrices*) |
 | `mindmap id: Topic [attrs] {` … `}` | a mindmap: the line is its central topic and the body is an indented outline (see *Mindmaps*) |
@@ -140,6 +141,21 @@ gantt launch: Launch plan [start: 2026-10-12] {
 - `x`/`y` on the chart (`[start: …, x: 400, y: 120]`) pin it, as dragging it in the editor does.
 - `scale: day | week | month | quarter` sets the timeline's resolution (week when left out): lines and dates at each day, Monday, 1st of the month or quarter. In JSON it is the group's `scale`.
 - In the editor: drag a bar to reschedule it and its end to change its duration (right-click → *Duration…* to type one); draw an arrow from one bar to another to make the second wait for the first (right-click the dependency line to remove it, or a task → *Starts after…*); right-click a task → *Colour…* to colour its bar, *Progress…*, *Owner…* or *Make it a milestone*; a red line marks today; right-click the chart → *Scale…*.
+
+### Tables
+
+```diagram
+table options: Hosting options {
+  option | cost  | latency | notes
+  Local  | $0    | 40 ms   | Needs an 8B model on every laptop
+  Hosted | $1.2k | 300 ms  | Data leaves the laptop [red]
+}
+```
+
+- The first line is the header (the columns' names); each line after it is a row, cells separated by `|` (`\|` for a `|` in a cell, `\n` for a line break). Columns are lined up when the file is written; long cells wrap.
+- A row's first cell is its label and gives its id within the table (`options.local`), so arrows, comments and links can point at a row; hovering it shows its cells by column. `[attrs]` at the end of a row: a colour tints it, `detail`, `link`, `id`. `w:` on the table sets its width.
+- In the editor: the *Table* tool; right-click a table → *Edit as text…*, *Add row*, *Add column*; right-click a row → *Edit row…* (its cells, separated by `|`), *Add row below*, *Colour…*, *Delete row*. Renaming a row's label renames its id; renaming a table renames its rows.
+- Prompts show it as a Markdown table. In JSON a table is a group with `table` and `columns`; its rows are nodes whose `label` is the first cell and `cells` the rest. Ops can place a row with `index`.
 
 ### Charts
 

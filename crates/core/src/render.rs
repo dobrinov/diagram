@@ -308,7 +308,7 @@ pub fn render(doc: &Document, opts: &RenderOptions) -> Rendered {
         if let Some(m) = &gb.matrix {
             matrix_svg(&mut s, doc, gb, m, p, t);
         }
-        if gb.chart.is_some() {
+        if gb.chart.is_some() || gb.table {
             if let Some(g) = doc.group(&gb.id) {
                 chart_svg(&mut s, doc, g, gb, p, t);
             }
@@ -858,7 +858,11 @@ fn chart_svg(
         gb.rect.x + layout::GROUP_PAD,
         gb.rect.y + layout::GROUP_HEAD,
     );
-    let plot = crate::charts::plot(doc, g);
+    let plot = if g.table {
+        crate::tables::plot(doc, g)
+    } else {
+        crate::charts::plot(doc, g)
+    };
     let paint = |k: &Paint| -> String {
         match k {
             Paint::Color(c) => theme::tint(c, t)
@@ -868,6 +872,10 @@ fn chart_svg(
             Paint::Muted => p.muted.to_string(),
             Paint::Grid => p.node_stroke.to_string(),
             Paint::Bg => p.group_fill.to_string(),
+            Paint::Soft(c) => theme::tint(c, t)
+                .map(|k| k.soft)
+                .unwrap_or_else(|| c.clone()),
+            Paint::Header => p.header.to_string(),
         }
     };
     s.push_str(r#"<g class="dg-chart">"#);
@@ -972,7 +980,11 @@ fn datum_svg(
         s,
         r#"<g class="dg-node dg-datum" data-id="{}"><title>{}</title><rect class="dg-shape" x="{}" y="{}" width="{}" height="{}" rx="3" fill="transparent" stroke="{stroke}" stroke-width="2"/></g>"#,
         esc(&node.id),
-        esc(&crate::charts::tooltip(doc, node)),
+        esc(&if crate::tables::table_of(doc, node).is_some() {
+            crate::tables::tooltip(doc, node)
+        } else {
+            crate::charts::tooltip(doc, node)
+        }),
         n(r.x - 2.0),
         n(r.y - 2.0),
         n(r.w + 4.0),

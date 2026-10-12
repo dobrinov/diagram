@@ -170,6 +170,9 @@ pub struct Node {
     /// A chart's row: one value per series (None where there is none).
     #[serde(skip_serializing_if = "Vec::is_empty")]
     pub values: Vec<Option<f64>>,
+    /// A table's row: its cells after the first (which is its label).
+    #[serde(skip_serializing_if = "Vec::is_empty")]
+    pub cells: Vec<String>,
 }
 
 impl Node {
@@ -257,6 +260,11 @@ pub struct Group {
     pub series: Vec<String>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub axis: Option<String>,
+    /// A table: its nodes are rows; these are its columns' names.
+    #[serde(skip_serializing_if = "std::ops::Not::not")]
+    pub table: bool,
+    #[serde(skip_serializing_if = "Vec::is_empty")]
+    pub columns: Vec<String>,
     /// Chart: its size (content, without the frame).
     #[serde(skip_serializing_if = "Option::is_none")]
     pub w: Option<f64>,
@@ -523,15 +531,23 @@ impl Document {
             return;
         };
         let node = self.nodes.remove(pos);
-        let sibs: Vec<usize> = match &node.parent {
-            Some(p) => self
+        let sibs: Vec<usize> = match (&node.parent, &node.group) {
+            (Some(p), _) => self
                 .nodes
                 .iter()
                 .enumerate()
                 .filter(|(_, n)| n.parent.as_ref() == Some(p))
                 .map(|(i, _)| i)
                 .collect(),
-            None => Vec::new(),
+            // a row of a table or chart, a gantt task, a box in a section
+            (None, Some(g)) => self
+                .nodes
+                .iter()
+                .enumerate()
+                .filter(|(_, n)| n.parent.is_none() && n.group.as_ref() == Some(g))
+                .map(|(i, _)| i)
+                .collect(),
+            (None, None) => Vec::new(),
         };
         let at = match (index, sibs.last()) {
             (Some(i), _) if i < sibs.len() => sibs[i],

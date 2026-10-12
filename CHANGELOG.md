@@ -1,5 +1,12 @@
 # Changelog
 
+## 0.14.0 — 2026-10-12
+
+- **Tables:** `table id: Title {` … `}` with a header row and rows of cells separated by `|`. Columns line up in the file; long cells wrap on the board; a colour tints a row. Rows are elements named in their table (`options.local`): comment on a row, link to it, point arrows at it, hover it for its cells by column. Prompts show tables as Markdown.
+- In the editor: a *Table* tool; right-click a table → *Edit as text…*, *Add row*, *Add column*; right-click a row → *Edit row…*, *Add row below*, *Colour…*, *Delete row*. A row whose label changes gets the matching id (comments and links follow); renaming a table renames its rows.
+- **`index` places any member of a group** (table and chart rows, gantt tasks, boxes in a section), not only mindmap topics. *Add task after* now puts the new task right below the one it follows (it used to append it at the end).
+- Ops `add_group`/`update_group` take `table` and `columns`, nodes `cells`; `query kind:table`, `kind:row`. `examples/tables.diagram`; `scripts/e2e/tables.mjs` in `make e2e`.
+
 ## 0.13.0 — 2026-10-12
 
 - **Charts:** `chart id: Title [bar|line|area|pie|donut|scatter] {` … `}` holding a small table (`quarter | EU | US`, `Q1 | 120 | 80`, or `Jira 45`). Bars side by side, `stacked` or `horizontal`; lines; stacked areas; pie; donut with the total in the middle; scatter (`label | x | y`). Axes with round ticks, a legend for several series, `unit:` (`k€`, `%`, `$` in front), `w:`/`h:`. Rows are nodes named in their chart (`revenue.q1`): point arrows, comments and links at a bar or a slice; hover for its values; a colour on a row colours it.

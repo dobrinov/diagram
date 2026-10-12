@@ -35,6 +35,10 @@ pub enum Paint {
     Grid,
     /// The chart's background (gaps between slices).
     Bg,
+    /// A light fill of a colour (a table row's tint).
+    Soft(String),
+    /// A table's header band.
+    Header,
 }
 
 /// One thing a chart draws.

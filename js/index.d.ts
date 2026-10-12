@@ -85,6 +85,8 @@ export interface Node {
   impact?: number;
   /** Chart row: one value per series (null for none). */
   values?: (number | null)[];
+  /** Table row: its cells after the first (its label). */
+  cells?: string[];
 }
 
 export interface Edge {
@@ -132,6 +134,10 @@ export interface Group {
   series?: string[];
   /** Chart: what the rows are (the header's first cell). */
   axis?: string;
+  /** A table (its nodes are rows). */
+  table?: boolean;
+  /** Table: the columns' names (the header). */
+  columns?: string[];
   /** Chart: its size. */
   w?: number;
   h?: number;
@@ -212,6 +218,8 @@ export interface AddNodeOp {
   impact?: number;
   /** Chart row: one value per series (null for none). */
   values?: (number | null)[];
+  /** Table row: its cells after the first (its label). */
+  cells?: string[];
 }
 
 /** Change a node. An empty string clears an optional field. */
@@ -253,6 +261,8 @@ export interface UpdateNodeOp {
   impact?: number;
   /** Chart row: one value per series (null for none). */
   values?: (number | null)[];
+  /** Table row: its cells after the first (its label). */
+  cells?: string[];
 }
 
 /** Add topics from an indented outline (or a Markdown list) under `parent`; without `parent` the first line becomes a new mindmap. */
@@ -353,6 +363,10 @@ export interface AddGroupOp {
   series?: string[];
   /** Chart: what the rows are (the header's first cell). */
   axis?: string;
+  /** A table (its nodes are rows). */
+  table?: boolean;
+  /** Table: the columns' names (the header). */
+  columns?: string[];
   /** Gantt chart: its first day (`YYYY-MM-DD`). */
   start?: string;
 }
@@ -384,6 +398,10 @@ export interface UpdateGroupOp {
   series?: string[];
   /** Chart: what the rows are (the header's first cell). */
   axis?: string;
+  /** A table (its nodes are rows). */
+  table?: boolean;
+  /** Table: the columns' names (the header). */
+  columns?: string[];
 }
 
 export interface AddCommentOp {
@@ -551,6 +569,8 @@ export interface GroupBox extends Rect {
   matrix?: MatrixBox;
   /** A chart: what it draws. */
   chart?: ChartKind;
+  /** A table. */
+  table?: boolean;
 }
 
 export interface EdgePath {

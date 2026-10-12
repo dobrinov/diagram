@@ -232,3 +232,12 @@ test("charts", () => {
   assert.match(b.selection(["rev"]), /\| quarter \| EU \| US \|\n\|---\|---\|---\|\n\| Q1 \| 120 \| 80 \|/);
   b.free();
 });
+
+test("tables", () => {
+  const b = Board.parse("table t: Options {\n  option | cost\n  Local | $0\n}\n");
+  b.apply([{ op: "add_node", id: "t.hosted", label: "Hosted", group: "t", cells: ["$1k"], index: 0 }]);
+  assert.match(b.source(), /  option \| cost\n  Hosted \| \$1k\n  Local  \| \$0\n/);
+  assert.match(b.selection(["t"]), /\| option \| cost \|\n\|---\|---\|\n\| Hosted \| \$1k \|/);
+  assert.ok(b.render().groups[0].table);
+  b.free();
+});
