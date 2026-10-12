@@ -1,5 +1,12 @@
 # Changelog
 
+## 0.11.0 — 2026-10-12
+
+- **Free text keeps its commas, and mistakes are errors.** `[detail: fast, opinionated, red]` reads as the detail "fast, opinionated" and the colour red (also `;`, and in `label`, `resolution`, `owner`). Brackets that start like attributes but don't read as them (`[shape: box, opinionated]`) are now an error with the line, instead of silently becoming part of the label (models hit this constantly).
+- **Keywords are ids outside their statements:** `gantt -> b`, `risks -- b`, `comment -> x` are arrows again; `group`, `gantt`, `risks` and `mindmap` only open a block on a line that ends with `{`.
+- **`prompt --context auto|near|section|all`:** a prompt about comments shows only what they are about on a big board (auto: the whole board up to 60 lines, else the commented sections; near: the commented blocks and their neighbours), and tells the model the rest exists. On a 300-element board one comment's prompt went from about 24k to 6.7k characters. Also in the WASM/JS prompt options and used by the editor.
+- **Diff:** risk ratings and matrix size changes show up (and are highlighted with `--base`); title changes keep their case; description changes are listed.
+
 ## 0.10.0 — 2026-10-12
 
 - **Risk matrices:** `risks id: Title [scale: 5] {` … `}` with one risk per line, `Label [p: 4, i: 3, owner: ana, detail: "…"]`. Drawn as a probability × impact grid with cells tinted by severity (low, medium, high, critical), each risk a numbered dot in its cell, and a list of the risks with their scores beside it; unrated risks wait in the list. Hover a dot or a row for its rating, owner and description.

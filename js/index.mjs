@@ -93,6 +93,7 @@ function promptOptions(o = {}) {
     include_resolved: o.includeResolved ?? o.include_resolved,
     instructions: o.instructions,
     file: o.file,
+    context: o.context,
   };
   return out;
 }

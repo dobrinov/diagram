@@ -43,6 +43,81 @@ pub struct PromptOptions {
     pub instructions: Option<String>,
     /// Path of the diagram file, so code agents can update it.
     pub file: Option<String>,
+    /// How much of the board the prompt shows.
+    pub context: Context,
+}
+
+/// How much of the board a prompt about comments shows.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default, Serialize, Deserialize)]
+#[serde(rename_all = "lowercase")]
+pub enum Context {
+    /// The whole board when it is small, else the commented sections.
+    #[default]
+    Auto,
+    /// What the comments are on, their arrows and the blocks at the other ends.
+    Near,
+    /// The sections (or swimlanes, charts, maps) the commented blocks are in.
+    Section,
+    /// The whole board.
+    All,
+}
+
+/// Boards up to this many lines go into prompts whole (`Context::Auto`).
+const SMALL_BOARD: usize = 60;
+
+/// The part of the board a prompt shows: what the comments are on, and
+/// with `Section`, the blocks around it. None: the whole board.
+fn context_ids(doc: &Document, comments: &[&Comment], context: Context) -> Option<Vec<String>> {
+    let context = match context {
+        Context::Auto if dsl::print(doc).lines().count() <= SMALL_BOARD => return None,
+        Context::Auto => Context::Section,
+        Context::All => return None,
+        c => c,
+    };
+    let mut sels: Vec<String> = Vec::new();
+    for c in comments {
+        // a comment on the canvas is about the whole board
+        let on = c.on.as_deref()?;
+        if let Some(e) = doc.edge(on) {
+            sels.push(format!("near:{}", e.from));
+            sels.push(format!("near:{}", e.to));
+            continue;
+        }
+        sels.push(format!("near:{on}"));
+        if context == Context::Section {
+            // the block it sits in: a map, a lane's swimlanes, a section
+            let n = doc.node(on);
+            let mut root = n;
+            while let Some(p) = root
+                .and_then(|x| x.parent.as_deref())
+                .and_then(|p| doc.node(p))
+            {
+                root = Some(p);
+            }
+            if let Some(r) =
+                root.filter(|r| r.mindmap.is_some() || n.is_some_and(|n| n.parent.is_some()))
+            {
+                sels.push(format!("map:{}", r.id));
+            }
+            let mut g = n
+                .and_then(|n| root.unwrap_or(n).group.as_deref())
+                .or(doc.group(on).map(|g| g.id.as_str()));
+            if let Some(lanes) = g
+                .and_then(|g| doc.group(g))
+                .and_then(|g| g.parent.as_deref())
+                .filter(|p| doc.group(p).is_some_and(|p| p.lanes))
+            {
+                g = Some(lanes);
+            }
+            if let Some(g) = g {
+                sels.push(format!("group:{g}"));
+            }
+        }
+    }
+    let sels: Vec<&str> = sels.iter().map(String::as_str).collect();
+    let mut ids = crate::query::select(doc, &sels).ok()?;
+    ids.extend(comments.iter().map(|c| c.id.clone()));
+    Some(ids)
 }
 
 pub const OPS_REFERENCE: &str = r#"Operations (fields in [] are optional; ids are letters, digits, `_`, `-`, `.`):
@@ -201,7 +276,16 @@ pub fn prompt(doc: &Document, opts: &PromptOptions) -> String {
     if let Some(f) = file {
         s.push_str(&format!("File: `{f}`\n\n"));
     }
-    s.push_str(&format!("```diagram\n{}```\n\n", dsl::print(doc)));
+    match context_ids(doc, &comments, opts.context) {
+        Some(ids) => {
+            let part = crate::query::subset(doc, &ids);
+            let shown = part.nodes.len() + part.edges.len() + part.groups.len();
+            let all = doc.nodes.len() + doc.edges.len() + doc.groups.len();
+            s.push_str(&format!("The part of the board the comments are about ({shown} of its {all} elements). The rest exists too: keep its ids and do not remove or recreate it.\n\n"));
+            s.push_str(&format!("```diagram\n{}```\n\n", dsl::print(&part)));
+        }
+        None => s.push_str(&format!("```diagram\n{}```\n\n", dsl::print(doc))),
+    }
     s.push_str(&format!("## Comments to address ({})\n\n", comments.len()));
     if comments.is_empty() {
         s.push_str("_No open comments._\n");
@@ -814,6 +898,38 @@ mod tests {
         );
         assert!(p.contains("**c2** on edge `api` → `db` (resolved)"), "{p}");
         assert!(p.contains("diagram apply docs/shop.diagram"));
+    }
+
+    #[test]
+    fn prompts_show_the_part_of_a_big_board_the_comments_are_about() {
+        let mut src = String::from(
+            "title: Big\ngroup back: Backend {\n  api: Orders API\n  db: Postgres\n}\napi -> db\n",
+        );
+        for i in 0..70 {
+            src.push_str(&format!("n{i}: Box {i}\n"));
+        }
+        src.push_str("comment on db by ana: Which version?\n");
+        let d = dsl::parse(&src).unwrap();
+        let auto = prompt(&d, &PromptOptions::default());
+        assert!(
+            auto.contains("The part of the board the comments are about (4 of its 74 elements)"),
+            "{auto}"
+        );
+        assert!(
+            auto.contains("group back: Backend {\n  api: Orders API\n  db: Postgres\n}")
+                && !auto.contains("n42"),
+            "{auto}"
+        );
+        let all = prompt(
+            &d,
+            &PromptOptions {
+                context: Context::All,
+                ..Default::default()
+            },
+        );
+        assert!(all.contains("n42: Box 42") && !all.contains("The part of the board"));
+        // a small board goes in whole
+        assert!(!prompt(&doc(), &PromptOptions::default()).contains("The part of the board"));
     }
 
     #[test]

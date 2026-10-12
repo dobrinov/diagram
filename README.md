@@ -114,7 +114,7 @@ diagram comments FILE [--all] [--json]
 diagram comment  FILE [--on ID] [--by NAME] TEXT
 diagram reply    FILE COMMENT_ID TEXT
 diagram resolve  FILE COMMENT_ID [--note TEXT]
-diagram prompt   FILE [--target diagram|code|discuss] [--reply ops|dsl] [--comment c1,c2] [--all]
+diagram prompt   FILE [--target diagram|code|discuss] [--reply ops|dsl] [--comment c1,c2] [--all] [--context auto|near|section|all]
 diagram apply    FILE [PATCH|-] [--dry-run]
 
 diagram outline FILE [ID] [--md]   diagram expand FILE ID [--ask TEXT] | --new TOPIC   (--ai CMD)
@@ -168,7 +168,7 @@ For LLMs there is an **ops** language for precise edits:
 
 1. **Draw:** `diagram docs/checkout.diagram`, or ask Claude Code to draw it (see *Agent skills*).
 2. **Review:** colleagues open the same file (or a share link, or an HTML export) and leave comments.
-3. **Prompt:** use the **Prompt** button or `diagram prompt FILE --target code`. The prompt contains the diagram, each open thread with its replies, and exact instructions for replying.
+3. **Prompt:** use the **Prompt** button or `diagram prompt FILE --target code`. The prompt contains the diagram, each open thread with its replies, and exact instructions for replying. On a big board it shows only the sections the comments are about (`--context near|section|all` to choose), so one comment doesn't cost the whole board in tokens.
 4. **Apply:** paste the reply into **Apply reply** or run `diagram apply FILE reply.md`. The changes are applied atomically, and each comment is resolved with a note on what was done. Only the statements that changed are rewritten: the rest of the file, its blank lines and `#` notes stay as you wrote them, so the commit diff shows just the change. Comments on deleted elements are kept as canvas comments, so feedback is never lost silently.
 
 ## Using it as a library

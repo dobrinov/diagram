@@ -64,6 +64,10 @@ fn fields_node(a: &Node, b: &Node) -> Vec<(String, String, String)> {
     let done = |n: &Node| n.done.map(|d| format!("{d}%")).unwrap_or_default();
     cmp("done", done(a), done(b));
     cmp("owner", opt(&a.owner), opt(&b.owner));
+    // risks
+    let level = |v: Option<u8>| v.map(|v| v.to_string()).unwrap_or_default();
+    cmp("probability", level(a.probability), level(b.probability));
+    cmp("impact", level(a.impact), level(b.impact));
     f
 }
 
@@ -91,6 +95,11 @@ fn fields_group(a: &Group, b: &Group) -> Vec<(String, String, String)> {
         ("parent", opt(&a.parent), opt(&b.parent)),
         ("start", opt(&a.start), opt(&b.start)),
         (
+            "levels",
+            a.levels.map(|l| l.to_string()).unwrap_or_default(),
+            b.levels.map(|l| l.to_string()).unwrap_or_default(),
+        ),
+        (
             "scale",
             a.scale.map(|s| s.as_str().to_string()).unwrap_or_default(),
             b.scale.map(|s| s.as_str().to_string()).unwrap_or_default(),
@@ -109,16 +118,29 @@ pub fn diff(old: &Document, new: &Document) -> Diff {
     let s2 = &new.settings;
     for (k, x, y) in [
         ("title", opt(&old.title), opt(&new.title)),
-        ("direction", s(&s1.direction), s(&s2.direction)),
-        ("layout", s(&s1.layout), s(&s2.layout)),
-        ("routing", s(&s1.routing), s(&s2.routing)),
+        ("description", opt(&old.description), opt(&new.description)),
+        (
+            "direction",
+            s(&s1.direction).to_lowercase(),
+            s(&s2.direction).to_lowercase(),
+        ),
+        (
+            "layout",
+            s(&s1.layout).to_lowercase(),
+            s(&s2.layout).to_lowercase(),
+        ),
+        (
+            "routing",
+            s(&s1.routing).to_lowercase(),
+            s(&s2.routing).to_lowercase(),
+        ),
     ] {
         if x != y {
             entries.push(Entry {
                 kind: "setting",
                 id: k.into(),
                 change: Change::Changed,
-                fields: vec![(k.into(), x.to_lowercase(), y.to_lowercase())],
+                fields: vec![(k.into(), x, y)],
             });
         }
     }

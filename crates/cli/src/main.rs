@@ -49,6 +49,8 @@ REVIEW
   diagram resolve  FILE COMMENT_ID [--note TEXT]
   diagram prompt   FILE [--target diagram|code|discuss] [--reply ops|dsl]
                    [--comment c1,c2] [--all] [--instructions TEXT]
+                   [--context auto|near|section|all]   how much of the board to show
+                   (auto: all of a small board, else the commented sections)
                                      turn open comments into a prompt for an agent
   diagram apply    FILE [PATCH|-|'{"op":…}'] [--dry-run]   apply ops JSON (a file, stdin, inline,
                                      or an LLM reply containing it)
@@ -89,6 +91,7 @@ const VALUE_FLAGS: &[&str] = &[
     "--comment",
     "--comments",
     "--instructions",
+    "--context",
     "--on",
     "--by",
     "--note",
@@ -643,6 +646,17 @@ fn run(args: Args) -> Result<ExitCode, String> {
                 include_resolved: args.flag("--all"),
                 instructions: args.val("--instructions").map(String::from),
                 file: (file != "-").then(|| file.to_string()),
+                context: match args.val("--context").unwrap_or("auto") {
+                    "auto" => diagram_core::prompt::Context::Auto,
+                    "near" => diagram_core::prompt::Context::Near,
+                    "section" => diagram_core::prompt::Context::Section,
+                    "all" => diagram_core::prompt::Context::All,
+                    c => {
+                        return Err(format!(
+                            "--context must be auto, near, section or all (got {c})"
+                        ))
+                    }
+                },
             };
             print!("{}", diagram_core::prompt::prompt(&doc, &opts));
             ok

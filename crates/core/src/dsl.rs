@@ -211,6 +211,18 @@ impl Parser {
         }
         let mut c = Cursor::new(t);
         let word = c.peek_word();
+        // a keyword only opens a block on a line that opens one, and starts
+        // a comment only when no arrow follows it: `gantt -> b` is an arrow
+        let opens = t.trim_end().ends_with('{') || t.trim_end().ends_with("{}");
+        let arrow_next = {
+            let mut a = Cursor::new(c.rest()[word.len()..].trim_start());
+            a.edge_op().is_some() || a.rest().starts_with(',')
+        };
+        let word = match word {
+            "group" | "gantt" | "risks" | "mindmap" if !opens => "",
+            "comment" | "reply" if arrow_next => "",
+            w => w,
+        };
         match word {
             "group" if c.rest()[5..].starts_with(|ch: char| ch.is_whitespace()) => {
                 c.advance(5);
@@ -842,7 +854,9 @@ pub fn split_attrs(text: &str) -> (&str, Option<&str>) {
         if let Some(end) = scan_block(&t[pos..]) {
             if pos + end == t.len() {
                 let inner = &t[pos + 1..t.len() - 1];
-                if looks_like_attrs(inner) {
+                // attributes, or meant as attributes (`[detail: …, oops]`):
+                // read them, so a mistake is an error, not label text
+                if looks_like_attrs(inner) || meant_as_attrs(inner) {
                     return (&t[..pos], Some(inner));
                 }
             }
@@ -880,22 +894,86 @@ fn looks_like_attrs(inner: &str) -> bool {
                             .chars()
                             .all(|c| c.is_ascii_alphanumeric() || c == '_')
                 }
-                None => {
-                    Shape::parse(item).is_some()
-                        || Line::parse(item).is_some()
-                        || valid_color(&item.to_ascii_lowercase())
-                        || matches!(item, "resolved" | "open" | "done" | "collapsed" | "folded" | "milestone")
-                        // gantt: a date or a duration
-                        || crate::gantt::parse_date(item).is_some()
-                        || (item.ends_with(['d', 'w', 'm', 'q']) && crate::gantt::parse_days(item).is_some())
-                }
+                None => is_flag(item),
             }
         })
 }
 
+/// An attribute written without a value: a shape, colour, line style,
+/// status, gantt date or duration.
+fn is_flag(item: &str) -> bool {
+    Shape::parse(item).is_some()
+        || Line::parse(item).is_some()
+        || valid_color(&item.to_ascii_lowercase())
+        || matches!(item, "resolved" | "open" | "done" | "collapsed" | "folded" | "milestone")
+        // gantt: a date or a duration
+        || crate::gantt::parse_date(item).is_some()
+        || (item.ends_with(['d', 'w', 'm', 'q']) && crate::gantt::parse_days(item).is_some())
+}
+
+/// Every attribute key the language knows.
+const KEYS: &[&str] = &[
+    "shape",
+    "color",
+    "colour",
+    "detail",
+    "label",
+    "link",
+    "url",
+    "tags",
+    "tag",
+    "x",
+    "y",
+    "w",
+    "h",
+    "width",
+    "height",
+    "collapsed",
+    "folded",
+    "layout",
+    "parent",
+    "start",
+    "days",
+    "duration",
+    "after",
+    "milestone",
+    "done",
+    "progress",
+    "owner",
+    "p",
+    "probability",
+    "likelihood",
+    "i",
+    "impact",
+    "id",
+    "line",
+    "arrow",
+    "status",
+    "resolution",
+    "author",
+    "by",
+    "scale",
+    "levels",
+];
+
+/// Attributes whose value is free text: a `,` or `;` in it, followed by
+/// something that is not an attribute, belongs to the text.
+const TEXT_KEYS: &[&str] = &["detail", "label", "resolution", "owner", "author", "by"];
+
+/// `[detail: …, …]` that does not read as attributes but starts like them.
+fn meant_as_attrs(inner: &str) -> bool {
+    split_items(inner).first().is_some_and(|first| {
+        first
+            .split_once(':')
+            .is_some_and(|(k, _)| KEYS.contains(&k.trim().to_ascii_lowercase().as_str()))
+    })
+}
+
 fn split_items(inner: &str) -> Vec<String> {
-    let mut out = Vec::new();
+    // (item, the separator before it)
+    let mut raw: Vec<(String, char)> = Vec::new();
     let mut cur = String::new();
+    let mut sep = ',';
     let mut quoted = false;
     let mut escaped = false;
     for ch in inner.chars() {
@@ -912,11 +990,32 @@ fn split_items(inner: &str) -> Vec<String> {
                 quoted = !quoted;
                 cur.push(ch);
             }
-            ',' | ';' if !quoted => out.push(std::mem::take(&mut cur)),
+            ',' | ';' if !quoted => {
+                raw.push((std::mem::take(&mut cur), sep));
+                sep = ch;
+            }
             _ => cur.push(ch),
         }
     }
-    out.push(cur);
+    raw.push((cur, sep));
+    // `detail: fast, opinionated`: the rest of a text value, not an attribute
+    let mut out: Vec<String> = Vec::new();
+    for (item, sep) in raw {
+        let t = item.trim();
+        let text_before = out.last().is_some_and(|prev: &String| {
+            prev.split_once(':').is_some_and(|(k, v)| {
+                TEXT_KEYS.contains(&k.trim().to_ascii_lowercase().as_str())
+                    && !v.trim().starts_with('"')
+            })
+        });
+        if !t.contains(':') && !is_flag(t) && text_before {
+            let last = out.last_mut().unwrap();
+            last.push(sep);
+            last.push_str(&item);
+        } else {
+            out.push(item);
+        }
+    }
     out.into_iter().filter(|s| !s.trim().is_empty()).collect()
 }
 
@@ -1898,5 +1997,40 @@ group g {
         assert!(errs[0].message.contains("never closed"), "{errs:?}");
         let (_, errs) = parse_lenient("x\nmindmap m {\n  A [id: x]\n}");
         assert!(errs[0].message.contains("already used"), "{errs:?}");
+    }
+
+    #[test]
+    fn free_text_keeps_its_commas_and_mistakes_are_errors() {
+        let d = parse("a: Linear [detail: fast, opinionated, red]\nb: Risk [p: 4, i: 4, detail: Legal says 4 weeks; it blocks the pilot]\nc: Array[int]\n").unwrap();
+        let a = d.node("a").unwrap();
+        assert_eq!(
+            (a.label.as_str(), a.detail.as_deref(), a.color.as_deref()),
+            ("Linear", Some("fast, opinionated"), Some("red"))
+        );
+        assert_eq!(
+            d.node("b").unwrap().detail.as_deref(),
+            Some("Legal says 4 weeks; it blocks the pilot")
+        );
+        assert_eq!(d.node("c").unwrap().label, "Array[int]");
+        // and it reads back the same
+        assert_eq!(parse(&print(&d)).unwrap(), d);
+        // what is not text and not an attribute is an error, not a label
+        let e = parse("a: Linear [shape: box, opinionated]").unwrap_err();
+        assert!(
+            e[0].message
+                .contains("unknown node attribute `opinionated`"),
+            "{e:?}"
+        );
+        let e = parse("a: Linear [detail: fast, oops: x]").unwrap_err();
+        assert!(e[0].message.contains("`oops`"), "{e:?}");
+    }
+
+    #[test]
+    fn keywords_are_ids_outside_their_statements() {
+        let d = parse("risks -- b\ngantt -> group\ncomment -> mindmap: x\ngroup g: G {\n  a\n}\n")
+            .unwrap();
+        assert_eq!(d.edges.len(), 3);
+        assert!(d.node("risks").is_some() && d.node("comment").is_some() && d.group("g").is_some());
+        assert_eq!(print(&parse(&print(&d)).unwrap()), print(&d));
     }
 }

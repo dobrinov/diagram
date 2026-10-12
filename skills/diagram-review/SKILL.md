@@ -17,6 +17,7 @@ Colleagues leave comments on diagrams in the editor (press M, then click a node)
    ```bash
    diagram prompt docs/diagrams/checkout.diagram --target code      # change the codebase
    diagram prompt docs/diagrams/checkout.diagram --target diagram   # change only the diagram
+   # big boards: only the commented sections are shown (--context near|section|all to choose)
    diagram prompt docs/diagrams/checkout.diagram --target discuss   # just answer
    ```
    Add `--comment c1,c3` to limit it to some threads. Then follow the prompt.

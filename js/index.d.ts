@@ -546,6 +546,8 @@ export interface PromptOptions {
   instructions?: string;
   /** Path of the diagram file, so code agents can update it. */
   file?: string;
+  /** How much of the board to show: all of a small board, else the commented sections ("auto", default); what the comments are on and its neighbours ("near"); their sections ("section"); everything ("all"). */
+  context?: "auto" | "near" | "section" | "all";
 }
 
 export interface ExpandOptions {
