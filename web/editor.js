@@ -936,6 +936,7 @@
           ["Rename", function () { editLabel(t.id); }],
           ["Duration…", function () { askDuration(t.id); }, "Or drag the end of the bar"],
           ["Starts after…", function () { afterMenu(t.id); }, "Or draw an arrow from the task it waits for"],
+          ["Colour…", function () { colourMenu(t.id, "update_node", tk.color); }, "The colour of its bar"],
           tk.start ? ["Follow the task before", function () { applyOps([{ op: "update_node", id: t.id, start: "" }]); }, "Drop its fixed date"] : null,
           ["Add task after", function () { addTask(tk.group, t.id); }],
           "-",
@@ -953,6 +954,7 @@
       if (t.type === "node" && !mapInfo(t.id) && !view) return [
         ["Rename", function () { editLabel(t.id); }],
         ["Shape…", function () { shapeMenu(t.id); }],
+        ["Colour…", function () { colourMenu(t.id, "update_node", node(t.id).color); }],
         "-",
         ["Delete", function () { applyOps([{ op: "remove", id: t.id }]); select([]); }]
       ];
@@ -962,6 +964,7 @@
           [ed.label ? "Edit label" : "Add label", function () { editLabel(t.id); }],
           [ed.line === "dashed" ? "Solid line" : "Dashed line", function () { applyOps([{ op: "update_edge", id: t.id, line: ed.line === "dashed" ? "solid" : "dashed" }]); }],
           ["Reverse direction", function () { applyOps([{ op: "update_edge", id: t.id, from: ed.to, to: ed.from }]); select([]); }],
+          ["Colour…", function () { colourMenu(t.id, "update_edge", ed.color); }],
           "-",
           ["Delete", function () { applyOps([{ op: "remove", id: t.id }]); select([]); }]
         ];
@@ -976,17 +979,20 @@
       if (gr && !view && gr.parent && group(gr.parent) && group(gr.parent).lanes) return [
         ["Rename", function () { editLabel(t.id); }],
         ["Add lane after", function () { addLane(gr.parent, t.id); }],
+        ["Colour…", function () { colourMenu(t.id, "update_group", gr.color); }],
         "-",
         ["Remove lane", function () { applyOps([{ op: "remove", id: t.id, keep_members: true }]); select([]); }, "Its blocks stay in the swimlanes"],
         ["Delete", function () { applyOps([{ op: "remove", id: t.id, keep_members: false }]); select([]); }, "The lane and its blocks"]
       ];
       if (t.type === "group") return view ? [] : [
         ["Rename", function () { editLabel(t.id); }],
+        ["Colour…", function () { colourMenu(t.id, "update_group", gr.color); }],
         ["Remove section", function () { applyOps([{ op: "remove", id: t.id, keep_members: true }]); select([]); }, "The blocks stay where they are"],
         ["Delete", function () { applyOps([{ op: "remove", id: t.id, keep_members: false }]); select([]); }, "The section and everything in it"]
       ];
       if (t.type === "node" && mapInfo(t.id)) return [
         ["Add parent", function () { addParent(t.id); }, mapInfo(t.id).parent ? "A new topic between this one and its parent" : "A new centre above this one (⇧Tab)"],
+        [mapInfo(t.id).parent ? "Branch colour…" : "Colour…", function () { colourMenu(t.id, "update_node", node(t.id).color); }, mapInfo(t.id).parent ? "This topic and everything under it" : null],
         "-",
         ["Copy as prompt", function () { copyPrompt([t.id]); }, "This topic and everything under it as Markdown (" + MOD + "⇧C)"]
       ].filter(function (it) { return !view || it[0] === "Copy as prompt"; });
@@ -998,6 +1004,16 @@
       setTimeout(function () {
         openMenu(st.menuAt, SHAPES.map(function (sh) {
           return [(sh === cur ? "✓ " : "\u2003") + sh.charAt(0).toUpperCase() + sh.slice(1), function () { applyOps([{ op: "update_node", id: id, shape: sh }]); }];
+        }));
+      });
+    }
+    /* Pick a colour (or the default) for a block, an arrow or a section. */
+    function colourMenu(id, op, cur) {
+      setTimeout(function () {
+        openMenu(st.menuAt, [""].concat(COLORS).map(function (c) {
+          var label = h("span", { class: "dge-colour" }, [h("i", { class: c ? "" : "none", style: c ? "background:" + SWATCH[c] : null }), (c || "default").charAt(0).toUpperCase() + (c || "default").slice(1)]);
+          if (c === (cur || "")) label.appendChild(document.createTextNode(" ✓"));
+          return [label, function () { var o = { op: op, id: id, color: c }; applyOps([o]); }];
         }));
       });
     }

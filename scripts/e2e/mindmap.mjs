@@ -235,6 +235,12 @@ try {
   await p.mouse.up(); await sleep(600);
   assert.equal(await p.locator(".dge-when").count(), 0);
   assert.match(saved(), /  Task 1 \[\d{4}-\d\d-\d\d, 6d\]\n/, saved());
+  // right-click → Colour… colours the bar
+  await topic("task-1").click({ button: "right" });
+  await p.locator(".dge-menu button", { hasText: "Colour…" }).click();
+  await p.locator(".dge-menu button", { hasText: "Orange" }).click();
+  await sleep(600);
+  assert.match(saved(), /  Task 1 \[\d{4}-\d\d-\d\d, 6d, orange\]\n/, saved());
   // Duration… takes 2w
   await topic("task-2").click({ button: "right" });
   await p.locator(".dge-menu button", { hasText: "Duration…" }).click();
@@ -273,8 +279,8 @@ try {
   assert.match(saved(), /gantt roadmap: Roadmap \[start: [\d-]+, scale: month, x: -?\d+, y: -?\d+\]/, saved());
   await key("Delete"); await sleep(600);
   assert.doesNotMatch(saved(), /Roadmap|Task 1|Task 2/, saved());
-  // create, name, longer, reschedule, duration, remove dependency, add it, scale, move, delete: ten steps back
-  for (let k = 0; k < 10; k++) await key(MOD + "+z");
+  // create, name, longer, reschedule, colour, duration, remove dependency, add it, scale, move, delete: eleven steps back
+  for (let k = 0; k < 11; k++) await key(MOD + "+z");
   await sleep(600);
   assert.equal(saved(), ganttBefore);
 

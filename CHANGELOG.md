@@ -1,5 +1,9 @@
 # Changelog
 
+## 0.4.2 — 2026-10-12
+
+- **Colour from the right-click menu:** *Colour…* on a gantt task (its bar), a box, an arrow, a section or a lane, and *Branch colour…* on a mindmap topic. Until now colours could only be set in the hidden inspector panel or in the file.
+
 ## 0.4.1 — 2026-10-12
 
 - **Gantt drag preview:** while you drag a bar, it snaps to where it will land and the tasks after it move along; a label above it shows its dates (`Sat 17 Oct – Wed 21 Oct · 5 days`). Dragging the end of a bar shows the same label. Dragging a bar out of its chart shows it leaving.

@@ -131,7 +131,7 @@ gantt launch: Launch plan [start: 2026-10-12] {
 - Bars are tasks like any node: comment on them, link them to anything on the board.
 - `x`/`y` on the chart (`[start: …, x: 400, y: 120]`) pin it, as dragging it in the editor does.
 - `scale: day | week | month | quarter` sets the timeline's resolution (week when left out): lines and dates at each day, Monday, 1st of the month or quarter. In JSON it is the group's `scale`.
-- In the editor: drag a bar to reschedule it and its end to change its duration (right-click → *Duration…* to type one); draw an arrow from one bar to another to make the second wait for the first (right-click the dependency line to remove it, or a task → *Starts after…*); right-click the chart → *Scale…*.
+- In the editor: drag a bar to reschedule it and its end to change its duration (right-click → *Duration…* to type one); draw an arrow from one bar to another to make the second wait for the first (right-click the dependency line to remove it, or a task → *Starts after…*); right-click a task → *Colour…* to colour its bar; right-click the chart → *Scale…*.
 
 ### Mindmaps
 

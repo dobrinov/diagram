@@ -159,6 +159,9 @@
 .dge-field { display: grid; grid-template-columns: 76px 1fr; align-items: center; gap: 8px; margin-bottom: 8px; }
 .dge-field > span { color: var(--muted); font-size: 12px; }
 .dge-swatches { display: flex; flex-wrap: wrap; gap: 4px; }
+.dge-colour { display: inline-flex; align-items: center; gap: 8px; }
+.dge-colour i { width: 12px; height: 12px; border-radius: 50%; box-shadow: 0 0 0 1px var(--line); }
+.dge-colour i.none { background: linear-gradient(135deg, var(--bg) 42%, var(--danger) 42%, var(--danger) 58%, var(--bg) 58%); }
 .dge button.dge-swatch { width: 20px; min-height: 20px; height: 20px; padding: 0; border: 2px solid var(--bg); border-radius: 50%; box-shadow: 0 0 0 1px var(--line); }
 .dge button.dge-swatch.none { background: linear-gradient(135deg, var(--bg) 45%, var(--danger) 45%, var(--danger) 55%, var(--bg) 55%); }
 .dge button.dge-swatch.on { box-shadow: 0 0 0 2px var(--accent); }
