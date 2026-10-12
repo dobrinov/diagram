@@ -734,6 +734,8 @@
     }
     function drawOverlay() {
       while (overlay.firstChild) overlay.removeChild(overlay.firstChild);
+      whens.forEach(function (w) { w.remove(); });
+      whens = [];
       if (view || !st.r) return;
       var targets = st.drag && st.drag.type === "connect" ? [] : st.sel.filter(function (id) { return node(id); });
       if (st.hover && node(st.hover) && targets.indexOf(st.hover) < 0) targets.push(st.hover);
@@ -786,7 +788,22 @@
       if (d && d.type === "marquee" && d.rect) {
         overlay.appendChild(svgEl("rect", { class: "dge-marquee", x: d.rect.x, y: d.rect.y, width: d.rect.w, height: d.rect.h }));
       }
+      // dragging a task: its dates above the bar
+      var moving = d && d.moved && (d.type === "resize" ? [d.id] : d.type === "move" && d.tasks ? d.items.filter(function (m) { return m.direct; }).map(function (m) { return m.id; }) : []);
+      (moving || []).forEach(function (id) {
+        var ch = chartBox(id), g = geom(id);
+        if (!ch || !g || ch.origin == null) return;
+        var from = ch.origin + Math.round((g.x - ch.left) / ch.day), n = node(id).days || 1;
+        var tip = h("div", { class: "dge-when" }, [shortDay(from) + (n > 1 ? " – " + shortDay(from + n - 1) : "") + " · " + n + (n === 1 ? " day" : " days")]);
+        var at = toScreen(g.x + g.w / 2, g.y);
+        tip.style.left = at.x + "px";
+        tip.style.top = at.y + "px";
+        whens.push(tip);
+        canvas.appendChild(tip);
+      });
     }
+    var whens = [];
+    function shortDay(days) { return new Date(days * 86400000).toLocaleDateString("en-GB", { weekday: "short", day: "numeric", month: "short", timeZone: "UTC" }); }
 
     // ---------------------------------------------------------- interaction
     function setTool(t) {
@@ -873,8 +890,14 @@
         raf = 0;
         var d = st.drag;
         if (!d || d.type !== "move") return;
-        var ops = d.items.map(function (m) { return { op: "move", id: m.id, x: m.x + d.dx, y: m.y + d.dy }; });
-        applyOps(ops, true);
+        if (!d.tasks) return applyOps(d.items.map(function (m) { return { op: "move", id: m.id, x: m.x + d.dx, y: m.y + d.dy }; }), true);
+        // a task: show where it lands (snapped to its chart, the tasks after it following) and when
+        st.session.set_source(d.before);
+        refreshDoc();
+        var ops = dropOps(d, true);
+        if (!JSON.parse(st.session.apply(JSON.stringify({ ops: ops }))).ok) st.session.set_source(d.before);
+        refreshDoc();
+        render();
       });
     }
 
@@ -1084,7 +1107,8 @@
         });
         // sections as they are now: while dragging, they stretch around what moves
         var sections = (st.r.groups || []).map(function (g) { return { id: g.id, x: g.x, y: g.y, w: g.w, h: g.h, lane: !!g.lane, gantt: g.gantt || null }; });
-        st.drag = { type: "move", sx: p.x, sy: p.y, dx: 0, dy: 0, items: items, sections: sections, before: st.text, moved: false };
+        st.drag = { type: "move", sx: p.x, sy: p.y, dx: 0, dy: 0, items: items, sections: sections, before: st.text, moved: false,
+          tasks: items.some(function (m) { return m.direct && chartOf(m.id); }) };
         canvas.setPointerCapture(e.pointerId);
         return;
       }
@@ -1200,25 +1224,11 @@
       }
       if (d.type === "move" && d.moved) {
         if (raf) { cancelAnimationFrame(raf); raf = 0; }
-        var ops = d.items.map(function (m) { return { op: "move", id: m.id, x: m.x + d.dx, y: m.y + d.dy }; });
-        d.items.forEach(function (m) {
-          if (!m.direct) return;
-          var into = sectionAt(d.sections, m.x + d.dx + m.w / 2, m.y + d.dy + m.h / 2), was = node(m.id).group || null;
-          if (into !== was) ops.push({ op: "update_node", id: m.id, group: into || "" });
-          // lanes and charts are laid out automatically: no pin inside one
-          var sec = d.sections.find(function (g) { return g.id === into; });
-          if (sec && (sec.lane || sec.gantt)) ops = ops.filter(function (o) { return !(o.op === "move" && o.id === m.id); }).concat([{ op: "unpin", id: m.id }]);
-          // a bar moved along its own chart starts on the day it was dropped at
-          if (sec && sec.gantt && into === was) {
-            var gt = sec.gantt, origin = gt.origin != null ? gt.origin : today();
-            var unit = snapDays(gt.scale), day = Math.round((m.x + d.dx - gt.left) / gt.day / unit) * unit;
-            if (gt.origin == null) ops.push({ op: "update_group", id: into, start: isoDay(origin) });
-            ops.push({ op: "update_node", id: m.id, start: isoDay(origin + day) });
-          }
-        });
         st.session.set_source(d.before);
         st.text = d.before;
-        applyOps(ops);
+        refreshDoc();
+        var ops = dropOps(d);
+        if (!applyOps(ops).ok) { refreshDoc(); render(); }
       } else if (d.type === "connect" && e) {
         var p = toDiagram(e.clientX, e.clientY);
         if (d.target && chartOf(d.from) && chartOf(d.target) && chartOf(d.from) === chartOf(d.target)) dependOn(d.target, d.from);
@@ -1612,6 +1622,29 @@
         if (x >= g.x && x <= g.x + g.w && y >= g.y && y <= g.y + g.h && (!best || g.w * g.h < best.w * best.h)) best = g;
       });
       return best ? best.id : null;
+    }
+
+    /* What dropping a move drag does. Live (while dragging) it keeps everything in its
+       section, except a task, which may leave its chart. */
+    function dropOps(d, live) {
+      var ops = d.items.map(function (m) { return { op: "move", id: m.id, x: m.x + d.dx, y: m.y + d.dy }; });
+      d.items.forEach(function (m) {
+        if (!m.direct) return;
+        var into = sectionAt(d.sections, m.x + d.dx + m.w / 2, m.y + d.dy + m.h / 2), was = node(m.id).group || null;
+        if (live && into !== was && !chartOf(m.id)) return;
+        if (into !== was) ops.push({ op: "update_node", id: m.id, group: into || "" });
+        // lanes and charts are laid out automatically: no pin inside one
+        var sec = d.sections.find(function (g) { return g.id === into; });
+        if (sec && (sec.lane || sec.gantt)) ops = ops.filter(function (o) { return !(o.op === "move" && o.id === m.id); }).concat([{ op: "unpin", id: m.id }]);
+        // a bar moved along its own chart starts on the day it was dropped at
+        if (sec && sec.gantt && into === was) {
+          var gt = sec.gantt, origin = gt.origin != null ? gt.origin : today();
+          var unit = snapDays(gt.scale), day = Math.round((m.x + d.dx - gt.left) / gt.day / unit) * unit;
+          if (gt.origin == null) ops.push({ op: "update_group", id: into, start: isoDay(origin) });
+          ops.push({ op: "update_node", id: m.id, start: isoDay(origin + day) });
+        }
+      });
+      return ops;
     }
 
     function duplicateSelection() {

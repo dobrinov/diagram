@@ -224,6 +224,17 @@ try {
   await p.mouse.move(b1.x + b1.width - 2 + b1.width / 5, b1.y + b1.height / 2, { steps: 6 }); await p.mouse.up();
   await sleep(600);
   assert.match(saved(), /  Task 1 \[6d\]\n/, saved());
+  // dragging a bar shows where it lands and when, before it is dropped; the task after it follows
+  b1 = await topic("task-1").boundingBox();
+  const t2x = (await topic("task-2").boundingBox()).x;
+  await p.mouse.move(b1.x + 10, b1.y + b1.height / 2); await p.mouse.down();
+  await p.mouse.move(b1.x + 10 + b1.width / 2, b1.y + b1.height / 2 + 3, { steps: 6 }); await sleep(200);
+  assert.match(await p.locator(".dge-when").textContent(), /^\w{3} \d+ \w{3} – \w{3} \d+ \w{3} · 6 days$/);
+  assert.ok((await topic("task-1").boundingBox()).x > b1.x + 10, "the bar moves while dragging");
+  assert.ok((await topic("task-2").boundingBox()).x > t2x + 10, "the task after it follows");
+  await p.mouse.up(); await sleep(600);
+  assert.equal(await p.locator(".dge-when").count(), 0);
+  assert.match(saved(), /  Task 1 \[\d{4}-\d\d-\d\d, 6d\]\n/, saved());
   // Duration… takes 2w
   await topic("task-2").click({ button: "right" });
   await p.locator(".dge-menu button", { hasText: "Duration…" }).click();
@@ -262,8 +273,8 @@ try {
   assert.match(saved(), /gantt roadmap: Roadmap \[start: [\d-]+, scale: month, x: -?\d+, y: -?\d+\]/, saved());
   await key("Delete"); await sleep(600);
   assert.doesNotMatch(saved(), /Roadmap|Task 1|Task 2/, saved());
-  // create, name, longer, duration, remove dependency, add it, scale, move, delete: nine steps back
-  for (let k = 0; k < 9; k++) await key(MOD + "+z");
+  // create, name, longer, reschedule, duration, remove dependency, add it, scale, move, delete: ten steps back
+  for (let k = 0; k < 10; k++) await key(MOD + "+z");
   await sleep(600);
   assert.equal(saved(), ganttBefore);
 

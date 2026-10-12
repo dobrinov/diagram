@@ -1,5 +1,9 @@
 # Changelog
 
+## 0.4.1 — 2026-10-12
+
+- **Gantt drag preview:** while you drag a bar, it snaps to where it will land and the tasks after it move along; a label above it shows its dates (`Sat 17 Oct – Wed 21 Oct · 5 days`). Dragging the end of a bar shows the same label. Dragging a bar out of its chart shows it leaving.
+
 ## 0.4.0 — 2026-10-12
 
 - **Gantt scale:** `scale: day | week | month | quarter` on a chart (right-click it → *Scale…*). Lines and dates at each day, Monday, month or quarter; month and quarter labels carry the year when it changes. Durations also take `1m` (30 days) and `1q` (91 days), and are written that way when they divide evenly.

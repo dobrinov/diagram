@@ -141,6 +141,10 @@
 
 .dge-inline.dge-ask { width: 160px; height: 30px; text-align: left; font: inherit; color: var(--fg); }
 .dge-canvas.resizing, .dge-canvas.resizing * { cursor: ew-resize !important; }
+.dge-when {
+  position: absolute; z-index: 5; transform: translate(-50%, calc(-100% - 8px)); padding: 3px 8px; border-radius: var(--r-2);
+  background: var(--fg); color: var(--bg); font-size: 12px; font-weight: 500; white-space: nowrap; pointer-events: none;
+}
 .dge-canvas.linking, .dge-canvas.linking * { cursor: crosshair !important; }
 .dge-canvas .dg-link { cursor: pointer; }
 .dge-canvas .dg-link:hover circle { stroke-width: 2.5; }
