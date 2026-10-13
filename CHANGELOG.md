@@ -1,5 +1,11 @@
 # Changelog
 
+## 0.20.0 — 2026-10-13
+
+- **Charts ask for their type:** the chart tool opens a menu (bars, lines, pie, …) and adds that chart with sample data to edit.
+- **Outlines keep ids and colours:** an `add_outline` line can end in attributes, `Launch [id: launch, red, collapsed]`; a free `id` is used and the rest apply one by one (a bad one is left out instead of dropping them all). Topics without an `id` get a short one from the label's first words (`who-books-the-venue`, at most four words) instead of the whole sentence. Ids in files you wrote are unchanged.
+- **New maps in a section:** `add_outline` takes `group` for a new map (`diagram expand FILE --new TOPIC --in SECTION`).
+
 ## 0.19.0 — 2026-10-13
 
 - **Database tables:** `entity users: Users {` … `}` with one column per line, `email: text [unique]`, `team_id: uuid [fk: teams]`, `bio: text [null]`, `created_at: timestamptz [default: now()]`. Columns show `PK` / `FK` / `UQ` badges, their type and `?` when nullable; a foreign key is drawn from the column to the one it references and pulls related tables together. Columns are elements (`users.email`): comment on one, link to it, hover it for everything about it.

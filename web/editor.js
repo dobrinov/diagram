@@ -235,7 +235,7 @@
             tools.appendChild(btn({ class: "dge-tool", "data-act": "gantt", title: "Gantt chart: tasks on a timeline. Drag a bar to reschedule it; right-click a task to change its length or add one after it.", onclick: function () { canvas.focus({ preventScroll: true }); addGantt(); } }, icon("gantt")));
             tools.appendChild(btn({ class: "dge-tool", "data-act": "table", title: "Table: rows and columns of text. Right-click it to edit it as text or add a row.", onclick: function () { canvas.focus({ preventScroll: true }); addTable(); } }, icon("table")));
             tools.appendChild(btn({ class: "dge-tool", "data-act": "entity", title: "Database table: columns with types and keys; a foreign key is drawn to the column it references. Right-click to edit the columns.", onclick: function () { canvas.focus({ preventScroll: true }); addEntity(); } }, icon("entity")));
-            tools.appendChild(btn({ class: "dge-tool", "data-act": "chart", title: "Chart: bars, lines, areas, pie, donut or scatter from a small table. Right-click it to change the type or edit the data.", onclick: function () { canvas.focus({ preventScroll: true }); addChart(); } }, icon("chart")));
+            tools.appendChild(btn({ class: "dge-tool", "data-act": "chart", title: "Chart: bars, lines, areas, pie, donut or scatter from a small table. Right-click it to change the type or edit the data.", onclick: function (e) { chartMenu(e.currentTarget); } }, icon("chart")));
             tools.appendChild(btn({ class: "dge-tool", "data-act": "risks", title: "Risk matrix: risks by probability and impact. Drag a dot to another cell to re-rate it; hover it for its description.", onclick: function () { canvas.focus({ preventScroll: true }); addRisks(); } }, icon("risks")));
             tools.appendChild(btn({ class: "dge-tool", "data-act": "section", title: "Section (" + MOD + "G): put the selected blocks in a titled section. Drag blocks in or out of a section to change what is in it.", onclick: function () { canvas.focus({ preventScroll: true }); groupSelection(); } }, icon("section")));
           }
@@ -1910,10 +1910,20 @@
       ]);
       setTimeout(function () { ta.focus(); }, 0);
     }
-    /* A bar chart with a little data; its title is typed next. */
-    function addChart() {
+    /* Which chart to add: bars, lines, areas, pie, donut, scatter. */
+    function chartMenu(anchor) {
+      openMenu(anchor, CHARTS.map(function (c) {
+        return [c[1], function () { canvas.focus({ preventScroll: true }); addChart(c[0]); }];
+      }));
+    }
+    /* A chart of `kind` with a little data; its title is typed next. */
+    function addChart(kind) {
+      kind = kind || "bar";
       var gid = freshId("chart");
-      var res = applyOps([{ op: "merge", dsl: "chart " + gid + ": Chart [bar] {\n  quarter | Plan | Actual\n  Q1 | 10 | 8\n  Q2 | 14 | 15\n  Q3 | 18 | 16\n}" }]);
+      var body = kind === "pie" || kind === "donut" ? "  Plan 50\n  Build 30\n  Launch 20"
+        : kind === "scatter" ? "  idea | effort | impact\n  First | 3 | 8\n  Second | 6 | 5\n  Third | 2 | 3"
+        : "  quarter | Plan | Actual\n  Q1 | 10 | 8\n  Q2 | 14 | 15\n  Q3 | 18 | 16";
+      var res = applyOps([{ op: "merge", dsl: "chart " + gid + ": Chart [" + kind + "] {\n" + body + "\n}" }]);
       if (res.ok) {
         select([gid]);
         reveal(gid);

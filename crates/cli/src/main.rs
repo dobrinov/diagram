@@ -40,7 +40,7 @@ MINDMAPS
   diagram outline FILE [ID] [--md]   a mindmap as an indented outline (--md: Markdown, ready as a prompt)
   diagram expand  FILE ID [--ask TEXT] [--count N] [--levels N] [--print]
                                      grow topic ID with AI (prints the prompt with --print or without a harness)
-  diagram expand  FILE --new TOPIC [--ask TEXT]   a new mindmap about TOPIC
+  diagram expand  FILE --new TOPIC [--ask TEXT] [--in SECTION]   a new mindmap about TOPIC
     AI: --ai claude | claude:MODEL | codex | gemini | CMD, or $DIAGRAM_AI (any command
         reading the prompt on stdin); default: the first of claude, codex, gemini installed
 
@@ -119,6 +119,7 @@ const VALUE_FLAGS: &[&str] = &[
     "--new",
     "--focus",
     "--as-of",
+    "--in",
 ];
 
 struct Args {
@@ -935,6 +936,7 @@ fn run(args: Args) -> Result<ExitCode, String> {
                     index: None,
                     x: None,
                     y: None,
+                    group: args.val("--in").map(str::to_string),
                 }],
             )
             .map_err(|e| e.to_string())?;

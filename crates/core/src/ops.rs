@@ -165,6 +165,9 @@ pub enum Op {
         x: Option<f64>,
         #[serde(default, skip_serializing_if = "Option::is_none")]
         y: Option<f64>,
+        /// A new mindmap: the section it goes into.
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        group: Option<String>,
     },
     /// Rename an id everywhere it is referenced (edges, comments, members).
     Rename {
@@ -840,7 +843,11 @@ fn apply_op(doc: &mut Document, op: &Op, created: &mut Vec<String>) -> Result<()
             index,
             x,
             y,
+            group,
         } => {
+            if let Some(g) = group.as_deref().filter(|g| !g.is_empty()) {
+                need_container(doc, g)?;
+            }
             let lines = crate::mindmap::parse_reply(outline);
             let at = match (x, y) {
                 (Some(x), Some(y)) => Some((*x, *y)),
@@ -853,6 +860,16 @@ fn apply_op(doc: &mut Document, op: &Op, created: &mut Vec<String>) -> Result<()
                 *index,
                 at,
             )?;
+            // a new map goes into the section as a whole (topics follow their centre)
+            if let (None, Some(g), Some(c)) = (
+                parent.as_deref().filter(|p| !p.is_empty()),
+                group.as_deref().filter(|g| !g.is_empty()),
+                ids.first(),
+            ) {
+                if let Some(n) = doc.node_mut(c) {
+                    n.group = Some(g.to_string());
+                }
+            }
             created.extend(ids);
         }
         Op::Rename { id, to } => {
@@ -1797,6 +1814,34 @@ mod tests {
         assert_eq!(r.created[0], "ideas");
         assert_eq!(d.node("ideas").unwrap().mindmap, Some(MapLayout::Right));
         assert_eq!(d.node("ideas").unwrap().x, Some(500.0));
+    }
+
+    #[test]
+    fn add_outline_keeps_ids_and_colours_and_goes_into_a_section() {
+        let mut d = crate::dsl::parse("group s: Plan {\n  a: A\n}\n").unwrap();
+        let r = apply(
+            &mut d,
+            &parse_ops(
+                r#"{"op":"add_outline","group":"s","outline":"Launch [id: launch, red]\n  Who books the venue and when it happens [collapsed]\n  Budget [id: a, bogus: 1, green]"}"#,
+            )
+            .unwrap(),
+        )
+        .unwrap();
+        // a free id is used; a taken one gets a fresh id; bad attrs are dropped one by one
+        assert_eq!(r.created, ["launch", "who-books-the-venue", "budget"]);
+        assert_eq!(d.node("launch").unwrap().color.as_deref(), Some("red"));
+        assert_eq!(d.node("launch").unwrap().group.as_deref(), Some("s"));
+        assert!(d.node("who-books-the-venue").unwrap().collapsed);
+        assert_eq!(d.node("budget").unwrap().color.as_deref(), Some("green"));
+        assert!(d.check().is_empty(), "{:?}", d.check());
+        let text = crate::dsl::print(&d);
+        assert_eq!(crate::dsl::parse(&text).unwrap(), d);
+        // the section must exist
+        assert!(apply(
+            &mut d,
+            &parse_ops(r#"{"op":"add_outline","group":"nope","outline":"X"}"#).unwrap()
+        )
+        .is_err());
     }
 
     #[test]

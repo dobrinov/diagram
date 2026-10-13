@@ -33,7 +33,8 @@ Save it in a `.diagram` file (or add the block to an existing board), then `diag
   JSON
   ```
 - Move a branch: `{"op":"update_node","id":"checkout-flow","parent":"discovery","index":0}`. Fold one: `"collapsed": true`. Remove a topic with its branch: `{"op":"remove","id":"x"}` (`"keep_members": true` lifts its branches up instead).
-- New map from scratch next to other content: `{"op":"add_outline","outline":"Topic\n  Branch\n    Sub","x":0,"y":600}`.
+- New map from scratch next to other content: `{"op":"add_outline","outline":"Topic\n  Branch\n    Sub","x":0,"y":600}`, or inside a section with `"group":"discovery"`.
+- Outline lines take attributes: `Fraud [id: fraud, red, collapsed]` keeps that id (when free) and colour. Without `id`, a topic gets a short id from the label's first words (`Who books the venue and when` → `who-books-the-venue`); `created` in the reply lists them.
 - `diagram expand FILE ID [--ask "risks only"]` asks the configured AI harness (`--ai CMD` / `$DIAGRAM_AI`) for subtopics and adds them.
 
 ## Mindmap → prompt

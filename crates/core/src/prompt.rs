@@ -123,7 +123,7 @@ fn context_ids(doc: &Document, comments: &[&Comment], context: Context) -> Optio
 pub const OPS_REFERENCE: &str = r#"Operations (fields in [] are optional; ids are letters, digits, `_`, `-`, `.`):
 - {"op":"add_node","id":"cache","label":"Redis","shape":"cylinder",["color","detail","group","link","tags","x","y","w","h","parent","index","mindmap"]}
 - {"op":"update_node","id":"api",["label","shape","color","detail","group","link","tags","w","h","parent","index","mindmap","collapsed","start","days","after","milestone","done","owner"]}   ("" clears a field)
-- {"op":"add_outline","parent":"risks","outline":"Fraud\n  Card testing\nBank delays"}   (mindmap topics, two spaces per level; without parent: a new mindmap)
+- {"op":"add_outline","parent":"risks","outline":"Fraud\n  Card testing\nBank delays"}   (mindmap topics, two spaces per level, a line may end in [id: x, red]; without parent: a new mindmap, "group" puts it in a section)
 - {"op":"add_edge","from":"api","to":"cache",["id","label","arrow":"end|start|both|none","line":"solid|dashed|dotted|thick","color"]}
 - {"op":"update_edge","id":"api->cache",["from","to","label","arrow","line","color"]}
 - {"op":"add_group","id":"backend","label":"Backend",["color","parent","members":["api","db"]]}

@@ -300,7 +300,10 @@ export interface UpdateNodeOp {
   column?: Column;
 }
 
-/** Add topics from an indented outline (or a Markdown list) under `parent`; without `parent` the first line becomes a new mindmap. */
+/**
+ * Add topics from an indented outline (or a Markdown list) under `parent`; without `parent` the first line becomes a new mindmap.
+ * A line may end in attributes: `Launch [id: launch, red, collapsed]` (a free `id` is used; others get a short id from the label).
+ */
 export interface AddOutlineOp {
   op: "add_outline";
   parent?: string;
@@ -308,6 +311,8 @@ export interface AddOutlineOp {
   index?: number;
   x?: number;
   y?: number;
+  /** A new mindmap: the section it goes into. */
+  group?: string;
 }
 
 /** Rename an id everywhere it is referenced. */

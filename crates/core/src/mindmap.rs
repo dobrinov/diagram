@@ -781,6 +781,27 @@ pub(crate) fn bullets(
     }
 }
 
+/// An id from a label's first words: `Who books the venue and when?` →
+/// `who-books-the-venue`.
+pub fn short_slug(label: &str) -> String {
+    let full = slug(label);
+    let mut out = String::new();
+    for (i, w) in full.split('-').enumerate() {
+        if i == 4 || out.len() + w.len() > 32 {
+            break;
+        }
+        if !out.is_empty() {
+            out.push('-');
+        }
+        out.push_str(w);
+    }
+    if out.is_empty() {
+        full.chars().take(32).collect()
+    } else {
+        out
+    }
+}
+
 /// Add an outline under `parent` (or as a new mindmap when `parent` is None).
 /// Top-level lines become children of `parent`, starting at sibling position
 /// `index` (end when None). A reply that repeats the parent as its single
@@ -820,15 +841,24 @@ pub fn insert_outline(
     let mut top_n = 0usize;
     for l in &lines {
         let (label, attrs) = split_label(&l.text);
-        let id = doc.fresh_id(&slug(&label));
+        // `[id: x]` chooses the id (when free); otherwise a short one from
+        // the label's first words
+        let mut attrs = attrs.unwrap_or_default();
+        let wanted = attrs
+            .iter()
+            .position(|(k, v)| k == "id" && v.is_some())
+            .map(|i| attrs.remove(i).1.unwrap());
+        let id = match wanted.filter(|w| dsl::is_ident(w) && !doc.id_taken(w)) {
+            Some(w) => w,
+            None => doc.fresh_id(&short_slug(&label)),
+        };
         let mut n = Node::new(&id);
         n.label = if label == id { String::new() } else { label };
-        if let Some(a) = attrs {
-            // attributes the model added are a bonus; bad ones are ignored
+        // attributes the model added are a bonus; bad ones are left out one by one
+        for a in &attrs {
             let mut tmp = n.clone();
-            if dsl::apply_node_attrs(&mut tmp, &a).is_ok() {
+            if dsl::apply_node_attrs(&mut tmp, &vec![a.clone()]).is_ok() {
                 n = tmp;
-                n.id = id.clone();
             }
         }
         chain.truncate(l.depth);
