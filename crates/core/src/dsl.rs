@@ -1039,8 +1039,9 @@ impl Parser {
             match (k.as_str(), v) {
                 ("color" | "colour", Some(v)) => g.color = Some(color(v)?),
                 ("label", Some(v)) => g.label = v.clone(),
-                ("x", Some(v)) if lanes => g.x = Some(num("x", v)?),
-                ("y", Some(v)) if lanes => g.y = Some(num("y", v)?),
+                // a section (or swimlanes) placed by hand: its top-left
+                ("x", Some(v)) => g.x = Some(num("x", v)?),
+                ("y", Some(v)) => g.y = Some(num("y", v)?),
                 (c, None) if valid_color(c) => g.color = Some(c.to_string()),
                 (k, _) => return Err(format!("unknown group attribute `{k}`")),
             }

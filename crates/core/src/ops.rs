@@ -1061,15 +1061,21 @@ fn apply_op(doc: &mut Document, op: &Op, created: &mut Vec<String>) -> Result<()
             if let Some(n) = doc.node_mut(id) {
                 n.x = Some(x.round());
                 n.y = Some(y.round());
-            } else if let Some(g) = doc
-                .group_mut(id)
-                .filter(|g| g.lanes || g.gantt || g.risks || g.chart.is_some() || g.table)
-            {
-                // swimlanes and gantt charts move as a whole
+            } else if doc.group(id).is_some() {
+                // a section or block moves as a whole; a lane moves with its swimlanes
+                let lane = doc
+                    .group(id)
+                    .and_then(|g| g.parent.as_deref())
+                    .and_then(|p| doc.group(p))
+                    .is_some_and(|p| p.lanes);
+                if lane {
+                    return Err(format!("`{id}` is a lane: move its swimlanes"));
+                }
+                let g = doc.group_mut(id).unwrap();
                 g.x = Some(x.round());
                 g.y = Some(y.round());
             } else {
-                return Err(format!("no node, swimlanes or gantt chart `{id}`"));
+                return Err(format!("no node or group `{id}`"));
             }
         }
         Op::Nudge { id, dx, dy } => {

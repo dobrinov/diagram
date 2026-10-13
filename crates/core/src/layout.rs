@@ -439,8 +439,8 @@ pub fn layout_at(doc: &Document, today: Option<i64>) -> Layout {
         let g = &ctx.doc.groups[i];
         let (ox, oy, rx, ry) = match (g.x, g.y) {
             (Some(x), Some(y))
-                if (g.lanes || g.gantt || g.risks || g.chart.is_some() || g.table)
-                    && ctx.lane[i].is_none() =>
+                // any block placed by hand (a lane is a band of its swimlanes)
+                if ctx.lane[i].is_none() =>
             {
                 (x, y, 0.0, 0.0)
             }
@@ -1521,5 +1521,31 @@ mod tests {
         // members sit in their lane, past its title strip; pins are ignored there
         assert!(r("a").x > c.rect.x + c.head && r("a").bottom() <= c.rect.bottom());
         assert!(r("b").y >= s.rect.y);
+    }
+
+    #[test]
+    fn sections_placed_by_hand_keep_their_place() {
+        let src = "group a: A [x: 400, y: 300] {\n  one: One\n  two: Two\n}\ngroup b: B {\n  three: Three\n}\n\none -> two\n";
+        let d = crate::dsl::parse(src).unwrap();
+        assert_eq!(crate::dsl::print(&d), src);
+        let l = layout(&d);
+        let a = l.group("a").unwrap().rect;
+        assert_eq!((a.x, a.y), (400.0, 300.0));
+        let (one, two) = (l.rect("one").unwrap(), l.rect("two").unwrap());
+        assert!(
+            one.x >= a.x && one.y >= a.y && two.right() <= a.right() && two.y + two.h <= a.y + a.h,
+            "{a:?} {one:?} {two:?}"
+        );
+        // a move op places it
+        let mut e = d.clone();
+        crate::ops::apply(
+            &mut e,
+            &crate::ops::parse_ops(r#"{"op":"move","id":"b","x":0,"y":0}"#).unwrap(),
+        )
+        .unwrap();
+        assert_eq!(
+            (e.group("b").unwrap().x, e.group("b").unwrap().y),
+            (Some(0.0), Some(0.0))
+        );
     }
 }

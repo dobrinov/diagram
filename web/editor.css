@@ -256,3 +256,18 @@
 .dge-preview-bar { position: absolute; left: 50%; top: 64px; transform: translateX(-50%); z-index: 6; display: flex; align-items: center; gap: 8px; padding: 6px 6px 6px 14px; border: 1px solid var(--line-strong); border-radius: 999px; background: var(--bg); box-shadow: var(--shadow); font-size: 13px; white-space: nowrap; }
 .dge-preview-bar button.primary { background: var(--accent); color: #fff; border-color: var(--accent); }
 .dge-ask-ai { font-weight: 600; }
+
+/* Find (⌘F) */
+.dge-find { position: absolute; top: 56px; right: 16px; z-index: 6; display: flex; align-items: center; gap: 6px; padding: 4px 4px 4px 10px; border: 1px solid var(--line-strong); border-radius: var(--r-2); background: var(--bg); box-shadow: var(--shadow); }
+.dge-find-input { width: 220px; border: 0; outline: 0; background: transparent; color: var(--fg); font: inherit; font-size: 13px; }
+.dge-find-count { font-size: 12px; min-width: 64px; }
+
+/* Present */
+.dge-presenting .dge-toolbar, .dge-presenting .dge-tools, .dge-presenting .dge-zoombar { display: none !important; }
+.dge-present-bar { position: absolute; left: 50%; bottom: 20px; transform: translateX(-50%); z-index: 6; display: flex; align-items: center; gap: 8px; padding: 4px; border: 1px solid var(--line-strong); border-radius: 999px; background: var(--bg); box-shadow: var(--shadow); font-size: 13px; white-space: nowrap; }
+.dge-present-bar span { padding: 0 6px; }
+
+/* Section titles, readable when zoomed out */
+.dge-titles { position: absolute; inset: 0; pointer-events: none; overflow: hidden; z-index: 2; }
+.dge-titles[hidden] { display: none; }
+.dge-title { position: absolute; transform: translateY(-50%); padding: 2px 8px; border-radius: 6px; background: var(--fg); color: var(--bg); font-size: 12px; font-weight: 700; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }

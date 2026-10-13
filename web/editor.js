@@ -46,6 +46,7 @@
     theme: '<circle cx="12" cy="12" r="8"/><path d="M12 4a8 8 0 000 16z" fill="currentColor"/>',
     tidy: '<path d="M4 6h7M4 12h11M4 18h16"/>',
     decision: '<path d="M12 3l9 9-9 9-9-9z"/>',
+    present: '<rect x="3.5" y="5" width="17" height="12" rx="2"/><path d="M12 17v3M8.5 20h7M10.5 9v4l3.5-2z"/>',
     table: '<rect x="4" y="5" width="16" height="14" rx="2"/><path d="M4 5h16v4.5H4z" fill="currentColor" stroke="none"/><path d="M4 14.25h16M10 9.5V19M15 9.5V19"/>',
     chart: '<path d="M4 20h16"/><rect x="6" y="11" width="3" height="7" rx="0.5" fill="currentColor" stroke="none"/><rect x="11" y="6" width="3" height="12" rx="0.5" fill="currentColor" stroke="none"/><rect x="16" y="9" width="3" height="9" rx="0.5" fill="currentColor" stroke="none"/>',
     risks: '<rect x="4" y="4" width="16" height="16" rx="2"/><path d="M4 12h16M12 4v16"/><circle cx="16" cy="8" r="2" fill="currentColor" stroke="none"/><circle cx="8.5" cy="15.5" r="1.6" fill="currentColor" stroke="none"/>',
@@ -263,6 +264,7 @@
       toolbar.baseChip = h("span", { class: "dge-chip", hidden: true });
       toolbar.appendChild(toolbar.baseChip);
       var right = h("div", { class: "dge-group" });
+      right.appendChild(btn({ title: "Present: the board's sections and blocks one at a time (← →, Esc)", onclick: function () { present(); } }, icon("present")));
       if (!view) right.appendChild(h("button", { class: "dge-ask-ai", title: "Ask AI (" + MOD + "K): describe a change; it uses your AI subscription's CLI, and you see the changes before keeping them", onclick: function () { askAI(); } }, ["✦ Ask AI"]));
       right.appendChild(h("button", { title: "Export and share", onclick: function (e) { openExport(e.currentTarget); } }, ["Export ▾"]));
       if (!view && hasCode) right.appendChild(btn({ "data-act": "code", title: "Code (" + MOD + "/)", onclick: function () { showCode = !showCode; applyChrome(); } }, icon("code")));
@@ -481,6 +483,38 @@
     function transform() {
       stage.style.transform = "translate(" + st.panX + "px," + st.panY + "px) scale(" + st.zoom + ")";
       zoomLabel.textContent = Math.round(st.zoom * 100) + "%";
+      placeTitles();
+    }
+    /* Zoomed out, section titles get too small to read: they are shown on
+       top at a readable size instead. */
+    var titles = null;
+    function placeTitles() {
+      if (!titles) {
+        titles = h("div", { class: "dge-titles", "aria-hidden": "true" });
+        canvas.appendChild(titles);
+      }
+      var show = st.r && st.zoom < 0.6 && !st.presenting;
+      titles.hidden = !show;
+      if (!show) return;
+      // top-level sections only: nested titles would sit on top of their parents'
+      var want = (st.r.groups || []).filter(function (g) { var gr = group(g.id); return gr && !gr.parent; });
+      if (titles._n !== want.length || titles._r !== st.r) {
+        titles.innerHTML = "";
+        want.forEach(function (g) {
+          var gr = group(g.id);
+          titles.appendChild(h("div", { class: "dge-title", "data-id": g.id }, [gr.label || gr.id]));
+        });
+        titles._n = want.length;
+        titles._r = st.r;
+      }
+      [].forEach.call(titles.children, function (t) {
+        var g = geom(t.getAttribute("data-id"));
+        if (!g) return;
+        var p = toScreen(g.x, g.y);
+        t.style.left = p.x + "px";
+        t.style.top = p.y + "px";
+        t.style.maxWidth = Math.max(40, g.w * st.zoom) + "px";
+      });
     }
     function fit() {
       if (!st.r) return;
@@ -1655,7 +1689,11 @@
       if (!g) return null;
       if (g.lanes || g.gantt || g.risks || g.chart || g.table) return g.id;
       var up = g.parent && group(g.parent);
-      return up && up.lanes ? up.id : null;
+      if (up && up.lanes) return up.id;
+      // a section moves as a whole (and keeps its place), unless boxes in it
+      // were placed by hand one by one
+      var placed = st.doc.nodes.some(function (n) { return n.group === g.id && n.x != null && n.y != null; });
+      return placed ? null : g.id;
     }
     function chartOf(id) { var n = node(id), g = n && n.group && group(n.group); return g && g.gantt ? g : null; }
     function matrixOf(id) { var n = node(id), g = n && n.group && group(n.group); return g && g.risks ? g : null; }
@@ -2039,13 +2077,115 @@
       if (link.charAt(0) !== "#") { window.open(link, "_blank", "noopener"); return; }
       var id = link.slice(1), g = geom(id);
       if (!g) { flash(kindOf(id) ? "“" + labelOf(id) + "” is folded away" : "“" + id + "” is not on the board any more", true); return; }
+      focusOn(g, Math.max(st.zoom, 0.6), 1.5);
+      select([id]);
+    }
+    /* Centre a box on the screen, zoomed to fill most of it (between `min` and `max`). */
+    function focusOn(g, min, max, fill) {
       var cw = canvas.clientWidth, ch = canvas.clientHeight;
-      var z = Math.min(Math.max(st.zoom, 0.6), (cw * 0.8) / g.w, (ch * 0.8) / g.h, 1.5);
+      var z = Math.min(min, (cw * (fill || 0.8)) / g.w, (ch * (fill || 0.8)) / g.h, max);
       st.zoom = Math.max(0.1, z);
       st.panX = cw / 2 - (g.x + g.w / 2 - st.r.view.x) * st.zoom;
       st.panY = ch / 2 - (g.y + g.h / 2 - st.r.view.y) * st.zoom;
       transform();
-      select([id]);
+    }
+
+    // ------------------------------------------------------------ find
+    /* ⌘F: find boxes, topics, rows and sections by their text; Enter goes to
+       the next match, ⇧Enter to the one before. */
+    var finder = null;
+    function openFind() {
+      if (finder) { finder.input.focus(); finder.input.select(); return; }
+      var input = h("input", { class: "dge-find-input", placeholder: "Find on the board", spellcheck: "false" });
+      var count = h("span", { class: "dge-muted dge-find-count" });
+      var box = h("div", { class: "dge-find", role: "search" }, [input, count, h("button", { title: "Close (Esc)", onclick: closeFind }, ["×"])]);
+      finder = { box: box, input: input, count: count, hits: [], at: -1 };
+      el.appendChild(box);
+      var update = function () {
+        var q = input.value.trim().toLowerCase();
+        finder.hits = q ? findHits(q) : [];
+        finder.at = -1;
+        count.textContent = q ? (finder.hits.length ? finder.hits.length + " found" : "nothing found") : "";
+      };
+      input.addEventListener("input", update);
+      input.addEventListener("keydown", function (e) {
+        e.stopPropagation();
+        if (e.key === "Escape") return closeFind();
+        if (e.key === "Enter" && finder.hits.length) {
+          finder.at = (finder.at + (e.shiftKey ? -1 : 1) + finder.hits.length) % finder.hits.length;
+          var id = finder.hits[finder.at], g = geom(id);
+          count.textContent = (finder.at + 1) + " of " + finder.hits.length;
+          if (g) { focusOn(g, Math.max(st.zoom, 0.8), 1.5, 0.5); select([id]); }
+          else flash("“" + labelOf(id) + "” is folded away");
+        }
+      });
+      input.focus();
+    }
+    function closeFind() {
+      if (!finder) return;
+      finder.box.remove();
+      finder = null;
+      canvas.focus({ preventScroll: true });
+    }
+    /* What matches: labels, details, cells, owners; sections by title. Board order. */
+    function findHits(q) {
+      var has = function (s) { return s != null && String(s).toLowerCase().indexOf(q) >= 0; };
+      return st.doc.nodes.filter(function (n) {
+        return has(n.label || n.id) || has(n.detail) || has(n.owner) || (n.cells || []).some(has);
+      }).map(function (n) { return n.id; }).concat((st.doc.groups || []).filter(function (g) { return has(g.label || g.id); }).map(function (g) { return g.id; }));
+    }
+
+    // ------------------------------------------------------------ present
+    /* Present: the board's blocks one at a time, in reading order (rows, then
+       left to right); ← / → (or Space) to move, Esc to stop. */
+    function slides() {
+      var r = st.r, items = [];
+      (r.groups || []).forEach(function (g) {
+        var gr = group(g.id);
+        if (gr && !gr.parent) items.push({ id: g.id, x: g.x, y: g.y, w: g.w, h: g.h, title: gr.label || gr.id });
+      });
+      r.nodes.forEach(function (n) {
+        var nd = node(n.id);
+        if (nd && !nd.group && !nd.parent && nd.mindmap) {
+          var b = n.map ? null : n; // the centre: its whole map
+          var map = r.nodes.filter(function (m) { return m.map && m.map.root === n.id; }).concat([n]);
+          var x0 = Math.min.apply(null, map.map(function (m) { return m.x; })), y0 = Math.min.apply(null, map.map(function (m) { return m.y; }));
+          var x1 = Math.max.apply(null, map.map(function (m) { return m.x + m.w; })), y1 = Math.max.apply(null, map.map(function (m) { return m.y + m.h; }));
+          items.push({ id: n.id, x: x0, y: y0, w: x1 - x0, h: y1 - y0, title: nd.label || nd.id });
+        }
+      });
+      var row = function (it) { return Math.round(it.y / 120); };
+      items.sort(function (a, b) { return row(a) - row(b) || a.x - b.x; });
+      return items;
+    }
+    function present() {
+      var list = slides();
+      if (!list.length) { fit(); return flash("Nothing to present yet: add sections, charts, tables or mindmaps"); }
+      var bar = h("div", { class: "dge-present-bar" }, []);
+      st.presenting = { list: list, at: -1, bar: bar };
+      el.classList.add("dge-presenting");
+      el.appendChild(bar);
+      presentStep(1);
+    }
+    function presentStep(d) {
+      var p = st.presenting;
+      if (!p) return;
+      p.at = Math.max(0, Math.min(p.list.length - 1, p.at + d));
+      var it = p.list[p.at];
+      focusOn(it, 4, 4, 0.88);
+      p.bar.innerHTML = "";
+      p.bar.appendChild(h("button", { title: "Before (←)", onclick: function () { presentStep(-1); } }, ["←"]));
+      p.bar.appendChild(h("span", {}, [(p.at + 1) + " / " + p.list.length + " · " + it.title]));
+      p.bar.appendChild(h("button", { title: "Next (→)", onclick: function () { presentStep(1); } }, ["→"]));
+      p.bar.appendChild(h("button", { title: "Stop (Esc)", onclick: endPresent }, ["Done"]));
+    }
+    function endPresent() {
+      var p = st.presenting;
+      if (!p) return;
+      st.presenting = null;
+      p.bar.remove();
+      el.classList.remove("dge-presenting");
+      fit();
     }
 
     /* Swimlanes with two lanes; the selected blocks go in the first. */
@@ -2174,6 +2314,13 @@
         return;
       }
       if (mod && e.key.toLowerCase() === "k" && !view) { e.preventDefault(); askAI(); return; }
+      if (mod && e.key.toLowerCase() === "f") { e.preventDefault(); openFind(); return; }
+      if (st.presenting) {
+        if (e.key === "Escape") { e.preventDefault(); endPresent(); }
+        else if (e.key === "ArrowRight" || e.key === " " || e.key === "PageDown") { e.preventDefault(); presentStep(1); }
+        else if (e.key === "ArrowLeft" || e.key === "PageUp") { e.preventDefault(); presentStep(-1); }
+        return;
+      }
       if (mod && e.key === "/" && hasCode) { e.preventDefault(); showCode = !showCode; applyChrome(); syncCode(true); return; }
       if (typing || !el.contains(document.activeElement) && document.activeElement !== document.body) return;
       if (e.key === " " && !st.space) { st.space = true; canvas.classList.add("space"); e.preventDefault(); return; }

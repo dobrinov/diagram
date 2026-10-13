@@ -1,5 +1,13 @@
 # Changelog
 
+## 0.18.0 — 2026-10-13
+
+- **Sections keep their place:** `group a: A [x: 400, y: 120] {` (and the `move` op) places any section, not only swimlanes, charts and tables; its boxes are laid out inside it. Dragging a section by its frame in the editor now places the section instead of pinning each box in it (a section whose boxes were already placed one by one moves as before). Adding a section no longer reshuffles the ones you placed.
+- **Find (⌘F):** boxes, topics, table and chart rows, owners and sections by their text; Enter goes to the next match (⇧Enter back), zoomed in and selected.
+- **Present:** the screen icon in the toolbar shows the board's top-level sections, blocks and mindmaps one at a time in reading order; ← → or Space, Esc to stop; the toolbars step aside.
+- **Readable when zoomed out:** below 60 % zoom, top-level section titles are shown at a readable size over the board.
+- `scripts/e2e/board.mjs` in `make e2e`.
+
 ## 0.17.0 — 2026-10-13
 
 - **Ask AI, on your AI subscription.** In the editor, *✦ Ask AI* (⌘K) takes a request about the selection or the whole board. The prompt carries just that part of the board and the ops reference; the model replies with edits; a reply that does not apply goes back with its error (twice at most); the changes are shown highlighted with *Keep* / *Discard* (nothing is saved before *Keep*; ⌘Z discards). Without an AI connected, the prompt is shown to copy and the reply pasted back.

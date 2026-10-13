@@ -320,8 +320,9 @@ pub struct Group {
     pub w: Option<f64>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub h: Option<f64>,
-    /// Swimlanes and gantt charts: pinned position (top-left). Their insides
-    /// are always laid out automatically; other groups follow their members.
+    /// Placed by hand (top-left): a section, swimlanes, a chart, … keeps its
+    /// place and its insides are laid out in it. Without it a group goes
+    /// where the layout (or its pinned members) puts it.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub x: Option<f64>,
     #[serde(skip_serializing_if = "Option::is_none")]
