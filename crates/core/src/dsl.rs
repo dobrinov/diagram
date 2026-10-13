@@ -236,7 +236,7 @@ impl Parser {
             a.edge_op().is_some() || a.rest().starts_with(',')
         };
         let word = match word {
-            "group" | "gantt" | "risks" | "chart" | "table" | "mindmap" if !opens => "",
+            "group" | "gantt" | "risks" | "chart" | "table" | "entity" | "mindmap" if !opens => "",
             "comment" | "reply" if arrow_next => "",
             w => w,
         };
@@ -281,6 +281,10 @@ impl Parser {
             "table" if c.rest()[5..].starts_with(|ch: char| ch.is_whitespace()) => {
                 c.advance(5);
                 return self.table_decl(c);
+            }
+            "entity" if c.rest()[6..].starts_with(|ch: char| ch.is_whitespace()) => {
+                c.advance(6);
+                return self.entity_decl(c);
             }
             "reply" if c.rest()[5..].starts_with(|ch: char| ch.is_whitespace()) => {
                 c.advance(5);
@@ -661,6 +665,98 @@ impl Parser {
         Ok(())
     }
 
+    /// `entity users: Users [attrs] {` … one column per line … `}`: a
+    /// database table.
+    fn entity_decl(&mut self, mut c: Cursor) -> Result<(), String> {
+        c.skip_ws();
+        let (id, qlabel) = c.reference()?;
+        let (label, attrs) = label_and_attrs_until_brace(&mut c)?;
+        c.skip_ws();
+        if !c.eat('{') {
+            return Err("a database table needs a body: `entity users: Users {` … `email: text [unique]` … `}`".into());
+        }
+        c.skip_ws();
+        let closes_inline = c.eat('}');
+        if !c.at_end() {
+            return Err("put the table's columns on the following lines".into());
+        }
+        if self.doc.node(&id).is_some() {
+            return Err(format!("`{id}` is already a node"));
+        }
+        let parent = self.group();
+        if self.doc.group(&id).is_none() {
+            self.doc.groups.push(Group {
+                id: id.clone(),
+                ..Default::default()
+            });
+        }
+        let g = self.doc.group_mut(&id).unwrap();
+        g.parent = parent;
+        g.entity = true;
+        if let Some(l) = label.or(qlabel) {
+            g.label = l;
+        }
+        for (k, v) in &attrs {
+            match (k.as_str(), v) {
+                ("color" | "colour", Some(v)) => g.color = Some(color(v)?),
+                (c, None) if valid_color(c) => g.color = Some(c.to_string()),
+                ("x", Some(v)) => g.x = Some(num("x", v)?),
+                ("y", Some(v)) => g.y = Some(num("y", v)?),
+                (k, _) => return Err(format!("unknown table attribute `{k}` (color, x, y)")),
+            }
+        }
+        self.touched.push(Elem::Group(id.clone()));
+        if !closes_inline {
+            self.gantt = Some((id, self.line));
+        }
+        Ok(())
+    }
+
+    /// A column: `email: text [unique]`, `team_id: uuid [fk: teams.id, null]`.
+    fn column_line(&mut self, table: &str, t: &str) -> Result<(), String> {
+        // `[pk, unique]` at the end (an empty `[]` is part of an array type)
+        let t = t.trim_end();
+        let (text, attrs) = match t.rfind('[') {
+            Some(i) if t.ends_with(']') && !t[i + 1..t.len() - 1].trim().is_empty() => {
+                (&t[..i], Some(&t[i + 1..t.len() - 1]))
+            }
+            _ => (t, None),
+        };
+        let (name, ty) = match text.split_once(':') {
+            Some((n, ty)) => (n.trim().to_string(), ty.trim().to_string()),
+            None => (text.trim().to_string(), String::new()),
+        };
+        if name.is_empty() {
+            return Err("a column needs a name: `email: text [unique]`".into());
+        }
+        let mut col = Column {
+            ty,
+            ..Default::default()
+        };
+        let mut n = Node::new(&format!("{table}.{name}"));
+        n.label = name;
+        n.group = Some(table.to_string());
+        let mut rest = Vec::new();
+        for (k, v) in parse_attrs(attrs.unwrap_or(""))? {
+            match (k.as_str(), v) {
+                ("pk" | "primary", None) => col.pk = true,
+                ("unique" | "uq", None) => col.unique = true,
+                ("null" | "nullable", None) => col.null = true,
+                ("fk" | "references" | "ref", Some(v)) => col.fk = Some(v),
+                ("default", Some(v)) => col.default = Some(v),
+                (k, v) => rest.push((k.to_string(), v)),
+            }
+        }
+        apply_node_attrs(&mut n, &rest)?;
+        n.column = Some(col);
+        if self.doc.id_taken(&n.id) {
+            return Err(format!("column `{}` is already in `{table}`", n.label));
+        }
+        self.touched.push(Elem::Node(n.id.clone()));
+        self.doc.nodes.push(n);
+        Ok(())
+    }
+
     /// `table id: Title [attrs] {` … a header row, then rows … `}`.
     fn table_decl(&mut self, mut c: Cursor) -> Result<(), String> {
         c.skip_ws();
@@ -831,6 +927,9 @@ impl Parser {
         }
         if self.doc.group(&block).is_some_and(|g| g.table) {
             return self.table_line(&block, t);
+        }
+        if self.doc.group(&block).is_some_and(|g| g.entity) {
+            return self.column_line(&block, t);
         }
         let t = crate::mindmap::strip_bullet(t);
         let (text, attrs) = split_attrs(t);
@@ -1798,6 +1897,70 @@ pub(crate) fn gantt_block(doc: &Document, g: &Group, pad: &str, out: &mut String
     out.push_str(&format!("{pad}}}\n"));
 }
 
+/// A database table: one column per line, types lined up.
+pub(crate) fn entity_block(doc: &Document, g: &Group, pad: &str, out: &mut String) {
+    let mut head = id_text(&g.id);
+    if !g.label.is_empty() && g.label != g.id {
+        head.push_str(": ");
+        head.push_str(&label_text(&g.label));
+    }
+    let mut a = Vec::new();
+    if let Some(c) = &g.color {
+        a.push(if c.starts_with('#') {
+            format!("color: {c}")
+        } else {
+            c.clone()
+        });
+    }
+    a.extend(group_pos(g));
+    head.push_str(&attrs_text(&a));
+    let cols: Vec<&Node> = doc
+        .nodes
+        .iter()
+        .filter(|n| n.group.as_deref() == Some(g.id.as_str()))
+        .collect();
+    if cols.is_empty() {
+        out.push_str(&format!("{pad}entity {head} {{}}\n"));
+        return;
+    }
+    out.push_str(&format!("{pad}entity {head} {{\n"));
+    let width = cols
+        .iter()
+        .map(|n| n.display().chars().count())
+        .max()
+        .unwrap_or(0);
+    for n in cols {
+        let c = n.column.clone().unwrap_or_default();
+        let mut a = Vec::new();
+        if c.pk {
+            a.push("pk".to_string());
+        }
+        if c.unique {
+            a.push("unique".into());
+        }
+        if c.null {
+            a.push("null".into());
+        }
+        if let Some(f) = &c.fk {
+            a.push(format!("fk: {f}"));
+        }
+        if let Some(d) = &c.default {
+            a.push(format!("default: {}", attr_value(d)));
+        }
+        let mut m = n.clone();
+        m.column = None;
+        a.extend(node_attrs(&m));
+        let name = format!("{}:", n.display());
+        let line = if c.ty.is_empty() {
+            n.display().to_string()
+        } else {
+            format!("{name:<w$} {}", c.ty, w = width + 1)
+        };
+        out.push_str(&format!("{pad}  {line}{}\n", attrs_text(&a)));
+    }
+    out.push_str(&format!("{pad}}}\n"));
+}
+
 /// A table: its header and one row per node, columns lined up.
 pub(crate) fn table_block(doc: &Document, g: &Group, pad: &str, out: &mut String) {
     let mut head = id_text(&g.id);
@@ -2367,6 +2530,10 @@ pub(crate) fn group_block(
     }
     if g.table {
         table_block(doc, g, &pad, out);
+        return;
+    }
+    if g.entity {
+        entity_block(doc, g, &pad, out);
         return;
     }
     if g.gantt || g.risks {

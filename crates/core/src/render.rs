@@ -104,6 +104,9 @@ pub fn theme_of(
 }
 
 pub fn render(doc: &Document, opts: &RenderOptions) -> Rendered {
+    // foreign keys are drawn (and laid out) as lines between columns
+    let related = crate::entities::with_relations(doc);
+    let doc = related.as_ref().unwrap_or(doc);
     // the theme's font sizes the boxes (while this board is drawn)
     let def = theme_of(doc, &opts.themes);
     // the viewer's mode (or the board's): the theme's light or dark side
@@ -357,7 +360,7 @@ fn draw(doc: &Document, opts: &RenderOptions, def: Option<crate::model::ThemeDef
         if let Some(m) = &gb.matrix {
             matrix_svg(&mut s, doc, gb, m, p, t);
         }
-        if gb.chart.is_some() || gb.table {
+        if gb.chart.is_some() || gb.table || gb.entity {
             if let Some(g) = doc.group(&gb.id) {
                 chart_svg(&mut s, doc, g, gb, p, t);
             }
@@ -406,7 +409,12 @@ fn draw(doc: &Document, opts: &RenderOptions, def: Option<crate::model::ThemeDef
                 dash = r#" stroke-dasharray="6 5""#;
             }
         }
-        let _ = write!(s, r#"<g class="dg-edge" data-id="{}">"#, esc(&e.id));
+        if e.id.starts_with("fk:") {
+            // a foreign key: drawn like an arrow, not one to pick or edit
+            s.push_str(r#"<g class="dg-relation">"#);
+        } else {
+            let _ = write!(s, r#"<g class="dg-edge" data-id="{}">"#, esc(&e.id));
+        }
         let _ = write!(
             s,
             r#"<path class="dg-hit" d="{}" fill="none" stroke="transparent" stroke-width="14"/>"#,
@@ -912,7 +920,9 @@ fn chart_svg(
         gb.rect.x + layout::GROUP_PAD,
         gb.rect.y + layout::GROUP_HEAD,
     );
-    let plot = if g.table {
+    let plot = if g.entity {
+        crate::entities::plot(doc, g)
+    } else if g.table {
         crate::tables::plot(doc, g)
     } else {
         crate::charts::plot(doc, g)
@@ -1034,7 +1044,9 @@ fn datum_svg(
         s,
         r#"<g class="dg-node dg-datum" data-id="{}"><title>{}</title><rect class="dg-shape" x="{}" y="{}" width="{}" height="{}" rx="3" fill="transparent" stroke="{stroke}" stroke-width="2"/></g>"#,
         esc(&node.id),
-        esc(&if crate::tables::table_of(doc, node).is_some() {
+        esc(&if crate::entities::entity_of(doc, node).is_some() {
+            crate::entities::tooltip(node)
+        } else if crate::tables::table_of(doc, node).is_some() {
             crate::tables::tooltip(doc, node)
         } else {
             crate::charts::tooltip(doc, node)

@@ -51,6 +51,7 @@ Edits keep the file as it is written. Ops, the editor and `diagram apply` rewrit
 | `group id: Label [attrs] {` … `}` | a group (a *section* in the editor): a titled frame around what is declared or listed inside. Groups nest. |
 | `lanes id: Title {` … `lane id: Title {` … `}` … `}` | swimlanes: each `lane` is a band (a row when the flow runs right or left, a column when it runs down or up) with its title at the side; the flow runs across lanes |
 | `gantt id: Title [start: YYYY-MM-DD] {` … `}` | a gantt chart: one task per line, `Label [5d, after: other-task]` (see *Gantt charts*) |
+| `entity id: Name {` … `}` | a database table: one column per line, `email: text [unique]` (see *Database tables*) |
 | `table id: Title {` … `}` | a table: a header row, then rows of cells separated by `\|` (see *Tables*) |
 | `chart id: Title [bar] {` … `}` | a chart: a small table, `Q1 \| 120 \| 80` (see *Charts*) |
 | `risks id: Title [scale: 5] {` … `}` | a risk matrix: one risk per line, `Label [p: 4, i: 3, owner: ana, detail: "…"]` (see *Risk matrices*) |
@@ -170,6 +171,27 @@ gantt launch: Launch plan [start: 2026-10-12] {
 - `x`/`y` on the chart (`[start: …, x: 400, y: 120]`) pin it, as dragging it in the editor does.
 - `scale: day | week | month | quarter` sets the timeline's resolution (week when left out): lines and dates at each day, Monday, 1st of the month or quarter. In JSON it is the group's `scale`.
 - In the editor: drag a bar to reschedule it and its end to change its duration (right-click → *Duration…* to type one); draw an arrow from one bar to another to make the second wait for the first (right-click the dependency line to remove it, or a task → *Starts after…*); right-click a task → *Colour…* to colour its bar, *Progress…*, *Owner…* or *Make it a milestone*; a red line marks today; right-click the chart → *Scale…*.
+
+### Database tables
+
+```diagram
+entity teams: Teams {
+  id:   uuid [pk]
+  name: text [unique]
+}
+entity users: Users {
+  id:         uuid [pk]
+  team_id:    uuid [fk: teams]
+  email:      citext [unique]
+  bio:        text [null]
+  created_at: timestamptz [default: now()]
+}
+```
+
+- Each line is a column: `name: type`, then `[pk]`, `[unique]`, `[null]` (it may be NULL; columns are NOT NULL otherwise), `[fk: teams.id]` (or `fk: teams` for its primary key), `[default: now()]`, and the usual `detail`, `color`, `link`. A column's id is its table's and its name (`users.email`), so comments, links and arrows can point at a column.
+- A foreign key is drawn as a line from the column to the column it references, and pulls related tables together in the layout. Columns show a `PK` / `FK` / `UQ` badge, their type, and `?` when nullable; hovering one shows everything about it.
+- Reviewing a schema change: `diagram diff old.diagram new.diagram` lists columns added, dropped and changed (type, keys, references, default), and `diagram svg new.diagram --base old.diagram` (or `--base HEAD`) shows them in green, red and amber.
+- In the editor: the *Database table* tool; right-click a table → *Edit columns…* (the columns as text), *Add column*; right-click a column → *Edit column…*, *Colour…*, *Delete column*. Prompts show a table as a Markdown table of its columns. In JSON a table is a group with `entity`; its columns are nodes with `column: {type, pk, unique, null, fk, default}`.
 
 ### Tables
 

@@ -47,6 +47,7 @@
     tidy: '<path d="M4 6h7M4 12h11M4 18h16"/>',
     decision: '<path d="M12 3l9 9-9 9-9-9z"/>',
     present: '<rect x="3.5" y="5" width="17" height="12" rx="2"/><path d="M12 17v3M8.5 20h7M10.5 9v4l3.5-2z"/>',
+    entity: '<ellipse cx="12" cy="6" rx="7" ry="2.6"/><path d="M5 6v12c0 1.4 3.1 2.6 7 2.6s7-1.2 7-2.6V6M5 12c0 1.4 3.1 2.6 7 2.6s7-1.2 7-2.6"/>',
     table: '<rect x="4" y="5" width="16" height="14" rx="2"/><path d="M4 5h16v4.5H4z" fill="currentColor" stroke="none"/><path d="M4 14.25h16M10 9.5V19M15 9.5V19"/>',
     chart: '<path d="M4 20h16"/><rect x="6" y="11" width="3" height="7" rx="0.5" fill="currentColor" stroke="none"/><rect x="11" y="6" width="3" height="12" rx="0.5" fill="currentColor" stroke="none"/><rect x="16" y="9" width="3" height="9" rx="0.5" fill="currentColor" stroke="none"/>',
     risks: '<rect x="4" y="4" width="16" height="16" rx="2"/><path d="M4 12h16M12 4v16"/><circle cx="16" cy="8" r="2" fill="currentColor" stroke="none"/><circle cx="8.5" cy="15.5" r="1.6" fill="currentColor" stroke="none"/>',
@@ -233,6 +234,7 @@
             tools.appendChild(btn({ class: "dge-tool", "data-act": "lanes", title: "Swimlanes: lanes the flow runs across; the selected blocks go in the first lane. Drop blocks into a lane to move them there.", onclick: function () { canvas.focus({ preventScroll: true }); addSwimlanes(); } }, icon("lanes")));
             tools.appendChild(btn({ class: "dge-tool", "data-act": "gantt", title: "Gantt chart: tasks on a timeline. Drag a bar to reschedule it; right-click a task to change its length or add one after it.", onclick: function () { canvas.focus({ preventScroll: true }); addGantt(); } }, icon("gantt")));
             tools.appendChild(btn({ class: "dge-tool", "data-act": "table", title: "Table: rows and columns of text. Right-click it to edit it as text or add a row.", onclick: function () { canvas.focus({ preventScroll: true }); addTable(); } }, icon("table")));
+            tools.appendChild(btn({ class: "dge-tool", "data-act": "entity", title: "Database table: columns with types and keys; a foreign key is drawn to the column it references. Right-click to edit the columns.", onclick: function () { canvas.focus({ preventScroll: true }); addEntity(); } }, icon("entity")));
             tools.appendChild(btn({ class: "dge-tool", "data-act": "chart", title: "Chart: bars, lines, areas, pie, donut or scatter from a small table. Right-click it to change the type or edit the data.", onclick: function () { canvas.focus({ preventScroll: true }); addChart(); } }, icon("chart")));
             tools.appendChild(btn({ class: "dge-tool", "data-act": "risks", title: "Risk matrix: risks by probability and impact. Drag a dot to another cell to re-rate it; hover it for its description.", onclick: function () { canvas.focus({ preventScroll: true }); addRisks(); } }, icon("risks")));
             tools.appendChild(btn({ class: "dge-tool", "data-act": "section", title: "Section (" + MOD + "G): put the selected blocks in a titled section. Drag blocks in or out of a section to change what is in it.", onclick: function () { canvas.focus({ preventScroll: true }); groupSelection(); } }, icon("section")));
@@ -1103,6 +1105,36 @@
           ["Delete", function () { applyOps([{ op: "remove", id: t.id }]); select([]); }]
         ].filter(Boolean);
       }
+      if (t.type === "node" && !view && entityOf(t.id)) {
+        var col = node(t.id), eg = entityOf(t.id);
+        return [
+          ["Edit column…", function () {
+            askAt(st.menuAt, columnText(col), "email: text [unique]", function (v) {
+              var c = parseColumn(v);
+              if (!c) return flash("Write `name: type [pk, unique, null, fk: table.column]`", true);
+              var cols = st.doc.nodes.filter(function (n) { return n.group === eg.id; }).map(function (n) { return n.id === col.id ? c : parseColumn(columnText(n)); });
+              applyOps(entityOps(eg.id, cols));
+            });
+          }, "Its name, type and keys"],
+          ["Edit columns…", function () { editEntity(eg.id); }, "The whole table as text"],
+          ["Colour…", function () { colourMenu(t.id, "update_node", col.color); }, "Tint the row"],
+          "-",
+          ["Delete column", function () { applyOps([{ op: "remove", id: t.id }]); select([]); }]
+        ];
+      }
+      if (gr && !view && gr.entity) return [
+        ["Rename", function () { editLabel(t.id); }],
+        ["Edit columns…", function () { editEntity(t.id); }, "name: type [pk, unique, null, fk: table.column]"],
+        ["Add column", function () {
+          askAt(st.menuAt, "", "name: type [null]", function (v) {
+            var c = parseColumn(v);
+            if (!c) return flash("Write `name: type [pk, unique, null, fk: table.column]`", true);
+            applyOps([{ op: "add_node", id: t.id + "." + c.name, label: c.name, group: t.id, column: c.column }]);
+          });
+        }],
+        "-",
+        ["Delete", function () { applyOps([{ op: "remove", id: t.id, keep_members: false }]); select([]); }, "The table and its columns"]
+      ];
       if (t.type === "node" && !view && tableOf(t.id)) {
         var tr = node(t.id), tg = tableOf(t.id);
         return [
@@ -1687,7 +1719,7 @@
     function blockOf(gid) {
       var g = gid && group(gid);
       if (!g) return null;
-      if (g.lanes || g.gantt || g.risks || g.chart || g.table) return g.id;
+      if (g.lanes || g.gantt || g.risks || g.chart || g.table || g.entity) return g.id;
       var up = g.parent && group(g.parent);
       if (up && up.lanes) return up.id;
       // a section moves as a whole (and keeps its place), unless boxes in it
@@ -1745,7 +1777,73 @@
       return id;
     }
     /* The chart a row belongs to. */
-    function plotOf(id) { var n = node(id), g = n && n.group && group(n.group); return g && (g.chart || g.table) ? g : null; }
+    function plotOf(id) { var n = node(id), g = n && n.group && group(n.group); return g && (g.chart || g.table || g.entity) ? g : null; }
+    function entityOf(id) { var n = node(id), g = n && n.group && group(n.group); return g && g.entity ? g : null; }
+    /* A database table with an id; its name is typed next. */
+    function addEntity() {
+      var gid = freshId("table");
+      var res = applyOps([{ op: "merge", dsl: "entity " + gid + ": Table {\n  id: uuid [pk]\n  created_at: timestamptz [default: now()]\n}" }]);
+      if (res.ok) {
+        select([gid]);
+        reveal(gid);
+        editLabel(gid, true);
+      }
+    }
+    /* A column as written: `email: text [unique, fk: teams.id]`. */
+    function columnText(n) {
+      var c = n.column || {}, a = [];
+      if (c.pk) a.push("pk");
+      if (c.unique) a.push("unique");
+      if (c.null) a.push("null");
+      if (c.fk) a.push("fk: " + c.fk);
+      if (c.default) a.push("default: " + c.default);
+      return (n.label || n.id.split(".").pop()) + ": " + (c.type || "") + (a.length ? " [" + a.join(", ") + "]" : "");
+    }
+    function parseColumn(line) {
+      var m = /^\s*([^:\[]+?)\s*(?::\s*(.*?))?\s*(?:\[([^\]]+)\])?\s*$/.exec(line);
+      if (!m) return null;
+      var c = { type: (m[2] || "").trim() };
+      (m[3] || "").split(",").map(function (x) { return x.trim(); }).filter(Boolean).forEach(function (f) {
+        var kv = f.split(":"), k = kv[0].trim().toLowerCase(), v = kv.slice(1).join(":").trim();
+        if (k === "pk" || k === "primary") c.pk = true;
+        else if (k === "unique" || k === "uq") c.unique = true;
+        else if (k === "null" || k === "nullable") c.null = true;
+        else if (k === "fk" || k === "references") c.fk = v;
+        else if (k === "default") c.default = v;
+      });
+      return { name: m[1].trim(), column: c };
+    }
+    /* Ops that make table `gid` have `cols` ({name, column}), in that order;
+       a column keeps its id (and its comments) while its name stays. */
+    function entityOps(gid, cols) {
+      var have = st.doc.nodes.filter(function (n) { return n.group === gid; }), ops = [], keep = [];
+      cols.forEach(function (c, i) {
+        var id = gid + "." + c.name;
+        keep.push(id);
+        if (node(id)) ops.push({ op: "update_node", id: id, column: c.column, index: i });
+        else ops.push({ op: "add_node", id: id, label: c.name, group: gid, column: c.column, index: i });
+      });
+      have.forEach(function (n) { if (keep.indexOf(n.id) < 0) ops.unshift({ op: "remove", id: n.id }); });
+      return ops;
+    }
+    function editEntity(gid) {
+      var ta = h("textarea", { class: "dge-chart-data", spellcheck: "false", rows: "12" });
+      ta.value = st.doc.nodes.filter(function (n) { return n.group === gid; }).map(columnText).join("\n");
+      var save = function () {
+        var cols = [], bad = null;
+        ta.value.split("\n").filter(function (l) { return l.trim(); }).forEach(function (l) { var c = parseColumn(l); if (c) cols.push(c); else bad = bad || l; });
+        if (bad) return flash("Could not read “" + bad + "”: write `name: type [pk, unique, null, fk: table.column]`", true);
+        if (applyOps(entityOps(gid, cols)).ok) closeModal();
+      };
+      showModal("Columns: " + (group(gid).label || gid), h("div", {}, [
+        h("p", { class: "dge-muted" }, ["One column per line: `name: type [pk, unique, null, fk: table.column, default: now()]`."]),
+        ta
+      ]), [
+        h("button", { onclick: closeModal }, ["Cancel"]),
+        h("button", { class: "primary", onclick: save }, ["Save"])
+      ]);
+      setTimeout(function () { ta.focus(); }, 0);
+    }
     function tableOf(id) { var n = node(id), g = n && n.group && group(n.group); return g && g.table ? g : null; }
     /* A table with a header and two rows; its title is typed next. */
     function addTable() {

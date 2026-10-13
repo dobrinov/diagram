@@ -20,6 +20,7 @@
 #![recursion_limit = "256"]
 pub mod charts;
 pub mod diff;
+pub mod entities;
 pub mod dsl;
 pub mod gantt;
 pub mod layout;
@@ -185,7 +186,11 @@ pub fn json_schema() -> Value {
                 "probability": {"type": "integer", "minimum": 1, "maximum": 5, "description": "risk: how likely"},
                 "impact": {"type": "integer", "minimum": 1, "maximum": 5, "description": "risk: how bad"},
                 "values": {"type": "array", "items": {"type": ["number", "null"]}, "description": "chart row: one value per series"},
-                "cells": {"type": "array", "items": {"type": "string"}, "description": "table row: its cells after the first (the label)"}
+                "cells": {"type": "array", "items": {"type": "string"}, "description": "table row: its cells after the first (the label)"},
+                "column": {"type": "object", "description": "database table column", "additionalProperties": false, "properties": {
+                    "type": {"type": "string"}, "pk": {"type": "boolean"}, "unique": {"type": "boolean"}, "null": {"type": "boolean"},
+                    "fk": {"type": "string", "description": "the referenced column's id (teams.id) or a table (its primary key)"}, "default": {"type": "string"}
+                }}
             }}},
             "edges": {"type": "array", "items": {"type": "object", "required": ["from", "to"], "additionalProperties": false, "properties": {
                 "id": {"type": "string", "description": "defaults to from->to"},
@@ -210,6 +215,7 @@ pub fn json_schema() -> Value {
                 "series": {"type": "array", "items": {"type": "string"}, "description": "chart: the series' names"},
                 "axis": {"type": "string", "description": "chart: what the rows are"},
                 "table": {"type": "boolean", "description": "table: the nodes inside are rows"},
+                "entity": {"type": "boolean", "description": "database table: the nodes inside are columns"},
                 "columns": {"type": "array", "items": {"type": "string"}, "description": "table: the columns' names"},
                 "w": {"type": "number"}, "h": {"type": "number"},
                 "x": {"type": "number", "description": "swimlanes / gantt chart: pinned left edge"},

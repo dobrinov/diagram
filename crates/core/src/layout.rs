@@ -158,6 +158,9 @@ pub struct GroupBox {
     /// A table.
     #[serde(skip_serializing_if = "std::ops::Not::not")]
     pub table: bool,
+    /// A database table.
+    #[serde(skip_serializing_if = "std::ops::Not::not")]
+    pub entity: bool,
 }
 
 /// Where a risk matrix's grid and list are (offsets from the matrix's content
@@ -611,6 +614,7 @@ pub fn layout_at(doc: &Document, today: Option<i64>) -> Layout {
             }),
             chart: g.chart,
             table: g.table,
+            entity: g.entity,
             matrix: ctx.matrix[i].clone().map(|mut m| {
                 m.left = rects[i].x + GROUP_PAD + m.x0;
                 m.top = rects[i].y + GROUP_HEAD + m.y0;
@@ -707,7 +711,10 @@ fn members(
                 gantt_block(ctx, i)
             } else if ctx.doc.groups[i].risks {
                 matrix_block(ctx, i)
-            } else if ctx.doc.groups[i].chart.is_some() || ctx.doc.groups[i].table {
+            } else if ctx.doc.groups[i].chart.is_some()
+                || ctx.doc.groups[i].table
+                || ctx.doc.groups[i].entity
+            {
                 chart_block(ctx, i)
             } else {
                 block(ctx, Some(i), pn, pg)
@@ -794,7 +801,10 @@ fn lanes_block(ctx: &mut Ctx, g: usize, pn: &[Option<usize>], pg: &[Option<usize
                 gantt_block(ctx, c)
             } else if ctx.doc.groups[c].risks {
                 matrix_block(ctx, c)
-            } else if ctx.doc.groups[c].chart.is_some() || ctx.doc.groups[c].table {
+            } else if ctx.doc.groups[c].chart.is_some()
+                || ctx.doc.groups[c].table
+                || ctx.doc.groups[c].entity
+            {
                 chart_block(ctx, c)
             } else {
                 block(ctx, Some(c), pn, pg)
@@ -948,7 +958,9 @@ fn lanes_block(ctx: &mut Ctx, g: usize, pn: &[Option<usize>], pg: &[Option<usize
 /// points or slices. Returns the chart's content size.
 fn chart_block(ctx: &mut Ctx, g: usize) -> (f64, f64) {
     let grp = &ctx.doc.groups[g];
-    let plot = if grp.table {
+    let plot = if grp.entity {
+        crate::entities::plot(ctx.doc, grp)
+    } else if grp.table {
         crate::tables::plot(ctx.doc, grp)
     } else {
         crate::charts::plot(ctx.doc, grp)

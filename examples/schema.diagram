@@ -1,0 +1,26 @@
+title: Data model
+
+entity teams: Teams {
+  id:         uuid [pk]
+  name:       text [unique]
+  created_at: timestamptz [default: now()]
+}
+entity users: Users {
+  id:         uuid [pk]
+  team_id:    uuid [fk: teams]
+  email:      citext [unique]
+  bio:        text [null]
+  tags:       text[]
+}
+entity boards: Boards {
+  id:         uuid [pk]
+  team_id:    uuid [fk: teams.id]
+  owner_id:   uuid [fk: users, null]
+  path:       text
+}
+entity runs: Agent runs {
+  id:         uuid [pk]
+  board_id:   uuid [fk: boards]
+  model:      text
+  reply:      jsonb [null]
+}

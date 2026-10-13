@@ -97,6 +97,10 @@ fn block_text(doc: &Document, head: &Elem, pad: &str) -> Option<String> {
                 dsl::table_block(doc, g, pad, &mut out);
                 return Some(out);
             }
+            if g.entity {
+                dsl::entity_block(doc, g, pad, &mut out);
+                return Some(out);
+            }
             if !g.gantt && !g.risks {
                 return None;
             }
@@ -320,7 +324,8 @@ fn edit_lines(
                     || n.gantt != g.gantt
                     || n.risks != g.risks
                     || n.chart.is_some() != g.chart.is_some()
-                    || n.table != g.table =>
+                    || n.table != g.table
+                    || n.entity != g.entity =>
             {
                 return None
             }

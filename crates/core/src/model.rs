@@ -223,6 +223,30 @@ pub struct Node {
     /// A table's row: its cells after the first (which is its label).
     #[serde(skip_serializing_if = "Vec::is_empty")]
     pub cells: Vec<String>,
+    /// A database table's column (the node's label is its name).
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub column: Option<Column>,
+}
+
+/// A column of a database table (`entity`): `email: text [unique]`.
+#[derive(Debug, Clone, Default, PartialEq, Serialize, Deserialize)]
+#[serde(default)]
+pub struct Column {
+    /// Its type as written (`uuid`, `text`, `numeric(10,2)`).
+    #[serde(rename = "type", skip_serializing_if = "String::is_empty")]
+    pub ty: String,
+    #[serde(skip_serializing_if = "std::ops::Not::not")]
+    pub pk: bool,
+    #[serde(skip_serializing_if = "std::ops::Not::not")]
+    pub unique: bool,
+    /// May be NULL.
+    #[serde(skip_serializing_if = "std::ops::Not::not")]
+    pub null: bool,
+    /// What it references: a column's id (`teams.id`).
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub fk: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub default: Option<String>,
 }
 
 impl Node {
@@ -310,6 +334,9 @@ pub struct Group {
     pub series: Vec<String>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub axis: Option<String>,
+    /// A database table: its nodes are columns.
+    #[serde(skip_serializing_if = "std::ops::Not::not")]
+    pub entity: bool,
     /// A table: its nodes are rows; these are its columns' names.
     #[serde(skip_serializing_if = "std::ops::Not::not")]
     pub table: bool,

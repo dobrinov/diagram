@@ -13,7 +13,7 @@ const here = dirname(fileURLToPath(import.meta.url));
 const root = join(here, "..", "..");
 const bin = join(root, "target", "debug", "diagram");
 const chrome = process.env.CHROME || "/Applications/Google Chrome.app/Contents/MacOS/Google Chrome";
-const port = 5990 + Math.floor(Math.random() * 100);
+const port = 7600 + Math.floor(Math.random() * 100); // clear of the ports browsers refuse (6000, …)
 const dir = mkdtempSync(join(tmpdir(), "diagram-e2e-"));
 const file = join(dir, "charts.diagram");
 writeFileSync(file, "title: Charts\n");

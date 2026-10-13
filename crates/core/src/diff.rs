@@ -64,6 +64,29 @@ fn fields_node(a: &Node, b: &Node) -> Vec<(String, String, String)> {
     let done = |n: &Node| n.done.map(|d| format!("{d}%")).unwrap_or_default();
     cmp("done", done(a), done(b));
     cmp("owner", opt(&a.owner), opt(&b.owner));
+    // database columns
+    let col = |n: &Node| n.column.clone().unwrap_or_default();
+    let (ca, cb) = (col(a), col(b));
+    cmp("type", ca.ty.clone(), cb.ty.clone());
+    let flags = |c: &crate::model::Column| {
+        [(c.pk, "pk"), (c.unique, "unique"), (c.null, "null")]
+            .iter()
+            .filter(|(on, _)| *on)
+            .map(|(_, k)| *k)
+            .collect::<Vec<_>>()
+            .join(" ")
+    };
+    cmp("keys", flags(&ca), flags(&cb));
+    cmp(
+        "references",
+        ca.fk.clone().unwrap_or_default(),
+        cb.fk.clone().unwrap_or_default(),
+    );
+    cmp(
+        "default",
+        ca.default.clone().unwrap_or_default(),
+        cb.default.clone().unwrap_or_default(),
+    );
     // risks
     let level = |v: Option<u8>| v.map(|v| v.to_string()).unwrap_or_default();
     cmp("probability", level(a.probability), level(b.probability));

@@ -136,6 +136,7 @@ pub const OPS_REFERENCE: &str = r#"Operations (fields in [] are optional; ids ar
 - {"op":"set","key":"title|description|direction|layout|routing|theme","value":"…"}   (theme: light, dark, a preset — paper, blueprint, midnight, contrast — or a theme's id)
 - {"op":"theme","source":"theme brand {\n  blue: #3b6fd8\n  light {\n    background: #faf9f6\n  }\n  dark {\n    background: #101418\n  }\n}"}   (adds or replaces a theme; top lines apply in both modes, light { } and dark { } what differs; keys: background, dots, text, muted, surface, border, line, section, header, title, title-text, pin, font, radius and the named colours)
 - {"op":"merge","dsl":"cache: Redis [cylinder]\napi -> cache: reads\napi [red]"}   (statements in the diagram language, as if written at the end of the file: adds new elements; one written again by its id gets the attributes given. Cheapest for many changes)
+- Database table: {"op":"add_group","id":"users","label":"Users","entity":true}; its columns are add_node / update_node with "id":"users.email","label":"email","group":"users","column":{"type":"text",["pk":true,"unique":true,"null":true,"fk":"teams.id","default":"now()"]}. Or merge: "entity users: Users {\n  id: uuid [pk]\n  team_id: uuid [fk: teams]\n}"
 - Table: {"op":"add_group","id":"opts","label":"Options","columns":["option","cost","notes"]}; its rows are add_node / update_node with "group":"opts","label":"Local" (the first cell),"cells":["$0","needs a GPU"]. Or merge: "table opts: Options {\n  option | cost | notes\n  Local | $0 | needs a GPU\n}"
 - Chart: {"op":"add_group","id":"rev","label":"Revenue","chart":"bar|line|area|pie|donut|scatter",["stacked":true,"horizontal":true,"unit":"%","series":["EU","US"],"axis":"quarter"]}; its rows are add_node / update_node with "group":"rev","label":"Q1","values":[120,80] (one per series, null for none). Or simpler, merge: "chart rev: Revenue [bar] {\n  quarter | EU | US\n  Q1 | 120 | 80\n}"
 - Risk matrix: {"op":"add_group","id":"risks","label":"Risks","risks":true,["levels":3|4|5]}; its risks are add_node / update_node with "group":"risks" and ["probability":1-5,"impact":1-5,"owner","detail" (the description)]
@@ -310,7 +311,7 @@ pub fn brief(doc: &Document) -> String {
     let computed: Vec<String> = doc
         .groups
         .iter()
-        .filter(|g| g.gantt || g.lanes || g.risks)
+        .filter(|g| g.gantt || g.lanes || g.risks || g.entity)
         .map(|g| g.id.clone())
         .collect();
     if !computed.is_empty() {
@@ -661,7 +662,9 @@ fn selection_core(doc: &Document, ids: &[String], titled: bool) -> String {
         if !out.is_empty() {
             out.push('\n');
         }
-        let kind = if g.table {
+        let kind = if g.entity {
+            format!(" (database table `{}`)", g.id)
+        } else if g.table {
             " (table)".to_string()
         } else if let Some(c) = g.chart {
             let mut k = format!(" ({} chart", c.as_str());
@@ -782,6 +785,8 @@ fn selection_core(doc: &Document, ids: &[String], titled: bool) -> String {
             chart_table(doc, g, out, seen);
         } else if g.table {
             data_table(doc, g, out, seen);
+        } else if g.entity {
+            column_table(doc, g, out, seen);
         } else if g.risks {
             // worst first
             let n = crate::risks::levels(g);
@@ -902,6 +907,31 @@ fn selection_core(doc: &Document, ids: &[String], titled: bool) -> String {
     } else {
         let title = doc.title.as_deref().unwrap_or("Selection");
         format!("# {title}\n\n{out}")
+    }
+}
+
+/// A database table as a Markdown table of its columns.
+fn column_table(doc: &Document, g: &Group, out: &mut String, seen: &mut Vec<String>) {
+    out.push_str(
+        "| column | type | key | null | references | default |\n|---|---|---|---|---|---|\n",
+    );
+    for c in crate::entities::columns_of(doc, &g.id) {
+        seen.push(c.id.clone());
+        let col = c.column.clone().unwrap_or_default();
+        let key = [(col.pk, "PK"), (col.unique, "unique")]
+            .iter()
+            .filter(|(on, _)| *on)
+            .map(|(_, k)| *k)
+            .collect::<Vec<_>>()
+            .join(", ");
+        out.push_str(&format!(
+            "| {} | {} | {key} | {} | {} | {} |\n",
+            c.display(),
+            col.ty.replace('|', "\\|"),
+            if col.null { "yes" } else { "no" },
+            col.fk.as_deref().unwrap_or(""),
+            col.default.as_deref().unwrap_or("")
+        ));
     }
 }
 

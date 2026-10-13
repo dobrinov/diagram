@@ -82,6 +82,9 @@ pub enum Op {
         /// Table row: its cells after the first (the label).
         #[serde(default, skip_serializing_if = "Option::is_none")]
         cells: Option<Vec<String>>,
+        /// Database table column: type, pk, unique, null, fk, default.
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        column: Option<Column>,
     },
     UpdateNode {
         id: String,
@@ -146,6 +149,9 @@ pub enum Op {
         /// Table row: its cells after the first (the label).
         #[serde(default, skip_serializing_if = "Option::is_none")]
         cells: Option<Vec<String>>,
+        /// Database table column: type, pk, unique, null, fk, default.
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        column: Option<Column>,
     },
     /// Add topics from an indented outline (or a Markdown list) under
     /// `parent`; without `parent` the first line becomes a new mindmap.
@@ -270,6 +276,9 @@ pub enum Op {
         /// A table (its nodes are rows).
         #[serde(default, skip_serializing_if = "Option::is_none")]
         table: Option<bool>,
+        /// A database table (its nodes are columns).
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        entity: Option<bool>,
         /// Table: the columns' names (the header row).
         #[serde(default, skip_serializing_if = "Option::is_none")]
         columns: Option<Vec<String>>,
@@ -316,6 +325,9 @@ pub enum Op {
         /// A table (its nodes are rows).
         #[serde(default, skip_serializing_if = "Option::is_none")]
         table: Option<bool>,
+        /// A database table (its nodes are columns).
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        entity: Option<bool>,
         /// Table: the columns' names (the header row).
         #[serde(default, skip_serializing_if = "Option::is_none")]
         columns: Option<Vec<String>>,
@@ -622,14 +634,19 @@ fn new_id(doc: &Document, wanted: Option<&str>, label: &str) -> Result<String, S
 /// One op. Renaming a chart renames its rows too (`chart.q1` → `revenue.q1`).
 fn apply_one(doc: &mut Document, op: &Op, created: &mut Vec<String>) -> Result<(), String> {
     let rows: Vec<String> = match op {
-        Op::Rename { id, .. } if doc.group(id).is_some_and(|g| g.chart.is_some() || g.table) => doc
-            .nodes
-            .iter()
-            .filter(|n| {
-                n.group.as_deref() == Some(id.as_str()) && n.id.starts_with(&format!("{id}."))
-            })
-            .map(|n| n.id.clone())
-            .collect(),
+        Op::Rename { id, .. }
+            if doc
+                .group(id)
+                .is_some_and(|g| g.chart.is_some() || g.table || g.entity) =>
+        {
+            doc.nodes
+                .iter()
+                .filter(|n| {
+                    n.group.as_deref() == Some(id.as_str()) && n.id.starts_with(&format!("{id}."))
+                })
+                .map(|n| n.id.clone())
+                .collect()
+        }
         _ => Vec::new(),
     };
     apply_op(doc, op, created)?;
@@ -672,6 +689,7 @@ fn apply_op(doc: &mut Document, op: &Op, created: &mut Vec<String>) -> Result<()
             impact,
             values,
             cells,
+            column,
         } => {
             let id = new_id(doc, id.as_deref(), label)?;
             let parent = parent.as_deref().filter(|p| !p.is_empty());
@@ -711,6 +729,9 @@ fn apply_op(doc: &mut Document, op: &Op, created: &mut Vec<String>) -> Result<()
             if let Some(c) = cells {
                 n.cells = c.clone();
             }
+            if let Some(c) = column {
+                n.column = Some(c.clone()).filter(|c| *c != Column::default());
+            }
             doc.nodes.push(n);
             if let Some(p) = parent {
                 doc.set_parent(&id, Some(p), *index)?;
@@ -745,6 +766,7 @@ fn apply_op(doc: &mut Document, op: &Op, created: &mut Vec<String>) -> Result<()
             impact,
             values,
             cells,
+            column,
         } => {
             if let Some(Some(g)) = opt(group) {
                 need_container(doc, &g)?;
@@ -807,6 +829,9 @@ fn apply_op(doc: &mut Document, op: &Op, created: &mut Vec<String>) -> Result<()
             }
             if let Some(c) = cells {
                 n.cells = c.clone();
+            }
+            if let Some(c) = column {
+                n.column = Some(c.clone()).filter(|c| *c != Column::default());
             }
         }
         Op::AddOutline {
@@ -1241,6 +1266,7 @@ fn apply_op(doc: &mut Document, op: &Op, created: &mut Vec<String>) -> Result<()
             axis,
             table,
             columns,
+            entity,
         } => {
             let id = new_id(
                 doc,
@@ -1267,6 +1293,7 @@ fn apply_op(doc: &mut Document, op: &Op, created: &mut Vec<String>) -> Result<()
             };
             chart_fields(&mut g, chart, stacked, horizontal, unit, series, axis)?;
             g.table = table.unwrap_or(false) || columns.is_some();
+            g.entity = entity.unwrap_or(false);
             g.columns = columns.clone().unwrap_or_default();
             if let Some(c) = c.as_deref().filter(|c| !c.is_empty()) {
                 g.color = Some(color(c)?);
@@ -1301,6 +1328,7 @@ fn apply_op(doc: &mut Document, op: &Op, created: &mut Vec<String>) -> Result<()
             axis,
             table,
             columns,
+            entity,
         } => {
             if let Some(Some(p)) = opt(parent) {
                 need_container(doc, &p)?;
@@ -1338,6 +1366,9 @@ fn apply_op(doc: &mut Document, op: &Op, created: &mut Vec<String>) -> Result<()
             }
             if let Some(c) = columns {
                 g.columns = c.clone();
+            }
+            if let Some(e) = entity {
+                g.entity = *e;
             }
             if let Some(v) = scale {
                 g.scale = if v.is_empty() {

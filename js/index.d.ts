@@ -102,6 +102,20 @@ export interface Node {
   values?: (number | null)[];
   /** Table row: its cells after the first (its label). */
   cells?: string[];
+  /** Database table column (the label is its name). */
+  column?: Column;
+}
+
+/** A column of a database table (`entity`). */
+export interface Column {
+  type?: string;
+  pk?: boolean;
+  unique?: boolean;
+  /** May be NULL. */
+  null?: boolean;
+  /** The referenced column's id (`teams.id`), or a table (its primary key). */
+  fk?: string;
+  default?: string;
 }
 
 export interface Edge {
@@ -153,6 +167,8 @@ export interface Group {
   table?: boolean;
   /** Table: the columns' names (the header). */
   columns?: string[];
+  /** A database table (its nodes are columns). */
+  entity?: boolean;
   /** Chart: its size. */
   w?: number;
   h?: number;
@@ -235,6 +251,8 @@ export interface AddNodeOp {
   values?: (number | null)[];
   /** Table row: its cells after the first (its label). */
   cells?: string[];
+  /** Database table column. */
+  column?: Column;
 }
 
 /** Change a node. An empty string clears an optional field. */
@@ -278,6 +296,8 @@ export interface UpdateNodeOp {
   values?: (number | null)[];
   /** Table row: its cells after the first (its label). */
   cells?: string[];
+  /** Database table column. */
+  column?: Column;
 }
 
 /** Add topics from an indented outline (or a Markdown list) under `parent`; without `parent` the first line becomes a new mindmap. */
@@ -382,6 +402,8 @@ export interface AddGroupOp {
   table?: boolean;
   /** Table: the columns' names (the header). */
   columns?: string[];
+  /** A database table (its nodes are columns). */
+  entity?: boolean;
   /** Gantt chart: its first day (`YYYY-MM-DD`). */
   start?: string;
 }
@@ -417,6 +439,8 @@ export interface UpdateGroupOp {
   table?: boolean;
   /** Table: the columns' names (the header). */
   columns?: string[];
+  /** A database table (its nodes are columns). */
+  entity?: boolean;
 }
 
 export interface AddCommentOp {
@@ -592,6 +616,8 @@ export interface GroupBox extends Rect {
   chart?: ChartKind;
   /** A table. */
   table?: boolean;
+  /** A database table. */
+  entity?: boolean;
 }
 
 export interface EdgePath {

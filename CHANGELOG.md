@@ -1,5 +1,11 @@
 # Changelog
 
+## 0.19.0 — 2026-10-13
+
+- **Database tables:** `entity users: Users {` … `}` with one column per line, `email: text [unique]`, `team_id: uuid [fk: teams]`, `bio: text [null]`, `created_at: timestamptz [default: now()]`. Columns show `PK` / `FK` / `UQ` badges, their type and `?` when nullable; a foreign key is drawn from the column to the one it references and pulls related tables together. Columns are elements (`users.email`): comment on one, link to it, hover it for everything about it.
+- **Schema review:** `diff` lists columns added, dropped and changed (type, keys, references, default); `--base` shows them in green, red and amber, dropped columns included. Prompts show a table as a Markdown table of its columns, and `brief` includes the tables.
+- In the editor: a *Database table* tool; *Edit columns…* (as text), *Add column*, *Edit column…*, *Delete column*. Ops: `add_group` with `entity`, nodes with `column`; `query kind:entity`, `kind:column`. `examples/schema.diagram`; `scripts/e2e/entity.mjs` in `make e2e`.
+
 ## 0.18.0 — 2026-10-13
 
 - **Sections keep their place:** `group a: A [x: 400, y: 120] {` (and the `move` op) places any section, not only swimlanes, charts and tables; its boxes are laid out inside it. Dragging a section by its frame in the editor now places the section instead of pinning each box in it (a section whose boxes were already placed one by one moves as before). Adding a section no longer reshuffles the ones you placed.

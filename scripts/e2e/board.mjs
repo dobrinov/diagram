@@ -14,7 +14,7 @@ const here = dirname(fileURLToPath(import.meta.url));
 const root = join(here, "..", "..");
 const bin = join(root, "target", "debug", "diagram");
 const chrome = process.env.CHROME || "/Applications/Google Chrome.app/Contents/MacOS/Google Chrome";
-const port = 6490 + Math.floor(Math.random() * 100);
+const port = 7500 + Math.floor(Math.random() * 100); // clear of the ports browsers refuse (6566, 6665–6669, …)
 const dir = mkdtempSync(join(tmpdir(), "diagram-e2e-"));
 const file = join(dir, "board.diagram");
 writeFileSync(file, "title: Board\ngroup a: Alpha {\n  one: One\n  two: Two\n}\ngroup b: Beta {\n  three: Retry loop\n}\ngroup c: Gamma {\n  four: Four\n}\none -> two\n");
