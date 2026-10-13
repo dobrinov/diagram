@@ -300,6 +300,10 @@ pub struct Group {
     /// runs across.
     #[serde(skip_serializing_if = "std::ops::Not::not")]
     pub lanes: bool,
+    /// A kanban board (with `lanes`): its lanes are columns side by side and
+    /// the cards in each stack in document order.
+    #[serde(skip_serializing_if = "std::ops::Not::not")]
+    pub kanban: bool,
     /// Gantt chart: the nodes inside are tasks on a timeline.
     #[serde(skip_serializing_if = "std::ops::Not::not")]
     pub gantt: bool,

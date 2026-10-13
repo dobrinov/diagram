@@ -1,5 +1,11 @@
 # Changelog
 
+## 0.23.0 — 2026-10-13
+
+- **Kanban boards:** `kanban sprint: Sprint 12 {` with `column todo: To do {` … `}` inside; cards are boxes, stacked in the order written, all as wide as the widest; each column's title shows its card count. It is swimlanes laid out as columns (`"lanes": true, "kanban": true` in JSON), so moving, colouring, comments and arrows work as before.
+- In the editor: a *Kanban* tool (To do / Doing / Done, the selected boxes in To do); drag a card to another column or another place in its column (`update_node` with `group` and `index`); right-click a column → *Add card*, *Add column after*, *Remove column*.
+- Prompts list each column with its cards; `query kind:kanban`; `examples/kanban.diagram`; `scripts/e2e/kanban.mjs` in `make e2e`.
+
 ## 0.22.0 — 2026-10-13
 
 - **JS package:** `source()` and `prompt()` get their errors as data from the WASM side (`source_result`, `prompt_result`: `{ok, text}` or `{ok: false, error}`) instead of looking for an `error:` prefix in the text, and throw `DiagramError`.

@@ -137,6 +137,7 @@ pub const OPS_REFERENCE: &str = r#"Operations (fields in [] are optional; ids ar
 - {"op":"theme","source":"theme brand {\n  blue: #3b6fd8\n  light {\n    background: #faf9f6\n  }\n  dark {\n    background: #101418\n  }\n}"}   (adds or replaces a theme; top lines apply in both modes, light { } and dark { } what differs; keys: background, dots, text, muted, surface, border, line, section, header, title, title-text, pin, font, radius and the named colours)
 - {"op":"merge","dsl":"cache: Redis [cylinder]\napi -> cache: reads\napi [red]"}   (statements in the diagram language, as if written at the end of the file: adds new elements; one written again by its id gets the attributes given. Cheapest for many changes)
 - Database table: {"op":"add_group","id":"users","label":"Users","entity":true}; its columns are add_node / update_node with "id":"users.email","label":"email","group":"users","column":{"type":"text",["pk":true,"unique":true,"null":true,"fk":"teams.id","default":"now()"]}. Or merge: "entity users: Users {\n  id: uuid [pk]\n  team_id: uuid [fk: teams]\n}"
+- Kanban: {"op":"add_group","id":"sprint","label":"Sprint 12","kanban":true}, its columns {"op":"add_group","id":"doing","label":"Doing","parent":"sprint"}; a card is a node in a column; move one with {"op":"update_node","id":"login","group":"doing","index":0}. Or merge: "kanban sprint: Sprint 12 {\n  column todo: To do {\n    login: Login page\n  }\n  column doing: Doing {}\n}"
 - Table: {"op":"add_group","id":"opts","label":"Options","columns":["option","cost","notes"]}; its rows are add_node / update_node with "group":"opts","label":"Local" (the first cell),"cells":["$0","needs a GPU"]. Or merge: "table opts: Options {\n  option | cost | notes\n  Local | $0 | needs a GPU\n}"
 - Chart: {"op":"add_group","id":"rev","label":"Revenue","chart":"bar|line|area|pie|donut|scatter",["stacked":true,"horizontal":true,"unit":"%","series":["EU","US"],"axis":"quarter"]}; its rows are add_node / update_node with "group":"rev","label":"Q1","values":[120,80] (one per series, null for none). Or simpler, merge: "chart rev: Revenue [bar] {\n  quarter | EU | US\n  Q1 | 120 | 80\n}"
 - Risk matrix: {"op":"add_group","id":"risks","label":"Risks","risks":true,["levels":3|4|5]}; its risks are add_node / update_node with "group":"risks" and ["probability":1-5,"impact":1-5,"owner","detail" (the description)]
@@ -691,6 +692,8 @@ fn selection_core(doc: &Document, ids: &[String], titled: bool) -> String {
                 Some(s) => format!(" (gantt chart from {s})"),
                 None => " (gantt chart)".into(),
             }
+        } else if g.kanban {
+            " (kanban board)".into()
         } else if g.lanes {
             " (swimlanes)".into()
         } else if g
@@ -812,6 +815,8 @@ fn selection_core(doc: &Document, ids: &[String], titled: bool) -> String {
                 out.push_str(&line);
                 out.push('\n');
             }
+        } else if g.kanban {
+            kanban_md(doc, g, out, seen);
         } else if g.lanes {
             out.push('\n');
             steps(doc, g, out, seen, flowed);
@@ -1006,6 +1011,33 @@ fn chart_table(doc: &Document, g: &Group, out: &mut String, seen: &mut Vec<Strin
             });
         }
         out.push_str(&format!("| {} |\n", cells.join(" | ")));
+    }
+}
+
+/// A kanban board: each column in bold with its cards, top to bottom.
+fn kanban_md(doc: &Document, g: &Group, out: &mut String, seen: &mut Vec<String>) {
+    let cards = |id: &str| -> Vec<&Node> {
+        doc.nodes
+            .iter()
+            .filter(|n| n.group.as_deref() == Some(id))
+            .collect()
+    };
+    let mut cols: Vec<(String, Vec<&Node>)> = doc
+        .groups
+        .iter()
+        .filter(|c| c.parent.as_deref() == Some(&g.id))
+        .map(|c| (c.display().to_string(), cards(&c.id)))
+        .collect();
+    let loose = cards(&g.id);
+    if !loose.is_empty() {
+        cols.push(("No column".into(), loose));
+    }
+    for (name, list) in cols {
+        out.push_str(&format!("\n**{name}** ({})\n", list.len()));
+        for n in list {
+            seen.push(n.id.clone());
+            out.push_str(&format!("- {}\n", item(doc, n)));
+        }
     }
 }
 

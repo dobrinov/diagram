@@ -55,6 +55,7 @@
     risks: '<rect x="4" y="4" width="16" height="16" rx="2"/><path d="M4 12h16M12 4v16"/><circle cx="16" cy="8" r="2" fill="currentColor" stroke="none"/><circle cx="8.5" cy="15.5" r="1.6" fill="currentColor" stroke="none"/>',
     gantt: '<path d="M4 4v16h16"/><rect x="7" y="6.5" width="7" height="3" rx="1" fill="currentColor" stroke="none"/><rect x="11" y="11" width="8" height="3" rx="1" fill="currentColor" stroke="none"/><rect x="9" y="15.5" width="5" height="3" rx="1" fill="currentColor" stroke="none"/>',
     lanes: '<rect x="3" y="4" width="18" height="16" rx="2"/><path d="M3 9.5h18M3 14.5h18M8 4v16"/>',
+    kanban: '<rect x="3" y="4" width="18" height="16" rx="2"/><path d="M9 4v16M15 4v16"/><rect x="4.8" y="7" width="2.4" height="2.4" rx=".6" fill="currentColor" stroke="none"/><rect x="4.8" y="11" width="2.4" height="2.4" rx=".6" fill="currentColor" stroke="none"/><rect x="10.8" y="7" width="2.4" height="2.4" rx=".6" fill="currentColor" stroke="none"/><rect x="16.8" y="7" width="2.4" height="2.4" rx=".6" fill="currentColor" stroke="none"/>',
     section: '<rect x="3" y="8" width="18" height="12" rx="2"/><rect x="3" y="3" width="9" height="3.5" rx="1.2" fill="currentColor" stroke="none"/>',
     fit: '<path d="M4 9V4h5M20 9V4h-5M4 15v5h5M20 15v5h-5"/>'
   };
@@ -234,6 +235,7 @@
           // sections and swimlanes sit with the blocks
           if (i === 1) {
             tools.appendChild(btn({ class: "dge-tool", "data-act": "lanes", title: "Swimlanes: lanes the flow runs across; the selected blocks go in the first lane. Drop blocks into a lane to move them there.", onclick: function () { canvas.focus({ preventScroll: true }); addSwimlanes(); } }, icon("lanes")));
+            tools.appendChild(btn({ class: "dge-tool", "data-act": "kanban", title: "Kanban: columns of cards; the selected blocks go in the first column. Drag a card to another column or place in one.", onclick: function () { canvas.focus({ preventScroll: true }); addKanban(); } }, icon("kanban")));
             tools.appendChild(btn({ class: "dge-tool", "data-act": "gantt", title: "Gantt chart: tasks on a timeline. Drag a bar to reschedule it; right-click a task to change its length or add one after it.", onclick: function () { canvas.focus({ preventScroll: true }); addGantt(); } }, icon("gantt")));
             tools.appendChild(btn({ class: "dge-tool", "data-act": "table", title: "Table: rows and columns of text. Right-click it to edit it as text or add a row.", onclick: function () { canvas.focus({ preventScroll: true }); addTable(); } }, icon("table")));
             tools.appendChild(btn({ class: "dge-tool", "data-act": "entity", title: "Database table: columns with types and keys; a foreign key is drawn to the column it references. Right-click to edit the columns.", onclick: function () { canvas.focus({ preventScroll: true }); addEntity(); } }, icon("entity")));
@@ -1245,6 +1247,22 @@
           ["Delete", function () { applyOps([{ op: "remove", id: t.id }]); select([]); }]
         ];
       }
+      if (gr && !view && gr.kanban) return [
+        ["Rename", function () { editLabel(t.id); }],
+        ["Add column", function () { addLane(t.id); }],
+        "-",
+        ["Remove kanban", function () { applyOps(lanesOf(t.id).map(function (l) { return { op: "remove", id: l.id, keep_members: true }; }).concat([{ op: "remove", id: t.id, keep_members: true }])); select([]); }, "The columns go; the cards stay as boxes"],
+        ["Delete", function () { applyOps([{ op: "remove", id: t.id, keep_members: false }]); select([]); }, "The board and all its cards"]
+      ];
+      if (gr && !view && gr.parent && group(gr.parent) && group(gr.parent).kanban) return [
+        ["Add card", function () { addCard(t.id); }],
+        ["Rename", function () { editLabel(t.id); }],
+        ["Add column after", function () { addLane(gr.parent, t.id); }],
+        ["Colour…", function () { colourMenu(t.id, "update_group", gr.color); }],
+        "-",
+        ["Remove column", function () { applyOps([{ op: "remove", id: t.id, keep_members: true }]); select([]); }, "Its cards stay on the board"],
+        ["Delete", function () { applyOps([{ op: "remove", id: t.id, keep_members: false }]); select([]); }, "The column and its cards"]
+      ];
       if (gr && !view && gr.lanes) return [
         ["Rename", function () { editLabel(t.id); }],
         ["Add lane", function () { addLane(t.id); }],
@@ -2337,10 +2355,39 @@
         editLabel(id, true);
       }
     }
+    /* A kanban board: To do, Doing, Done; the selected blocks go in To do. */
+    function addKanban() {
+      var members = st.sel.filter(function (id) { return node(id) && !node(id).parent && !chartOf(id); });
+      var ids = freshIds(["kanban", "todo", "doing", "done"]), id = ids[0];
+      var res = applyOps([
+        { op: "add_group", id: id, label: "Kanban", kanban: true },
+        { op: "add_group", id: ids[1], label: "To do", parent: id, members: members },
+        { op: "add_group", id: ids[2], label: "Doing", parent: id },
+        { op: "add_group", id: ids[3], label: "Done", parent: id }
+      ].concat(members.map(function (m) { return { op: "unpin", id: m }; })));
+      if (res.ok) {
+        select([id]);
+        reveal(id);
+        editLabel(id, true);
+      }
+    }
+    /* A card at the bottom of a kanban column; its text is typed next. */
+    function addCard(col) {
+      var id = freshId("card");
+      if (!applyOps([{ op: "add_node", id: id, label: "Card", group: col }]).ok) return;
+      select([id]);
+      reveal(id);
+      editLabel(id, true);
+    }
+    /* A kanban column (a lane of a kanban board). */
+    function kanbanColumn(id) {
+      var g = id && group(id), p = g && g.parent && group(g.parent);
+      return !!(p && p.kanban);
+    }
     function lanesOf(id) { return (st.doc.groups || []).filter(function (g) { return g.parent === id; }); }
     function addLane(container, after) {
-      var lanes = lanesOf(container), nid = freshId("lane");
-      var res = applyOps([{ op: "add_group", id: nid, label: "Lane " + (lanes.length + 1), parent: container }]);
+      var lanes = lanesOf(container), kb = group(container).kanban, nid = freshId(kb ? "column" : "lane");
+      var res = applyOps([{ op: "add_group", id: nid, label: (kb ? "Column " : "Lane ") + (lanes.length + 1), parent: container }]);
       if (!res.ok) return;
       // a new lane goes right after the one it was asked from (groups keep document order)
       if (after) {
@@ -2381,7 +2428,15 @@
         if (!m.direct) return;
         var into = sectionAt(d.sections, m.x + d.dx + m.w / 2, m.y + d.dy + m.h / 2), was = node(m.id).group || null;
         if (live && into !== was && !chartOf(m.id)) return;
-        if (into !== was) ops.push({ op: "update_node", id: m.id, group: into || "" });
+        if (!live && kanbanColumn(into)) {
+          // a card goes where it was dropped among the column's cards
+          var cy = m.y + d.dy + m.h / 2, index = 0;
+          st.doc.nodes.forEach(function (c) {
+            var g = c.group === into && c.id !== m.id && geom(c.id);
+            if (g && g.y + g.h / 2 < cy) index++;
+          });
+          ops.push({ op: "update_node", id: m.id, group: into, index: index });
+        } else if (into !== was) ops.push({ op: "update_node", id: m.id, group: into || "" });
         // lanes and charts are laid out automatically: no pin inside one
         var sec = d.sections.find(function (g) { return g.id === into; });
         if (sec && (sec.lane || sec.gantt || sec.matrix)) ops = ops.filter(function (o) { return !(o.op === "move" && o.id === m.id); }).concat([{ op: "unpin", id: m.id }]);

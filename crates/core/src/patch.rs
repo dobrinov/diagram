@@ -321,6 +321,7 @@ fn edit_lines(
             Some(n)
                 if n.parent != g.parent
                     || n.lanes != g.lanes
+                    || n.kanban != g.kanban
                     || n.gantt != g.gantt
                     || n.risks != g.risks
                     || n.chart.is_some() != g.chart.is_some()

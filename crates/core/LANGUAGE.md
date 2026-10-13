@@ -148,6 +148,29 @@ confirm -> invoice -> pay
 - Everything in all lanes is ranked together, so a step in one lane lines up with the steps before and after it in the others. Lanes share one length; a lane is as tall (or wide) as what it holds.
 - Lanes are laid out automatically: `x`/`y` on a block inside a lane are ignored. `lanes id: Title [x: 400, y: 120] {` pins the whole swimlanes (top-left), as dragging them in the editor does. Edges can leave the lanes for anything else on the board.
 
+### Kanban boards
+
+```diagram
+kanban sprint: Sprint 12 {
+  column todo: To do {
+    search: Search results [owner: ana]
+    export: CSV export
+  }
+  column doing: Doing {
+    api: Orders API [blue, detail: PR #42]
+  }
+  column done: Done {
+    login: Login page
+  }
+}
+api -> search: unblocks
+```
+
+- `kanban` is swimlanes whose lanes are `column`s side by side; each card is a box in a column, and cards stack in the order they are written (all as wide as the widest). A column's title shows how many cards it holds.
+- Cards are boxes like any other: colour, `detail`, `owner`, `tags`, `link`, comments and arrows all work.
+- In the editor: the *Kanban* tool (To do, Doing, Done; selected boxes go in To do); drag a card to another column or to another place in its column; right-click a column → *Add card*, *Add column after*, *Remove column*. Ops: `{"op":"update_node","id":"api","group":"done","index":0}` moves a card to the top of Done.
+- In JSON, the board is a group with `"lanes": true, "kanban": true`; its columns are the groups whose `parent` it is. Prompts list each column with its cards; `query kind:kanban` finds boards.
+
 ### Gantt charts
 
 ```diagram

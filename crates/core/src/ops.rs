@@ -246,6 +246,9 @@ pub enum Op {
         /// Swimlanes: the groups inside are lanes.
         #[serde(default, skip_serializing_if = "std::ops::Not::not")]
         lanes: bool,
+        /// A kanban board: its groups are columns of cards (implies `lanes`).
+        #[serde(default, skip_serializing_if = "std::ops::Not::not")]
+        kanban: bool,
         /// Gantt chart: the nodes inside are tasks.
         #[serde(default, skip_serializing_if = "std::ops::Not::not")]
         gantt: bool,
@@ -296,6 +299,8 @@ pub enum Op {
         parent: Option<String>,
         #[serde(default, skip_serializing_if = "Option::is_none")]
         lanes: Option<bool>,
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        kanban: Option<bool>,
         #[serde(default, skip_serializing_if = "Option::is_none")]
         gantt: Option<bool>,
         /// Gantt chart: its first day (`YYYY-MM-DD`; "" clears it).
@@ -1271,6 +1276,7 @@ fn apply_op(doc: &mut Document, op: &Op, created: &mut Vec<String>) -> Result<()
             parent,
             members,
             lanes,
+            kanban,
             gantt,
             start,
             risks,
@@ -1301,7 +1307,8 @@ fn apply_op(doc: &mut Document, op: &Op, created: &mut Vec<String>) -> Result<()
                     label.clone()
                 },
                 parent: parent.clone().filter(|p| !p.is_empty()),
-                lanes: *lanes,
+                lanes: *lanes || *kanban,
+                kanban: *kanban,
                 gantt: *gantt,
                 start: chart_start(start)?.flatten(),
                 risks: *risks,
@@ -1333,6 +1340,7 @@ fn apply_op(doc: &mut Document, op: &Op, created: &mut Vec<String>) -> Result<()
             color: c,
             parent,
             lanes,
+            kanban,
             gantt,
             start,
             scale,
@@ -1367,6 +1375,10 @@ fn apply_op(doc: &mut Document, op: &Op, created: &mut Vec<String>) -> Result<()
             }
             if let Some(l) = lanes {
                 g.lanes = *l;
+            }
+            if let Some(k) = kanban {
+                g.kanban = *k;
+                g.lanes |= *k;
             }
             if let Some(v) = gantt {
                 g.gantt = *v;

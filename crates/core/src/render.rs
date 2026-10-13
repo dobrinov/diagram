@@ -299,9 +299,28 @@ fn draw(doc: &Document, opts: &RenderOptions, def: Option<crate::model::ThemeDef
                     (r.x, r.y + gb.head, r.right(), r.y + gb.head),
                 )
             };
+            // a kanban column says how many cards it holds
+            let count = if g
+                .parent
+                .as_deref()
+                .and_then(|p| doc.group(p))
+                .is_some_and(|p| p.kanban)
+            {
+                let k = doc
+                    .nodes
+                    .iter()
+                    .filter(|n| n.group.as_deref() == Some(g.id.as_str()))
+                    .count();
+                format!(
+                    r#"<tspan dx="8" font-weight="500" fill="{}">{k}</tspan>"#,
+                    p.muted
+                )
+            } else {
+                String::new()
+            };
             let _ = write!(
                 s,
-                r#"<g class="dg-group dg-lane" data-id="{}"><rect class="dg-shape" x="{}" y="{}" width="{}" height="{}" fill="{}" stroke="{}"{}/><rect x="{}" y="{}" width="{}" height="{}" fill="{}"/><line x1="{}" y1="{}" x2="{}" y2="{}" stroke="{}" stroke-width="1"/><text x="{}" y="{}" font-size="13" font-weight="700" fill="{}">{}</text></g>"#,
+                r#"<g class="dg-group dg-lane" data-id="{}"><rect class="dg-shape" x="{}" y="{}" width="{}" height="{}" fill="{}" stroke="{}"{}/><rect x="{}" y="{}" width="{}" height="{}" fill="{}"/><line x1="{}" y1="{}" x2="{}" y2="{}" stroke="{}" stroke-width="1"/><text x="{}" y="{}" font-size="13" font-weight="700" fill="{}">{}{}</text></g>"#,
                 esc(&g.id),
                 n(r.x),
                 n(r.y),
@@ -323,7 +342,8 @@ fn draw(doc: &Document, opts: &RenderOptions, def: Option<crate::model::ThemeDef
                 n(tx),
                 n(ty),
                 p.fg,
-                esc(label)
+                esc(label),
+                count
             );
             continue;
         }

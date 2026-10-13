@@ -203,6 +203,7 @@ pub fn json_schema() -> Value {
             "groups": {"type": "array", "items": {"type": "object", "required": ["id"], "additionalProperties": false, "properties": {
                 "id": {"type": "string"}, "label": {"type": "string"}, "color": color, "parent": {"type": "string"},
                 "lanes": {"type": "boolean", "description": "swimlanes: the groups inside are lanes"},
+                "kanban": {"type": "boolean", "description": "a kanban board (with lanes): its lanes are columns of cards, stacked in document order"},
                 "gantt": {"type": "boolean", "description": "gantt chart: the nodes inside are tasks"},
                 "start": {"type": "string", "format": "date", "description": "gantt chart: its first day (YYYY-MM-DD)"},
                 "scale": e(&["day", "week", "month", "quarter"]),

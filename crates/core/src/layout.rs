@@ -30,6 +30,9 @@ const LANE_PAD: f64 = 24.0;
 pub const LANE_HEAD: f64 = 40.0;
 /// Cross-axis size of an empty lane.
 const LANE_MIN: f64 = 72.0;
+/// Kanban cards: the narrowest width, and the space between cards.
+const KANBAN_CARD: f64 = 200.0;
+const KANBAN_GAP: f64 = 12.0;
 /// Gantt charts: a task's row, its bar, the date header.
 pub const GANTT_ROW: f64 = 36.0;
 pub const GANTT_BAR: f64 = 22.0;
@@ -833,6 +836,9 @@ fn lanes_block(ctx: &mut Ctx, g: usize, pn: &[Option<usize>], pg: &[Option<usize
     if band_items.is_empty() {
         return (0.0, 0.0);
     }
+    if ctx.doc.groups[g].kanban {
+        return kanban_block(ctx, &owners, &band_items);
+    }
     let all: Vec<(usize, Item)> = band_items
         .iter()
         .enumerate()
@@ -952,6 +958,66 @@ fn lanes_block(ctx: &mut Ctx, g: usize, pn: &[Option<usize>], pg: &[Option<usize
     } else {
         (at, length)
     }
+}
+
+/// A kanban board: its columns side by side, the cards in each stacked in
+/// document order and all as wide as the widest. Returns the content size.
+fn kanban_block(ctx: &mut Ctx, owners: &[Option<usize>], bands: &[Vec<Item>]) -> (f64, f64) {
+    let size = |ctx: &Ctx, it: Item| match it {
+        Item::Node(i) => ctx.sizes[i],
+        Item::Group(i) => ctx.group_sizes[i],
+    };
+    let card_w = bands
+        .iter()
+        .flatten()
+        .map(|&it| size(ctx, it).0)
+        .fold(KANBAN_CARD, f64::max);
+    for &it in bands.iter().flatten() {
+        if let Item::Node(i) = it {
+            ctx.sizes[i].0 = card_w;
+        }
+    }
+    let content_h = |ctx: &Ctx, b: &[Item]| {
+        b.iter()
+            .map(|&it| size(ctx, it).1 + KANBAN_GAP)
+            .sum::<f64>()
+            - KANBAN_GAP
+    };
+    let length = bands
+        .iter()
+        .map(|b| content_h(ctx, b))
+        .fold(LANE_MIN, f64::max)
+        + LANE_HEAD
+        + 2.0 * LANE_PAD;
+    let mut at = 0.0;
+    for (b, owner) in owners.iter().enumerate() {
+        let title = owner.map_or(0.0, |l| {
+            text::width(ctx.doc.groups[l].display(), 13.0) * 1.06 + 28.0
+        });
+        let band = card_w.max(title) + 2.0 * LANE_PAD;
+        let (ox, oy) = match owner {
+            Some(l) => {
+                ctx.group_pos[*l] = (at, 0.0);
+                ctx.group_sizes[*l] = (band, length);
+                ctx.inset[*l] = (LANE_PAD, LANE_HEAD + LANE_PAD);
+                ctx.lane[*l] = Some(("column", LANE_HEAD));
+                (0.0, 0.0)
+            }
+            None => (at + LANE_PAD, LANE_HEAD + LANE_PAD),
+        };
+        let mut y = 0.0;
+        for &it in &bands[b] {
+            let (w, h) = size(ctx, it);
+            let x = ox + (band - 2.0 * LANE_PAD - w) / 2.0;
+            match it {
+                Item::Node(i) => ctx.node_pos[i] = (x, oy + y),
+                Item::Group(i) => ctx.group_pos[i] = (x, oy + y),
+            }
+            y += h + KANBAN_GAP;
+        }
+        at += band;
+    }
+    (at, length)
 }
 
 /// A chart: its rows are where [`crate::charts::plot`] puts their bars,
@@ -1512,6 +1578,51 @@ mod tests {
         );
         crate::ops::apply(&mut d, &ops(r#"[{"op":"unpin"}]"#)).unwrap();
         assert!(d.groups.iter().all(|g| g.x.is_none()));
+    }
+
+    #[test]
+    fn kanban_columns_stack_cards_in_order() {
+        let src = "column: A box called column\nkanban k: Sprint {\n  column todo: To do {\n    a: Login page\n    b: Search results with filters and sorting\n  }\n  column done: Done {\n    c: CI\n  }\n  column empty: Later {}\n}\nc -> a\ncolumn -> c\n";
+        let mut d = crate::dsl::parse(src).unwrap();
+        let text = crate::dsl::print(&d);
+        assert_eq!(crate::dsl::parse(&text).unwrap(), d);
+        assert!(
+            text.contains("kanban k: Sprint {\n  column todo: To do {"),
+            "{text}"
+        );
+        assert!(d.group("k").unwrap().kanban && d.group("k").unwrap().lanes);
+        assert!(
+            d.node("column").is_some(),
+            "`column` outside a kanban is a box"
+        );
+        let l = layout(&d);
+        let (todo, done) = (l.group("todo").unwrap(), l.group("done").unwrap());
+        // columns side by side, as tall as each other
+        assert_eq!((todo.lane, done.lane), (Some("column"), Some("column")));
+        assert_eq!(todo.rect.right(), done.rect.x);
+        assert_eq!(todo.rect.h, done.rect.h);
+        assert!(l.group("empty").is_some());
+        // cards stacked in document order, all as wide
+        let r = |id: &str| l.rect(id).unwrap();
+        assert!(r("a").bottom() < r("b").y && r("a").x == r("b").x);
+        assert_eq!(r("a").w, r("c").w);
+        assert!(r("a").y > todo.rect.y + todo.head);
+        // moving a card: another column, at the top
+        crate::ops::apply(
+            &mut d,
+            &crate::ops::parse_ops(r#"{"op":"update_node","id":"b","group":"done","index":0}"#)
+                .unwrap(),
+        )
+        .unwrap();
+        let l = layout(&d);
+        let r = |id: &str| l.rect(id).unwrap();
+        assert!(r("b").bottom() < r("c").y);
+        assert!(crate::dsl::print(&d).contains("  column done: Done {\n    b: "));
+        let md = crate::prompt::brief(&d);
+        assert!(
+            md.contains("(kanban board)") && md.contains("**Done** (2)\n- Search results"),
+            "{md}"
+        );
     }
 
     #[test]

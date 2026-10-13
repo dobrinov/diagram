@@ -254,6 +254,27 @@ impl Parser {
                 c.advance(n);
                 return self.group_decl(c, lanes);
             }
+            // a kanban board and its columns (swimlanes laid out as columns of cards)
+            "kanban" | "column"
+                if c.rest()[word.len()..].starts_with(|ch: char| ch.is_whitespace())
+                    && (t.trim_end().ends_with('{') || t.trim_end().ends_with("{}"))
+                    && (word == "kanban"
+                        || self
+                            .group()
+                            .and_then(|g| self.doc.group(&g))
+                            .is_some_and(|g| g.kanban)) =>
+            {
+                let board = word == "kanban";
+                c.advance(word.len());
+                self.group_decl(c, board)?;
+                if let (true, Some(Elem::Group(id))) = (board, self.touched.last()) {
+                    let id = id.clone();
+                    if let Some(g) = self.doc.group_mut(&id) {
+                        g.kanban = true;
+                    }
+                }
+                return Ok(());
+            }
             "comment" if c.rest()[7..].starts_with(|ch: char| ch.is_whitespace() || ch == ':') => {
                 c.advance(7);
                 return self.comment(c);
@@ -2490,8 +2511,17 @@ pub(crate) fn map_members(doc: &Document) -> impl Fn(&Node) -> bool + '_ {
 
 /// A group's opening line without its `{`: `group id: Label [attrs]`.
 pub(crate) fn group_header(doc: &Document, g: &Group) -> String {
-    let word = if g.lanes {
+    let word = if g.kanban {
+        "kanban"
+    } else if g.lanes {
         "lanes"
+    } else if doc
+        .is_lane(g)
+        .then(|| g.parent.as_deref().and_then(|p| doc.group(p)))
+        .flatten()
+        .is_some_and(|p| p.kanban)
+    {
+        "column"
     } else if doc.is_lane(g) {
         "lane"
     } else {

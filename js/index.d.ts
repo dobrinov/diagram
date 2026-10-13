@@ -141,6 +141,8 @@ export interface Group {
   parent?: string;
   /** Swimlanes: the groups inside are lanes. */
   lanes?: boolean;
+  /** A kanban board (with `lanes`): its lanes are columns of cards in document order. */
+  kanban?: boolean;
   /** Gantt chart: the nodes inside are tasks on a timeline. */
   gantt?: boolean;
   /** Gantt chart: its first day (`YYYY-MM-DD`). */
@@ -385,6 +387,8 @@ export interface AddGroupOp {
   members?: string[];
   /** Swimlanes: the groups inside are lanes. */
   lanes?: boolean;
+  /** A kanban board: its groups are columns of cards (implies `lanes`). */
+  kanban?: boolean;
   /** Gantt chart: the nodes inside are tasks. */
   gantt?: boolean;
   /** Risk matrix: the nodes inside are risks. */
@@ -421,6 +425,7 @@ export interface UpdateGroupOp {
   color?: Color | "";
   parent?: string;
   lanes?: boolean;
+  kanban?: boolean;
   gantt?: boolean;
   /** Gantt chart: its first day ("" clears it). */
   start?: string;
