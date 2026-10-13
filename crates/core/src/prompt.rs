@@ -183,6 +183,66 @@ fn comment_md(doc: &Document, c: &Comment, n: usize) -> String {
     s
 }
 
+/// A prompt asking a model to change the board as `request` says. With
+/// `ids` (a selection), it shows that part of the board (and what is around
+/// it); otherwise the whole board. The model replies with ops.
+pub fn ask(doc: &Document, ids: &[String], request: &str) -> String {
+    let title = doc.title.as_deref().unwrap_or("Untitled diagram");
+    let mut s = format!("# Change the diagram \"{title}\"\n\n");
+    s.push_str("The diagram is written in the `diagram` language: one statement per line (`id: Label [attrs]` declares a box, `a -> b: label` connects two, `group id: Label { … }` is a section; `mindmap`, `gantt`, `chart`, `table` and `risks` blocks hold their items one per line). Change it as the request below says.\n\n");
+    if let Some(d) = &doc.description {
+        s.push_str(&format!("About the diagram: {d}\n\n"));
+    }
+    // the selection and what is around it, or everything
+    let part = (!ids.is_empty())
+        .then(|| {
+            let sels: Vec<String> = ids
+                .iter()
+                .flat_map(|id| {
+                    let mut v = vec![id.clone()];
+                    if doc.node(id).is_some() {
+                        v.push(format!("near:{id}"));
+                    }
+                    v
+                })
+                .collect();
+            let sels: Vec<&str> = sels.iter().map(String::as_str).collect();
+            crate::query::select(doc, &sels).ok()
+        })
+        .flatten();
+    match part {
+        Some(picked) => {
+            let sub = crate::query::subset(doc, &picked);
+            let shown = sub.nodes.len() + sub.edges.len() + sub.groups.len();
+            let all = doc.nodes.len() + doc.edges.len() + doc.groups.len();
+            s.push_str(&format!(
+                "## The part of the board this is about\n\nSelected: {}. Shown with what is around it ({shown} of the board's {all} elements); the rest exists too: keep its ids, do not remove or recreate it.\n\n```diagram\n{}```\n\n",
+                ids.iter().map(|i| format!("`{i}`")).collect::<Vec<_>>().join(", "),
+                dsl::print(&sub)
+            ));
+        }
+        None => s.push_str(&format!(
+            "## The board\n\n```diagram\n{}```\n\n",
+            dsl::print(doc)
+        )),
+    }
+    s.push_str(&format!("## The request\n\n{}\n\n", request.trim()));
+    s.push_str("## How to respond\n\nReply with a single ```json code block holding the operations, for example:\n\n```json\n{\"ops\": [\n  {\"op\": \"update_node\", \"id\": \"api\", \"color\": \"red\"},\n  {\"op\": \"merge\", \"dsl\": \"cache: Redis [cylinder]\\napi -> cache: reads\"}\n]}\n```\n\n");
+    s.push_str(OPS_REFERENCE);
+    s.push_str("\n\nRules:\n- Change only what the request asks for; keep existing ids.\n- To add several things, prefer one `merge` with statements in the diagram language.\n- The batch is applied all at once or not at all, so it must be valid as a whole.\n- No explanation is needed outside the code block.\n");
+    s
+}
+
+/// The prompt again, after a reply that could not be applied: the reply and
+/// the error, to correct.
+pub fn ask_again(prompt: &str, reply: &str, error: &str) -> String {
+    let reply: String = reply.chars().take(4000).collect();
+    format!(
+        "{prompt}\n## Your previous reply could not be applied\n\n```\n{}\n```\n\nError: {error}\n\nReply again with one corrected ```json block (the whole batch).\n",
+        reply.trim()
+    )
+}
+
 /// The comments a prompt covers.
 pub fn selected<'a>(doc: &'a Document, opts: &PromptOptions) -> Vec<&'a Comment> {
     doc.comments
@@ -1138,5 +1198,23 @@ mod tests {
         assert!(p.contains("   - yes → "), "{p}");
         assert!(p.contains("   - no → "), "{p}");
         assert!(!p.contains("Connections"), "{p}");
+    }
+
+    #[test]
+    fn ask_prompts_show_the_selection_and_ask_for_ops() {
+        let d = dsl::parse("title: Shop\ngroup back: Backend {\n  api: Orders API\n  db: Postgres\n}\nweb: Web\nmail: Mail\nweb -> api\napi -> db\n").unwrap();
+        let p = ask(&d, &["db".to_string()], "Add a read replica");
+        assert!(
+            p.contains("Selected: `db`.") && p.contains("api -> db") && !p.contains("mail: Mail"),
+            "{p}"
+        );
+        assert!(
+            p.contains("## The request\n\nAdd a read replica") && p.contains("{\"op\":\"merge\""),
+            "{p}"
+        );
+        let whole = ask(&d, &[], "Tidy");
+        assert!(whole.contains("mail: Mail"));
+        let again = ask_again(&p, "{oops", "invalid JSON");
+        assert!(again.starts_with(&p) && again.contains("Error: invalid JSON"));
     }
 }

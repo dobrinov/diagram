@@ -745,6 +745,9 @@ export class Board {
   /** The selected elements as Markdown to paste into a prompt; with `today`, gantt tasks also get their forecast. */
   selection(ids: string[], options?: { today?: Date | string }): string;
 
+  /** A prompt asking a model to change the board as `request` says, about `ids` (empty: the whole board). Pass the model's reply to apply(); if it throws, send askAgain(prompt, reply, error.message). */
+  askPrompt(request: string, ids?: string[]): string;
+
   /** Every gantt chart's tasks, planned against the forecast as of `today` (default: now). */
   schedule(options?: { today?: Date | string }): Schedule;
 
@@ -833,3 +836,6 @@ export interface Schedule {
   today: string;
   charts: { id: string; label: string; tasks: Track[] }[];
 }
+
+/** The ask prompt again after a reply that could not be applied. */
+export function askAgain(prompt: string, reply: string, error: string): string;

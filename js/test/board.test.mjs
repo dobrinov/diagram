@@ -255,3 +255,13 @@ test("themes", () => {
   assert.ok(b.themes().presets.includes("blueprint"));
   b.free();
 });
+
+test("ask prompts", async () => {
+  const { askAgain } = await import("../index.mjs");
+  const b = Board.parse("api: Orders API\ndb: Postgres\nmail: Mail\napi -> db\n");
+  const p = b.askPrompt("Add a replica", ["db"]);
+  assert.match(p, /Selected: `db`/);
+  assert.doesNotMatch(p, /mail: Mail/);
+  assert.match(askAgain(p, "{oops", "bad JSON"), /Error: bad JSON/);
+  b.free();
+});

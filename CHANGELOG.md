@@ -1,5 +1,12 @@
 # Changelog
 
+## 0.17.0 — 2026-10-13
+
+- **Ask AI, on your AI subscription.** In the editor, *✦ Ask AI* (⌘K) takes a request about the selection or the whole board. The prompt carries just that part of the board and the ops reference; the model replies with edits; a reply that does not apply goes back with its error (twice at most); the changes are shown highlighted with *Keep* / *Discard* (nothing is saved before *Keep*; ⌘Z discards). Without an AI connected, the prompt is shown to copy and the reply pasted back.
+- **`diagram ask FILE "…" [--on ID,ID] [--dry-run] [--print]`**: the same from the command line.
+- **`--ai` presets for subscription CLIs:** `claude` (Claude Code, `claude -p`), `claude:sonnet` (a model), `codex` (Codex CLI), `gemini` (Gemini CLI); without `--ai` / `DIAGRAM_AI`, the first of them installed. Any command still works. (The default for Claude Code is now your plan's default model instead of Haiku; `claude:haiku` keeps it fast.)
+- JS: `Board.askPrompt(request, ids)`, `askAgain(prompt, reply, error)`; WASM `ask_prompt`, `ask_again`. `scripts/e2e/ask.mjs` (with a stand-in harness) in `make e2e`.
+
 ## 0.16.0 — 2026-10-13
 
 - **Every theme has a light and a dark mode.** A theme's top lines apply in both; `light { … }` and `dark { … }` hold what differs. A board follows the viewer's mode (the editor's light/dark switch, `--dark` for exports), so a team's brand theme works for everyone. Old `theme id [base: dark] { … }` blocks read as that mode.

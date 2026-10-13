@@ -263,6 +263,7 @@
       toolbar.baseChip = h("span", { class: "dge-chip", hidden: true });
       toolbar.appendChild(toolbar.baseChip);
       var right = h("div", { class: "dge-group" });
+      if (!view) right.appendChild(h("button", { class: "dge-ask-ai", title: "Ask AI (" + MOD + "K): describe a change; it uses your AI subscription's CLI, and you see the changes before keeping them", onclick: function () { askAI(); } }, ["✦ Ask AI"]));
       right.appendChild(h("button", { title: "Export and share", onclick: function (e) { openExport(e.currentTarget); } }, ["Export ▾"]));
       if (!view && hasCode) right.appendChild(btn({ "data-act": "code", title: "Code (" + MOD + "/)", onclick: function () { showCode = !showCode; applyChrome(); } }, icon("code")));
       if (hasPanel) right.appendChild(btn({ "data-act": "panel", title: "Inspector & comments", onclick: function () { showPanel = !showPanel; applyChrome(); renderPanel(); } }, icon("panel")));
@@ -325,6 +326,7 @@
       st.redo = [];
     }
     function undo() {
+      if (st.preview) return discardPreview();
       if (!st.undo.length) return;
       st.redo.push(st.text);
       load(st.undo.pop(), false);
@@ -347,6 +349,8 @@
 
     /* Apply ops through the core. `live` skips undo/code sync (used while dragging). */
     function applyOps(ops, live) {
+      // editing while looking at the AI's changes keeps them
+      if (st.preview && !live) acceptPreview();
       var before = st.text;
       var res = JSON.parse(st.session.apply(JSON.stringify({ ops: ops })));
       if (!res.ok) {
@@ -667,6 +671,95 @@
         obs.observe(modal, { attributes: true, attributeFilter: ["hidden"] });
       });
     }
+    // ------------------------------------------------------------ ask AI
+    /* Ask AI: a request about the selection (or the board) goes to the model
+       (the host's `ai`, e.g. the subscription CLI behind the local server, or
+       copy/paste); its ops are tried on a copy, a reply that does not apply
+       goes back with its error (twice at most), and the changes are shown
+       before they are kept. */
+    function askAI() {
+      if (st.preview) return flash("Keep or discard the AI's changes first", true);
+      var ids = st.sel.filter(kindOf);
+      var input = h("textarea", { class: "dge-chart-data", rows: "4", placeholder: ids.length ? "e.g. split this into a service and a worker" : "e.g. put the storage in a section and add a cache" });
+      var go = function () {
+        var req = input.value.trim();
+        if (!req) return;
+        closeModal();
+        var prompt = st.session.ask_prompt(JSON.stringify(ids), req);
+        askRound(prompt, 0, req);
+      };
+      input.addEventListener("keydown", function (e) { if ((e.metaKey || e.ctrlKey) && e.key === "Enter") go(); });
+      showModal("✦ Ask AI", h("div", {}, [
+        h("p", { class: "dge-muted" }, [ids.length ? "About the " + ids.length + " selected item" + (ids.length > 1 ? "s" : "") + " (and what is around them)." : "About the whole board (select something to narrow it)."]),
+        input,
+        h("p", { class: "dge-muted" }, [opts.ai ? "Your AI subscription's CLI answers; you see the changes before keeping them." : "No AI is connected here: you'll get the prompt to paste into any chat, then paste its reply back."])
+      ]), [
+        h("button", { onclick: closeModal }, ["Cancel"]),
+        h("button", { class: "primary", onclick: go }, ["Ask (" + MOD + "↵)"])
+      ]);
+      setTimeout(function () { input.focus(); }, 0);
+    }
+    function askRound(prompt, round, req) {
+      if (opts.ai) flash(round ? "✦ The reply did not fit; asking again…" : "✦ Thinking…", false, 120000);
+      ask(prompt, "✦ " + req).then(function (text) {
+        text = String(text || "");
+        var test = new wasm.Diagram();
+        test.set_source(st.text);
+        var res = JSON.parse(test.apply(text));
+        if (!res.ok) {
+          test.free();
+          if (opts.ai && round < 2) return askRound(wasm.ask_again(prompt, text, res.error || "invalid reply"), round + 1, req);
+          return flash("The AI's reply did not apply: " + (res.error || "no ops in it"), true);
+        }
+        var next = test.source("dsl");
+        test.free();
+        startPreview(next, res.count);
+      }, function (e) {
+        if (String(e && e.message) !== "cancelled") flash("AI: " + (e && e.message || e), true);
+      });
+    }
+    /* The AI's changes on the board, highlighted, until kept or discarded. */
+    function startPreview(next, count) {
+      st.preview = { before: st.text, base: st.base, label: st.baseLabel };
+      st.session.set_source(next);
+      refreshDoc();
+      setBase(st.preview.before, "before the AI");
+      var bar = h("div", { class: "dge-preview-bar", role: "status" }, [
+        h("span", {}, ["✦ The AI's changes are highlighted (" + count + " op" + (count === 1 ? "" : "s") + ")"]),
+        h("button", { title: "What changed, as Markdown", onclick: function () { copyText(st.session.diff_markdown()).then(function () { flash("Change summary copied"); }); } }, ["Copy summary"]),
+        h("button", { onclick: discardPreview }, ["Discard"]),
+        h("button", { class: "primary", onclick: acceptPreview }, ["Keep"])
+      ]);
+      st.preview.bar = bar;
+      el.appendChild(bar);
+      toolbar.baseChip.hidden = true; // the bar says it
+      flash("");
+    }
+    function endPreview() {
+      var pv = st.preview;
+      st.preview = null;
+      if (pv.bar) pv.bar.remove();
+      setBase(pv.base == null ? null : pv.base, pv.label);
+      return pv;
+    }
+    function acceptPreview() {
+      if (!st.preview) return;
+      var pv = endPreview();
+      st.undo.push(pv.before);
+      st.redo = [];
+      st.text = st.session.source("dsl");
+      afterChange(true);
+      flash("Kept the AI's changes (" + MOD + "Z undoes them)");
+    }
+    function discardPreview() {
+      if (!st.preview) return;
+      var pv = endPreview();
+      st.session.set_source(pv.before);
+      refreshDoc();
+      render();
+      flash("Discarded the AI's changes");
+    }
+
     function thinking(id, on) {
       if (on) st.thinking[id] = true; else delete st.thinking[id];
       markSelection();
@@ -2080,6 +2173,7 @@
         }
         return;
       }
+      if (mod && e.key.toLowerCase() === "k" && !view) { e.preventDefault(); askAI(); return; }
       if (mod && e.key === "/" && hasCode) { e.preventDefault(); showCode = !showCode; applyChrome(); syncCode(true); return; }
       if (typing || !el.contains(document.activeElement) && document.activeElement !== document.body) return;
       if (e.key === " " && !st.space) { st.space = true; canvas.classList.add("space"); e.preventDefault(); return; }
@@ -2382,6 +2476,9 @@
     // ------------------------------------------------- menus, modals, toast
     var toastTimer = null;
     function flash(msg, isError, ms) {
+      clearTimeout(toastTimer);
+      // an empty message hides the toast
+      if (!msg) { toast.className = "dge-toast"; return; }
       toast.textContent = msg;
       toast.className = "dge-toast show" + (isError ? " error" : "");
       clearTimeout(toastTimer);
@@ -2629,6 +2726,7 @@
 
     function setBase(src, label) {
       st.base = src;
+      st.baseLabel = label;
       var r = JSON.parse(st.session.set_base(src == null ? undefined : src));
       if (!r.ok) flash("Base version: " + (r.errors || []).map(function (e) { return e.message; }).join("; "), true);
       toolbar.baseChip.hidden = src == null;

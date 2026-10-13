@@ -211,6 +211,13 @@ impl Diagram {
         }
     }
 
+    /// A prompt asking a model to change the board as `request` says, about
+    /// the selected `ids` (a JSON array; empty: the whole board).
+    pub fn ask_prompt(&self, ids: &str, request: &str) -> String {
+        let ids: Vec<String> = serde_json::from_str(ids).unwrap_or_default();
+        diagram_core::prompt::ask(&self.inner.doc, &ids, request)
+    }
+
     /// A small prompt asking a model to grow the topic `id`.
     /// Options: `{instructions, count, levels}`. Returns `{prompt}` or `{error}`.
     pub fn expand_prompt(&self, id: &str, options: &str) -> String {
@@ -223,6 +230,12 @@ impl Diagram {
             Err(e) => err(e),
         }
     }
+}
+
+/// The prompt again after a reply that could not be applied.
+#[wasm_bindgen]
+pub fn ask_again(prompt: &str, reply: &str, error: &str) -> String {
+    diagram_core::prompt::ask_again(prompt, reply, error)
 }
 
 /// A built-in theme's text (`paper`, `blueprint`, `midnight`, `contrast`), or "".

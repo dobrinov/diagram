@@ -1,25 +1,53 @@
 //! The AI harness: any command that reads a prompt on stdin and writes the
-//! answer to stdout (`claude -p`, `codex exec -`, `llm -m gpt-4o-mini`,
-//! `ollama run llama3`, …). Chosen with `--ai CMD` or `DIAGRAM_AI`; when
-//! neither is set, Claude Code is used if it is installed.
+//! answer to stdout. Usually the CLI of an AI subscription the person
+//! already has, signed in: `--ai claude` (Claude Code), `codex` (Codex CLI,
+//! ChatGPT plan), `gemini` (Gemini CLI); `claude:sonnet` picks a model.
+//! Any other text is a command line. Chosen with `--ai` or `DIAGRAM_AI`;
+//! when neither is set, the first of those CLIs that is installed.
 use std::io::Write;
 use std::process::{Command, Stdio};
 
-/// The default asks a small, fast model: mindmap topics need few tokens.
-const DEFAULT: &str = "claude -p --model haiku";
+/// The subscription CLIs, in the order they are looked for: (name, the
+/// command that reads a prompt on stdin and prints the answer).
+pub const PRESETS: &[(&str, &str)] = &[
+    ("claude", "claude -p"),
+    ("codex", "codex exec --skip-git-repo-check -"),
+    ("gemini", "gemini"),
+];
+
+/// A preset's command (`claude`, `claude:sonnet`), or the text as a command.
+pub fn resolve(spec: &str) -> String {
+    let spec = spec.trim();
+    let (name, model) = match spec.split_once(':') {
+        Some((n, m)) if !n.contains(' ') && !m.contains(' ') => (n, Some(m)),
+        _ => (spec, None),
+    };
+    match PRESETS.iter().find(|(n, _)| *n == name) {
+        Some((_, cmd)) => match (name, model) {
+            ("claude", Some(m)) => format!("claude -p --model {m}"),
+            ("codex", Some(m)) => format!("codex exec --skip-git-repo-check -m {m} -"),
+            ("gemini", Some(m)) => format!("gemini -m {m}"),
+            _ => cmd.to_string(),
+        },
+        None => spec.to_string(),
+    }
+}
 
 pub fn command(explicit: Option<&str>) -> Option<String> {
     if let Some(c) = explicit.filter(|c| !c.trim().is_empty()) {
-        return Some(c.to_string());
+        return Some(resolve(c));
     }
     if let Ok(c) = std::env::var("DIAGRAM_AI") {
-        return Some(c).filter(|c| !c.trim().is_empty());
+        return Some(resolve(&c)).filter(|c| !c.trim().is_empty());
     }
-    let found = Command::new("sh")
-        .args(["-c", "command -v claude"])
-        .output()
-        .is_ok_and(|o| o.status.success());
-    found.then(|| DEFAULT.to_string())
+    // the first subscription CLI that is installed
+    PRESETS.iter().find_map(|(name, cmd)| {
+        Command::new("sh")
+            .args(["-c", &format!("command -v {name}")])
+            .output()
+            .is_ok_and(|o| o.status.success())
+            .then(|| cmd.to_string())
+    })
 }
 
 pub fn run(cmd: &str, prompt: &str) -> Result<String, String> {

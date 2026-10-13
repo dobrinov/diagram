@@ -41,8 +41,8 @@ MINDMAPS
   diagram expand  FILE ID [--ask TEXT] [--count N] [--levels N] [--print]
                                      grow topic ID with AI (prints the prompt with --print or without a harness)
   diagram expand  FILE --new TOPIC [--ask TEXT]   a new mindmap about TOPIC
-    AI harness: --ai CMD or $DIAGRAM_AI (any command reading the prompt on stdin;
-                default `claude -p --model haiku` when Claude Code is installed)
+    AI: --ai claude | claude:MODEL | codex | gemini | CMD, or $DIAGRAM_AI (any command
+        reading the prompt on stdin); default: the first of claude, codex, gemini installed
 
 REVIEW
   diagram comments FILE [--all] [--json]          list comment threads
@@ -60,6 +60,12 @@ REVIEW
 PLANNING
   diagram schedule FILE [CHART] [--as-of DATE] [--json]   gantt tasks planned vs forecast as of
                                      today (or DATE): late, behind, pushed back, how many days
+
+AI (your subscription's CLI: Claude Code, Codex, Gemini CLI)
+  diagram ask FILE "what to change" [--on ID,ID] [--dry-run] [--print]
+                                     the model changes the board (ops; a reply that does not apply
+                                     is sent back with its error, twice at most); --print: the prompt
+    --ai claude | claude:sonnet | codex | gemini | CMD   (or $DIAGRAM_AI; default: the first installed)
 
 FOR AGENTS
   diagram query FILE SELECTOR...     just part of the board, as diagram language (--ids: ids only)
@@ -143,7 +149,7 @@ impl Args {
         const COMMANDS: &[&str] = &[
             "new", "open", "svg", "png", "html", "convert", "brief", "comments", "comment",
             "reply", "resolve", "prompt", "apply", "check", "fmt", "diff", "spec", "embed",
-            "skills", "version", "help", "outline", "expand", "query", "add", "schedule",
+            "skills", "version", "help", "outline", "expand", "query", "add", "schedule", "ask",
         ];
         let cmd = match pos.first() {
             Some(c) if COMMANDS.contains(&c.as_str()) => pos.remove(0),
@@ -813,6 +819,74 @@ fn run(args: Args) -> Result<ExitCode, String> {
                 );
             } else {
                 print!("{}", diagram_core::mindmap::outline(&doc, &id, true));
+            }
+            ok
+        }
+        "ask" => {
+            let file = args.file(0)?;
+            let mut doc = load(file)?;
+            let request = args.pos[1..].join(" ");
+            if request.trim().is_empty() {
+                return Err("usage: diagram ask FILE \"what to change\" [--on ID,ID] [--dry-run] [--print] [--ai claude|codex|gemini|CMD]".into());
+            }
+            let ids: Vec<String> = args
+                .val("--on")
+                .map(|v| {
+                    v.split(',')
+                        .map(|s| s.trim().to_string())
+                        .filter(|s| !s.is_empty())
+                        .collect()
+                })
+                .unwrap_or_default();
+            let mut prompt = diagram_core::prompt::ask(&doc, &ids, &request);
+            let cmd = match ai::command(args.val("--ai")) {
+                Some(c) if !args.flag("--print") => c,
+                _ => {
+                    // no harness: the prompt, for any chat; `diagram apply` takes the reply
+                    print!("{prompt}");
+                    return ok;
+                }
+            };
+            let before = doc.clone();
+            // a reply that does not apply goes back with its error, twice at most
+            let mut tries = 0;
+            let r = loop {
+                eprintln!("asking `{cmd}`…");
+                let reply = ai::run(&cmd, &prompt)?;
+                let applied = diagram_core::ops::parse_ops(&reply)
+                    .map_err(|e| e.to_string())
+                    .and_then(|ops| {
+                        let mut d = before.clone();
+                        diagram_core::ops::apply(&mut d, &ops)
+                            .map(|r| (d, r))
+                            .map_err(|e| e.to_string())
+                    });
+                match applied {
+                    Ok((d, r)) => {
+                        doc = d;
+                        break r;
+                    }
+                    Err(e) if tries < 2 => {
+                        tries += 1;
+                        eprintln!("the reply did not apply ({e}); asking again");
+                        prompt = diagram_core::prompt::ask_again(&prompt, &reply, &e);
+                    }
+                    Err(e) => return Err(format!("the model's reply did not apply: {e}")),
+                }
+            };
+            print!(
+                "{}",
+                diagram_core::diff::markdown(
+                    &diagram_core::diff::diff(&before, &doc),
+                    &before,
+                    &doc
+                )
+            );
+            if args.flag("--dry-run") {
+                eprintln!("dry run: {} ops ok, {file} not changed", r.count);
+            } else {
+                save(file, &doc)?;
+                eprintln!("applied {} ops to {file}", r.count);
             }
             ok
         }
