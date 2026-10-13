@@ -35,12 +35,15 @@ export interface Document {
   themes?: ThemeDef[];
 }
 
-/** A theme: a base and what it changes (see `theme` in the language reference). */
+/** A theme with a light and a dark mode (see `theme` in the language reference). */
 export interface ThemeDef {
   id: string;
-  base?: Theme;
-  /** [key, value] pairs: background, dots, text, muted, surface, border, line, section, header, title, title-text, pin, font, radius, and the named colours. */
+  /** [key, value] pairs for both modes: background, dots, text, muted, surface, border, line, section, header, title, title-text, pin, font, radius, and the named colours. */
   values?: [string, string][];
+  /** What the light mode sets on its own. */
+  light?: [string, string][];
+  /** What the dark mode sets on its own. */
+  dark?: [string, string][];
 }
 
 export interface Settings {
@@ -49,7 +52,7 @@ export interface Settings {
   layout?: LayoutKind;
   routing?: Routing;
   theme?: Theme;
-  /** A theme by name: the board's own, a preset (paper, contrast) or a file (`./brand.theme`). */
+  /** A theme by name: the board's own, a preset (paper, blueprint, midnight, contrast) or a file (`./brand.theme`). */
   palette?: string;
 }
 
@@ -465,7 +468,7 @@ export interface MergeOp {
   dsl: string;
 }
 
-/** Add a theme, or replace the one with its id, from its text (`theme brand [base: light] { … }`). */
+/** Add a theme, or replace the one with its id, from its text (`theme brand { … light { … } dark { … } }`). */
 export interface ThemeOp {
   op: "theme";
   source: string;

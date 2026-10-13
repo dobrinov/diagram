@@ -106,14 +106,16 @@ pub fn theme_of(
 pub fn render(doc: &Document, opts: &RenderOptions) -> Rendered {
     // the theme's font sizes the boxes (while this board is drawn)
     let def = theme_of(doc, &opts.themes);
+    // the viewer's mode (or the board's): the theme's light or dark side
+    let t = opts.theme.unwrap_or(doc.settings.theme);
     text::set_font(
         def.as_ref()
-            .and_then(|d| d.get("font"))
+            .and_then(|d| d.get(t, "font"))
             .unwrap_or(text::FONT),
     );
     let out = draw(doc, opts, def);
     text::set_font(text::FONT);
-    theme::set_named(None);
+    theme::set_named(None, t);
     out
 }
 
@@ -123,13 +125,13 @@ fn draw(doc: &Document, opts: &RenderOptions, def: Option<crate::model::ThemeDef
         opts.today.as_deref().and_then(crate::gantt::parse_date),
     );
     let edges = route::route(doc, &lay);
-    // the board's theme: its own, one from a file, or a preset; it decides
-    // light or dark too
-    let t = def
+    // the board's theme (its own, one from a file, or a preset), in the
+    // viewer's mode
+    let t = opts.theme.unwrap_or(doc.settings.theme);
+    let p = def
         .as_ref()
-        .map_or(opts.theme.unwrap_or(doc.settings.theme), |d| d.base);
-    let p = def.as_ref().map_or(theme::palette(t), theme::palette_for);
-    theme::set_named(def.as_ref());
+        .map_or(theme::palette(t), |d| theme::palette_for(d, t));
+    theme::set_named(def.as_ref(), t);
     let pins = pins(doc, &lay, &edges, opts.comments);
 
     // edge labels and pins may stick out of the boxes

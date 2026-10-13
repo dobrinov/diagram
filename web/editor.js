@@ -1582,28 +1582,25 @@
       sel.innerHTML = "";
       opts2.forEach(function (o) { var op = h("option", { value: o[0] }, [o[1]]); if (o[0] === cur) op.selected = true; sel.appendChild(op); });
     }
-    /* Edit theme…: the board's theme as text (a preset or the default is copied into a new one). */
+    /* Edit theme…: the board's theme as text, with its light and dark mode (a
+       preset or the default is copied into a new theme). */
     function editTheme() {
-      var cur = currentTheme(), own = (st.doc.themes || []).filter(function (t) { return t.id === cur; })[0];
-      var text;
-      if (own) {
-        text = "theme " + own.id + " [base: " + (own.base || "light") + "] {\n" + (own.values || []).map(function (kv) { return "  " + kv[0] + ": " + kv[1]; }).join("\n") + "\n}";
-      } else {
+      var cur = currentTheme(), own = (st.doc.themes || []).some(function (t) { return t.id === cur; });
+      var text = cur ? st.session.theme_text(cur) : "";
+      if (!own) {
         var id = freshThemeId(cur ? cur + "-custom" : "custom");
-        var base = st.dark ? "dark" : "light";
-        var body = cur ? presetBody(cur) : "  background: " + (st.dark ? "#0f1114" : "#f4f5f7") + "\n  text: " + (st.dark ? "#e3e7ec" : "#1c2026") + "\n  title: " + (st.dark ? "#e3e7ec" : "#1c2026") + "\n  blue: #0d99ff";
-        if (cur) base = presetBase(cur);
-        text = "theme " + id + " [base: " + base + "] {\n" + body + "\n}";
+        text = text ? text.replace(/^theme\s+\S+/, "theme " + id)
+          : "theme " + id + " {\n  blue: #0d99ff\n  light {\n    background: #f4f5f7\n    text: #1c2026\n    title: #1c2026\n  }\n  dark {\n    background: #0f1114\n    text: #e3e7ec\n    title: #e3e7ec\n  }\n}\n";
       }
-      var ta = h("textarea", { class: "dge-chart-data", spellcheck: "false", rows: "14" });
-      ta.value = text;
+      var ta = h("textarea", { class: "dge-chart-data", spellcheck: "false", rows: "18" });
+      ta.value = text.trim();
       var save = function () {
         var m = /theme\s+([\w.-]+)/.exec(ta.value);
-        if (!m) { flash("Start with `theme id [base: light] {`", true); return; }
+        if (!m) { flash("Start with `theme id {`", true); return; }
         if (applyOps([{ op: "theme", source: ta.value }, { op: "set", key: "theme", value: m[1] }]).ok) closeModal();
       };
       showModal("Theme", h("div", {}, [
-        h("p", { class: "dge-muted" }, ["Colours as #hex. Keys: background, dots, text, muted, surface, border, line, section, header, title, title-text, pin, font, radius, and the named colours (gray, blue, green, yellow, orange, red, purple, pink, teal). What you leave out comes from the base."]),
+        h("p", { class: "dge-muted" }, ["Lines at the top apply in both modes; `light { }` and `dark { }` hold what differs (the board follows the viewer's mode). Colours as #hex. Keys: background, dots, text, muted, surface, border, line, section, header, title, title-text, pin, font, radius, and the named colours (gray, blue, green, yellow, orange, red, purple, pink, teal)."]),
         ta
       ]), [
         h("button", { onclick: closeModal }, ["Cancel"]),
@@ -1616,13 +1613,6 @@
       while (ids.indexOf(id) >= 0) id = base + "-" + k++;
       return id;
     }
-    function presetDoc(name) {
-      var src = (wasm.theme_preset ? wasm.theme_preset(name) : "");
-      var m = /\[base: (\w+)\] \{\n([\s\S]*)\n\}/.exec(src);
-      return m ? { base: m[1], body: m[2] } : { base: "light", body: "" };
-    }
-    function presetBody(name) { return presetDoc(name).body; }
-    function presetBase(name) { return presetDoc(name).base; }
     /* The chart a row belongs to. */
     function plotOf(id) { var n = node(id), g = n && n.group && group(n.group); return g && (g.chart || g.table) ? g : null; }
     function tableOf(id) { var n = node(id), g = n && n.group && group(n.group); return g && g.table ? g : null; }

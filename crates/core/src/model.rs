@@ -23,25 +23,46 @@ pub struct Document {
     pub themes: Vec<ThemeDef>,
 }
 
-/// A theme: a base (light or dark) and what it changes: colours by role
-/// (`background`, `text`, `line`, …), the named colours (`blue: #3b6fd8`),
-/// `font` and `radius`. See [`crate::theme::KEYS`].
+/// A theme, in a light and a dark mode: what it changes in both (`values`)
+/// and in each mode — colours by role (`background`, `text`, `line`, …), the
+/// named colours (`blue: #3b6fd8`), `font` and `radius`. See
+/// [`crate::theme::KEYS`]. A board drawn light uses the light mode.
 #[derive(Debug, Clone, Default, PartialEq, Serialize, Deserialize)]
 #[serde(default)]
 pub struct ThemeDef {
     pub id: String,
-    pub base: Theme,
-    /// (key, value), in the order written.
+    /// (key, value) for both modes, in the order written.
+    #[serde(skip_serializing_if = "Vec::is_empty")]
     pub values: Vec<(String, String)>,
+    #[serde(skip_serializing_if = "Vec::is_empty")]
+    pub light: Vec<(String, String)>,
+    #[serde(skip_serializing_if = "Vec::is_empty")]
+    pub dark: Vec<(String, String)>,
 }
 
 impl ThemeDef {
-    pub fn get(&self, key: &str) -> Option<&str> {
-        self.values
-            .iter()
-            .rev()
-            .find(|(k, _)| k == key)
-            .map(|(_, v)| v.as_str())
+    /// A key in mode `t` (its own value, or the one for both modes).
+    pub fn get(&self, t: Theme, key: &str) -> Option<&str> {
+        fn find<'a>(l: &'a [(String, String)], key: &str) -> Option<&'a str> {
+            l.iter()
+                .rev()
+                .find(|(k, _)| k == key)
+                .map(|(_, v)| v.as_str())
+        }
+        find(self.mode(t), key).or_else(|| find(&self.values, key))
+    }
+
+    /// What mode `t` sets on its own.
+    pub fn mode(&self, t: Theme) -> &[(String, String)] {
+        match t {
+            Theme::Light => &self.light,
+            Theme::Dark => &self.dark,
+        }
+    }
+
+    /// Everything mode `t` has: both modes' values, then its own.
+    pub fn values_in(&self, t: Theme) -> Vec<(String, String)> {
+        self.values.iter().chain(self.mode(t)).cloned().collect()
     }
 }
 
@@ -53,7 +74,7 @@ pub struct Settings {
     pub routing: Routing,
     pub theme: Theme,
     /// A theme by name: one written on the board, a preset (`paper`,
-    /// `contrast`) or a file (`./brand.theme`).
+    /// `blueprint`, `midnight`, `contrast`) or a file (`./brand.theme`).
     #[serde(skip_serializing_if = "Option::is_none")]
     pub palette: Option<String>,
 }

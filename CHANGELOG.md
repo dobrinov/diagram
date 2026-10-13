@@ -1,5 +1,11 @@
 # Changelog
 
+## 0.16.0 — 2026-10-13
+
+- **Every theme has a light and a dark mode.** A theme's top lines apply in both; `light { … }` and `dark { … }` hold what differs. A board follows the viewer's mode (the editor's light/dark switch, `--dark` for exports), so a team's brand theme works for everyone. Old `theme id [base: dark] { … }` blocks read as that mode.
+- The presets are back with both modes: `paper`, `blueprint`, `midnight`, `contrast`.
+- *Edit theme…* shows a theme with its two modes (and starts a new one with both); WASM `theme_text(name)`.
+
 ## 0.15.1 — 2026-10-12
 
 - The dark-only presets `blueprint` and `midnight` are gone until every theme has a light and a dark mode; `paper` and `contrast` stay. Boards that named them fall back to the default theme.

@@ -26,7 +26,7 @@ let failed = false;
 const file = join(dir, "board.diagram");
 try {
   writeFileSync(file, "title: Themed\napi: Orders API [blue]\n");
-  writeFileSync(join(dir, "brand.theme"), "theme brand [base: dark] {\n  background: #101418\n  blue: #3b6fd8\n}\n");
+  writeFileSync(join(dir, "brand.theme"), "theme brand {\n  blue: #3b6fd8\n  light {\n    background: #faf9f6\n  }\n  dark {\n    background: #101418\n  }\n}\n");
   writeFileSync(join(dir, "branded.diagram"), "theme: ./brand.theme\napi: Orders API [blue]\n");
   const port = serve(file), port2 = serve(join(dir, "branded.diagram"));
   await sleep(700);
@@ -46,17 +46,23 @@ try {
   // Edit theme…: starts from the preset, saved as the board's own
   await p.selectOption(pick, "__edit");
   await p.waitForSelector(".dge-chart-data");
-  assert.match(await p.locator(".dge-chart-data").inputValue(), /^theme paper-custom \[base: light\] \{\n  background: #f6f1e7/);
-  await p.locator(".dge-chart-data").fill("theme mine [base: light] {\n  background: #fafafa\n  blue: #5b5bd6\n}");
+  assert.match(await p.locator(".dge-chart-data").inputValue(), /^theme paper-custom \{\n  font: Georgia[^]*  light \{\n    background: #f6f1e7[^]*  dark \{\n    background: #1c1814/);
+  await p.locator(".dge-chart-data").fill("theme mine {\n  blue: #5b5bd6\n  light {\n    background: #fafafa\n  }\n  dark {\n    background: #111111\n  }\n}");
   await p.locator(".dge-dialog button.primary").click(); await sleep(600);
-  assert.match(readFileSync(file, "utf8"), /theme: mine\n[^]*theme mine \[base: light\] \{\n  background: #fafafa\n  blue: #5b5bd6\n\}/);
+  assert.match(readFileSync(file, "utf8"), /theme: mine\n[^]*theme mine \{\n  blue: #5b5bd6\n  light \{\n    background: #fafafa\n  \}\n  dark \{\n    background: #111111\n  \}\n\}/);
+  assert.equal(await canvasBg(p), "#fafafa");
   assert.equal(await p.locator(pick).inputValue(), "mine");
   assert.match(await p.locator(".dge-canvas svg").first().innerHTML(), /#5b5bd6/);
 
-  // a theme file next to the board, through the server
+  // a theme file next to the board, through the server: light, then for a
+  // viewer in dark mode, its dark side
   await p.goto(`http://127.0.0.1:${port2}/`, { waitUntil: "domcontentloaded" });
   await p.waitForSelector(".dge-canvas svg"); await sleep(400);
-  assert.equal(await canvasBg(p), "#101418");
+  assert.equal(await canvasBg(p), "#faf9f6");
+  const d = await browser.newPage({ viewport: { width: 1200, height: 700 }, colorScheme: "dark" });
+  await d.goto(`http://127.0.0.1:${port2}/`, { waitUntil: "domcontentloaded" });
+  await d.waitForSelector(".dge-canvas svg"); await sleep(400);
+  assert.equal(await canvasBg(d), "#101418");
   assert.deepEqual(errors, []);
   await browser.close();
   console.log("ok — themes e2e passed");

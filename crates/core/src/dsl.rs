@@ -97,6 +97,8 @@ pub(crate) fn parse_lines(src: &str) -> (Document, Vec<Diagnostic>, Vec<LineInfo
         map: None,
         gantt: None,
         theme: None,
+        theme_mode: None,
+        theme_section: false,
         implicit: Default::default(),
         touched: Vec::new(),
     };
@@ -195,6 +197,10 @@ struct Parser {
     touched: Vec<Elem>,
     /// The theme whose lines are being read, and the line that opened it.
     theme: Option<(String, usize)>,
+    /// Inside a theme: the mode its lines are for (None: both), and whether
+    /// a `light {` / `dark {` section is open (else `[base: …]` set it).
+    theme_mode: Option<Theme>,
+    theme_section: bool,
 }
 
 struct MapBlock {
@@ -565,7 +571,8 @@ impl Parser {
         c.skip_ws();
         if !c.eat('{') {
             return Err(
-                "a theme needs a body: `theme id [base: light] {` … `key: value` … `}`".into(),
+                "a theme needs a body: `theme id {` … `key: value`, `light {` … `}`, `dark {` … `}` … `}`"
+                    .into(),
             );
         }
         c.skip_ws();
@@ -590,10 +597,10 @@ impl Parser {
                 ..Default::default()
             });
         }
-        let t = self.doc.themes.iter_mut().find(|t| t.id == id).unwrap();
-        if let Some(b) = base {
-            t.base = b;
-        }
+        // `[base: dark]` (before themes had both modes): its lines are its
+        // dark mode
+        self.theme_mode = base;
+        self.theme_section = false;
         if !closes_inline {
             self.theme = Some((id, self.line));
         }
@@ -603,7 +610,22 @@ impl Parser {
     /// `background: #faf9f6` inside a theme (or the closing `}`).
     fn theme_line(&mut self, t: &str) -> Result<(), String> {
         if t == "}" {
-            self.theme = None;
+            if self.theme_section {
+                self.theme_section = false;
+                self.theme_mode = None;
+            } else {
+                self.theme = None;
+                self.theme_mode = None;
+            }
+            return Ok(());
+        }
+        // `light {` / `dark {`: the lines for one mode
+        if let Some(m) = t.strip_suffix('{').map(str::trim).and_then(Theme::parse) {
+            if self.theme_section {
+                return Err("close the `light {` / `dark {` section with `}` first".into());
+            }
+            self.theme_mode = Some(m);
+            self.theme_section = true;
             return Ok(());
         }
         let (k, v) = t
@@ -627,9 +649,15 @@ impl Parser {
             return Err(format!("`radius` is a number, not `{v}`"));
         }
         let id = self.theme.as_ref().unwrap().0.clone();
+        let mode = self.theme_mode;
         let th = self.doc.themes.iter_mut().find(|x| x.id == id).unwrap();
-        th.values.retain(|(x, _)| *x != k);
-        th.values.push((k, v));
+        let list = match mode {
+            None => &mut th.values,
+            Some(Theme::Light) => &mut th.light,
+            Some(Theme::Dark) => &mut th.dark,
+        };
+        list.retain(|(x, _)| *x != k);
+        list.push((k, v));
         Ok(())
     }
 
@@ -2037,14 +2065,26 @@ fn theme_keys() -> String {
 }
 
 /// A theme as written.
+/// A theme as written in the language.
+pub fn theme_text(t: &ThemeDef) -> String {
+    let mut s = String::new();
+    theme_block(t, &mut s);
+    s
+}
+
 pub(crate) fn theme_block(t: &ThemeDef, out: &mut String) {
-    out.push_str(&format!(
-        "theme {} [base: {}] {{\n",
-        id_text(&t.id),
-        t.base.as_str()
-    ));
+    out.push_str(&format!("theme {} {{\n", id_text(&t.id)));
     for (k, v) in &t.values {
         out.push_str(&format!("  {k}: {v}\n"));
+    }
+    for (mode, list) in [("light", &t.light), ("dark", &t.dark)] {
+        if !list.is_empty() {
+            out.push_str(&format!("  {mode} {{\n"));
+            for (k, v) in list {
+                out.push_str(&format!("    {k}: {v}\n"));
+            }
+            out.push_str("  }\n");
+        }
     }
     out.push_str("}\n");
 }

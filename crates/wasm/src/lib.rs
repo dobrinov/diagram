@@ -81,6 +81,20 @@ impl Diagram {
         }
     }
 
+    /// A theme as text: the board's own, or a preset ("" if neither).
+    pub fn theme_text(&self, name: &str) -> String {
+        let t = self
+            .inner
+            .doc
+            .themes
+            .iter()
+            .find(|t| t.id == name)
+            .cloned()
+            .or_else(|| diagram_core::theme::preset(name));
+        t.map(|t| diagram_core::dsl::theme_text(&t))
+            .unwrap_or_default()
+    }
+
     /// The presets' names, and the themes this board has.
     pub fn themes(&self) -> String {
         let presets: Vec<&str> = diagram_core::theme::PRESETS
@@ -211,7 +225,7 @@ impl Diagram {
     }
 }
 
-/// A built-in theme's text (`paper`, `contrast`), or "".
+/// A built-in theme's text (`paper`, `blueprint`, `midnight`, `contrast`), or "".
 #[wasm_bindgen]
 pub fn theme_preset(name: &str) -> String {
     diagram_core::theme::PRESETS

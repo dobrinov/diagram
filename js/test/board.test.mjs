@@ -244,14 +244,14 @@ test("tables", () => {
 
 test("themes", () => {
   const b = Board.parse("theme: ./brand.theme\napi: API [blue]\n");
-  b.addThemeFile("./brand.theme", "theme brand [base: dark] {\n  background: #101418\n  blue: #3b6fd8\n}\n");
-  const r = b.render();
+  b.addThemeFile("./brand.theme", "theme brand {\n  blue: #3b6fd8\n  dark {\n    background: #101418\n  }\n}\n");
+  const r = b.render({ theme: "dark" });
   assert.deepEqual([r.canvas.background, r.canvas.dark], ["#101418", true]);
   assert.match(r.svg, /#3b6fd8/);
-  b.apply({ op: "theme", source: "theme own [base: light] {\n  text: #222222\n}" });
+  b.apply({ op: "theme", source: "theme own {\n  text: #222222\n}" });
   b.apply({ op: "set", key: "theme", value: "own" });
   assert.deepEqual(b.themes().board, ["own"]);
-  assert.match(b.source(), /theme: own\n[^]*theme own \[base: light\] \{\n  text: #222222\n\}/);
-  assert.ok(b.themes().presets.includes("contrast"));
+  assert.match(b.source(), /theme: own\n[^]*theme own \{\n  text: #222222\n\}/);
+  assert.ok(b.themes().presets.includes("blueprint"));
   b.free();
 });

@@ -1411,7 +1411,7 @@ fn apply_op(doc: &mut Document, op: &Op, created: &mut Vec<String>) -> Result<()
                     .join("; ")
             })?;
             if parsed.themes.is_empty() {
-                return Err("no `theme id [base: light] { … }` in `source`".into());
+                return Err("no `theme id { … }` in `source`".into());
             }
             for t in parsed.themes {
                 match doc.themes.iter_mut().find(|x| x.id == t.id) {
