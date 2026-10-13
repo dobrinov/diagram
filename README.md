@@ -8,7 +8,7 @@ It is written in Rust and compiled to WebAssembly, so a single engine drives the
 
 **[Try it in your browser](https://dobrinov.github.io/diagram/app/)** (no install needed) · [Website](https://dobrinov.github.io/diagram/) · [Examples](https://dobrinov.github.io/diagram/examples/) · [Language reference](crates/core/LANGUAGE.md)
 
-![The diagram editor: code pane, canvas with groups, shapes and comment pins, inspector and comment threads](assets/screenshot.png)
+![The diagram editor: a mindmap, a kanban board, a sequence diagram and a decision record on one board](assets/screenshot.png)
 
 ```diagram
 title: Checkout
@@ -156,6 +156,8 @@ The full reference is in [LANGUAGE.md](crates/core/LANGUAGE.md), and `diagram sp
 | `a -> b: label` | edge. `->` solid, `..>` dashed, `=>` thick, `--` / `..` / `==` no arrow, `<->` both |
 | `a -> b -> c`, `a -> b, c` | chains and fan-out |
 | `group id: Label [color] { … }` | groups, which can be nested |
+| `mindmap` · `lanes` · `kanban` · `sequence` · `gantt` · `risks` · `table` · `chart` · `entity` · `adr` `id: Title { … }` | blocks: mindmaps, swimlanes, kanban boards, sequence diagrams, gantt charts, risk matrices, tables, charts, database tables, decision records |
+| `link: other.diagram#id` | a link to an element on another board |
 | `comment [id] on TARGET by WHO: text` · `reply id: text` | review threads; add `[resolved, resolution: …]` to close one |
 | `title:` `direction:` `layout:` `routing:` `theme:` | settings |
 

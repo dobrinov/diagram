@@ -1,5 +1,9 @@
 # Changelog
 
+## 0.25.1 — 2026-10-13
+
+- README: a new screenshot of today's editor (a mindmap, a kanban board, a sequence diagram and a decision record on one board), and the block keywords and cross-board links in the language summary.
+
 ## 0.25.0 — 2026-10-13
 
 - **Sequence diagrams:** `sequence login: Sign in {` with participants (`user: User [person]`) and then messages (`user -> web: opens /login`, `api ..> web: 201` for a reply). Participants sit side by side with dashed lifelines; messages run top to bottom in the order written, straight from lifeline to lifeline, and a message to itself loops back. Messages are ordinary arrows (labels, colours, comments) and are written inside their block; an edit keeps them there.
