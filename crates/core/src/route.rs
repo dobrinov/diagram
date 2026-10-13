@@ -136,6 +136,11 @@ pub fn route(doc: &Document, layout: &Layout) -> Vec<EdgePath> {
     }
     let mut plans: Vec<Option<Plan>> = Vec::new();
     for e in &doc.edges {
+        // messages of a sequence diagram are drawn straight across (below)
+        if crate::sequence::sequence_of(doc, e).is_some() {
+            plans.push(None);
+            continue;
+        }
         let (Some(a), Some(b)) = (layout.rect(&e.from), layout.rect(&e.to)) else {
             plans.push(None);
             continue;
@@ -284,6 +289,21 @@ pub fn route(doc: &Document, layout: &Layout) -> Vec<EdgePath> {
 
     let mut out = Vec::new();
     for (i, e) in doc.edges.iter().enumerate() {
+        if let Some(pts) = crate::sequence::message_points(doc, layout, e) {
+            let mut path = polyline(&e.id, &pts);
+            // the label sits on the message, just above its line
+            path.mid = if e.from == e.to {
+                let w = e
+                    .label
+                    .as_deref()
+                    .map_or(0.0, |l| crate::text::width(l, 12.0));
+                (pts[1].0 + 14.0 + w / 2.0, pts[1].1 + 9.0)
+            } else {
+                ((pts[0].0 + pts[1].0) / 2.0, pts[0].1 - 12.0)
+            };
+            out.push(path);
+            continue;
+        }
         let Some(p) = &plans[i] else { continue };
         if e.from == e.to {
             out.push(self_loop(&e.id, &p.a));

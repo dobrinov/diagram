@@ -137,6 +137,7 @@ pub const OPS_REFERENCE: &str = r#"Operations (fields in [] are optional; ids ar
 - {"op":"theme","source":"theme brand {\n  blue: #3b6fd8\n  light {\n    background: #faf9f6\n  }\n  dark {\n    background: #101418\n  }\n}"}   (adds or replaces a theme; top lines apply in both modes, light { } and dark { } what differs; keys: background, dots, text, muted, surface, border, line, section, header, title, title-text, pin, font, radius and the named colours)
 - {"op":"merge","dsl":"cache: Redis [cylinder]\napi -> cache: reads\napi [red]"}   (statements in the diagram language, as if written at the end of the file: adds new elements; one written again by its id gets the attributes given. Cheapest for many changes)
 - Database table: {"op":"add_group","id":"users","label":"Users","entity":true}; its columns are add_node / update_node with "id":"users.email","label":"email","group":"users","column":{"type":"text",["pk":true,"unique":true,"null":true,"fk":"teams.id","default":"now()"]}. Or merge: "entity users: Users {\n  id: uuid [pk]\n  team_id: uuid [fk: teams]\n}"
+- Sequence diagram: {"op":"add_group","id":"login","label":"Sign in","sequence":true}; participants are nodes in it, messages are add_edge between them (in order; {"op":"update_edge","id":"web->api","index":0} moves one). Or merge: "sequence login: Sign in {\n  user: User\n  web: Web app\n  user -> web: opens /login\n  web ..> user: page\n}" (..> is a reply)
 - Decision record: {"op":"add_group","id":"db","label":"Use Postgres","adr":"proposed"} (status: proposed, accepted, rejected, superseded, deprecated); its fields are add_node / update_node with "id":"db.context","label":"context","group":"db","detail":"the text". Or merge: "adr db: Use Postgres [accepted] {\n  context: …\n  decision: …\n}"
 - Kanban: {"op":"add_group","id":"sprint","label":"Sprint 12","kanban":true}, its columns {"op":"add_group","id":"doing","label":"Doing","parent":"sprint"}; a card is a node in a column; move one with {"op":"update_node","id":"login","group":"doing","index":0}. Or merge: "kanban sprint: Sprint 12 {\n  column todo: To do {\n    login: Login page\n  }\n  column doing: Doing {}\n}"
 - Table: {"op":"add_group","id":"opts","label":"Options","columns":["option","cost","notes"]}; its rows are add_node / update_node with "group":"opts","label":"Local" (the first cell),"cells":["$0","needs a GPU"]. Or merge: "table opts: Options {\n  option | cost | notes\n  Local | $0 | needs a GPU\n}"
@@ -313,7 +314,7 @@ pub fn brief(doc: &Document) -> String {
     let computed: Vec<String> = doc
         .groups
         .iter()
-        .filter(|g| g.gantt || g.lanes || g.risks || g.entity)
+        .filter(|g| g.gantt || g.lanes || g.risks || g.entity || g.sequence)
         .map(|g| g.id.clone())
         .collect();
     if !computed.is_empty() {
@@ -668,7 +669,9 @@ fn selection_core(doc: &Document, ids: &[String], titled: bool) -> String {
         if !out.is_empty() {
             out.push('\n');
         }
-        let kind = if let Some(st) = &g.adr {
+        let kind = if g.sequence {
+            " (sequence diagram)".to_string()
+        } else if let Some(st) = &g.adr {
             format!(" (decision record, {st})")
         } else if g.entity {
             format!(" (database table `{}`)", g.id)
@@ -817,6 +820,39 @@ fn selection_core(doc: &Document, ids: &[String], titled: bool) -> String {
                 }
                 out.push_str(&line);
                 out.push('\n');
+            }
+        } else if g.sequence {
+            let people: Vec<String> = crate::sequence::participants_of(doc, &g.id)
+                .iter()
+                .map(|n| {
+                    seen.push(n.id.clone());
+                    // messages are the steps below, not connections
+                    flowed.push(n.id.clone());
+                    n.display().replace('\n', " ")
+                })
+                .collect();
+            out.push_str(&format!("Participants: {}.\n\n", people.join(", ")));
+            for (k, e) in crate::sequence::messages_of(doc, &g.id).iter().enumerate() {
+                let name = |id: &str| {
+                    doc.node(id)
+                        .map_or(id.to_string(), |n| n.display().replace('\n', " "))
+                };
+                let what = e
+                    .label
+                    .as_deref()
+                    .map(|l| format!(": {l}"))
+                    .unwrap_or_default();
+                let reply = if e.line == Line::Dashed {
+                    " (reply)"
+                } else {
+                    ""
+                };
+                out.push_str(&format!(
+                    "{}. {} → {}{what}{reply}\n",
+                    k + 1,
+                    name(&e.from),
+                    name(&e.to)
+                ));
             }
         } else if g.adr.is_some() {
             for f in crate::adr::fields_of(doc, &g.id) {

@@ -143,6 +143,8 @@ export interface Group {
   lanes?: boolean;
   /** A kanban board (with `lanes`): its lanes are columns of cards in document order. */
   kanban?: boolean;
+  /** A sequence diagram: its nodes are participants; arrows between them are messages, in order. */
+  sequence?: boolean;
   /** Gantt chart: the nodes inside are tasks on a timeline. */
   gantt?: boolean;
   /** Gantt chart: its first day (`YYYY-MM-DD`). */
@@ -380,6 +382,8 @@ export interface UpdateEdgeOp {
   arrow?: Arrow | string;
   line?: Line | string;
   color?: Color | "";
+  /** A message of a sequence diagram: its place among the messages (0 = first); another arrow: among all arrows. */
+  index?: number;
 }
 
 export interface AddGroupOp {
@@ -394,6 +398,8 @@ export interface AddGroupOp {
   lanes?: boolean;
   /** A kanban board: its groups are columns of cards (implies `lanes`). */
   kanban?: boolean;
+  /** A sequence diagram: its nodes are participants; arrows between them are messages, in order. */
+  sequence?: boolean;
   /** Gantt chart: the nodes inside are tasks. */
   gantt?: boolean;
   /** Risk matrix: the nodes inside are risks. */
@@ -433,6 +439,8 @@ export interface UpdateGroupOp {
   parent?: string;
   lanes?: boolean;
   kanban?: boolean;
+  /** A sequence diagram: its nodes are participants; arrows between them are messages, in order. */
+  sequence?: boolean;
   gantt?: boolean;
   /** Gantt chart: its first day ("" clears it). */
   start?: string;
@@ -624,6 +632,8 @@ export interface GroupBox extends Rect {
   depth: number;
   /** Swimlanes: this group holds lanes. */
   lanes?: boolean;
+  /** A sequence diagram: participants in a row, messages below. */
+  sequence?: boolean;
   /** A lane: title strip on the left (`row`) or on top (`column`). */
   lane?: "row" | "column";
   /** A lane's title strip: its width (rows) or height (columns). */

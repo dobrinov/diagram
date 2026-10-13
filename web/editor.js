@@ -55,6 +55,7 @@
     risks: '<rect x="4" y="4" width="16" height="16" rx="2"/><path d="M4 12h16M12 4v16"/><circle cx="16" cy="8" r="2" fill="currentColor" stroke="none"/><circle cx="8.5" cy="15.5" r="1.6" fill="currentColor" stroke="none"/>',
     gantt: '<path d="M4 4v16h16"/><rect x="7" y="6.5" width="7" height="3" rx="1" fill="currentColor" stroke="none"/><rect x="11" y="11" width="8" height="3" rx="1" fill="currentColor" stroke="none"/><rect x="9" y="15.5" width="5" height="3" rx="1" fill="currentColor" stroke="none"/>',
     adr: '<rect x="5" y="3" width="14" height="18" rx="2"/><path d="M8 8h8M8 12h8M8 16h5"/><circle cx="17" cy="17" r="3.2" fill="currentColor" stroke="none"/>',
+    sequence: '<rect x="3" y="3" width="6" height="4" rx="1"/><rect x="15" y="3" width="6" height="4" rx="1"/><path d="M6 7v14M18 7v14" stroke-dasharray="2 2"/><path d="M6 11h11M15 9l2 2-2 2M18 16H7M9 14l-2 2 2 2"/>',
     lanes: '<rect x="3" y="4" width="18" height="16" rx="2"/><path d="M3 9.5h18M3 14.5h18M8 4v16"/>',
     kanban: '<rect x="3" y="4" width="18" height="16" rx="2"/><path d="M9 4v16M15 4v16"/><rect x="4.8" y="7" width="2.4" height="2.4" rx=".6" fill="currentColor" stroke="none"/><rect x="4.8" y="11" width="2.4" height="2.4" rx=".6" fill="currentColor" stroke="none"/><rect x="10.8" y="7" width="2.4" height="2.4" rx=".6" fill="currentColor" stroke="none"/><rect x="16.8" y="7" width="2.4" height="2.4" rx=".6" fill="currentColor" stroke="none"/>',
     section: '<rect x="3" y="8" width="18" height="12" rx="2"/><rect x="3" y="3" width="9" height="3.5" rx="1.2" fill="currentColor" stroke="none"/>',
@@ -237,6 +238,7 @@
           if (i === 1) {
             tools.appendChild(btn({ class: "dge-tool", "data-act": "lanes", title: "Swimlanes: lanes the flow runs across; the selected blocks go in the first lane. Drop blocks into a lane to move them there.", onclick: function () { canvas.focus({ preventScroll: true }); addSwimlanes(); } }, icon("lanes")));
             tools.appendChild(btn({ class: "dge-tool", "data-act": "kanban", title: "Kanban: columns of cards; the selected blocks go in the first column. Drag a card to another column or place in one.", onclick: function () { canvas.focus({ preventScroll: true }); addKanban(); } }, icon("kanban")));
+            tools.appendChild(btn({ class: "dge-tool", "data-act": "sequence", title: "Sequence diagram: participants side by side, messages top to bottom. Connect two participants to add a message; drag a participant sideways to reorder.", onclick: function () { canvas.focus({ preventScroll: true }); addSequence(); } }, icon("sequence")));
             tools.appendChild(btn({ class: "dge-tool", "data-act": "gantt", title: "Gantt chart: tasks on a timeline. Drag a bar to reschedule it; right-click a task to change its length or add one after it.", onclick: function () { canvas.focus({ preventScroll: true }); addGantt(); } }, icon("gantt")));
             tools.appendChild(btn({ class: "dge-tool", "data-act": "table", title: "Table: rows and columns of text. Right-click it to edit it as text or add a row.", onclick: function () { canvas.focus({ preventScroll: true }); addTable(); } }, icon("table")));
             tools.appendChild(btn({ class: "dge-tool", "data-act": "entity", title: "Database table: columns with types and keys; a foreign key is drawn to the column it references. Right-click to edit the columns.", onclick: function () { canvas.focus({ preventScroll: true }); addEntity(); } }, icon("entity")));
@@ -1274,16 +1276,33 @@
         ["Delete", function () { applyOps([{ op: "remove", id: t.id }]); select([]); }]
       ];
       if (t.type === "edge" && !view) {
-        var ed = edge(t.id);
-        return [
+        var ed = edge(t.id), msgs = messagesOf(ed), k = msgs.indexOf(ed);
+        return (k >= 0 ? [
+          k > 0 ? ["Move up", function () { applyOps([{ op: "update_edge", id: t.id, index: k - 1 }]); }, "Earlier in the sequence"] : null,
+          k < msgs.length - 1 ? ["Move down", function () { applyOps([{ op: "update_edge", id: t.id, index: k + 1 }]); }, "Later in the sequence"] : null,
+          "-"
+        ].filter(Boolean) : []).concat([
           [ed.label ? "Edit label" : "Add label", function () { editLabel(t.id); }],
           [ed.line === "dashed" ? "Solid line" : "Dashed line", function () { applyOps([{ op: "update_edge", id: t.id, line: ed.line === "dashed" ? "solid" : "dashed" }]); }],
           ["Reverse direction", function () { applyOps([{ op: "update_edge", id: t.id, from: ed.to, to: ed.from }]); select([]); }],
           ["Colour…", function () { colourMenu(t.id, "update_edge", ed.color); }],
           "-",
           ["Delete", function () { applyOps([{ op: "remove", id: t.id }]); select([]); }]
-        ];
+        ]);
       }
+      if (gr && !view && gr.sequence) return [
+        ["Rename", function () { editLabel(t.id); }],
+        ["Add participant", function () {
+          var id = freshId("participant");
+          if (!applyOps([{ op: "add_node", id: id, label: "Participant", group: t.id }]).ok) return;
+          select([id]);
+          editLabel(id, true);
+        }, "Then connect two participants to add a message"],
+        ["Colour…", function () { colourMenu(t.id, "update_group", gr.color); }],
+        "-",
+        ["Remove sequence diagram", function () { applyOps([{ op: "remove", id: t.id, keep_members: true }]); select([]); }, "The participants and arrows stay"],
+        ["Delete", function () { applyOps([{ op: "remove", id: t.id, keep_members: false }]); select([]); }, "The diagram, its participants and messages"]
+      ];
       if (gr && !view && gr.kanban) return [
         ["Rename", function () { editLabel(t.id); }],
         ["Add column", function () { addLane(t.id); }],
@@ -1454,7 +1473,7 @@
           if (g && !items.some(function (i) { return i.id === id; })) items.push({ id: id, x: g.x, y: g.y, w: g.w, h: g.h, direct: direct.indexOf(id) >= 0 });
         });
         // sections as they are now: while dragging, they stretch around what moves
-        var sections = (st.r.groups || []).map(function (g) { return { id: g.id, x: g.x, y: g.y, w: g.w, h: g.h, lane: !!g.lane, gantt: g.gantt || null, matrix: g.matrix || null }; });
+        var sections = (st.r.groups || []).map(function (g) { return { id: g.id, x: g.x, y: g.y, w: g.w, h: g.h, lane: !!g.lane || !!g.sequence, seq: !!g.sequence, gantt: g.gantt || null, matrix: g.matrix || null }; });
         st.drag = { type: "move", sx: p.x, sy: p.y, dx: 0, dy: 0, items: items, sections: sections, before: st.text, moved: false,
           tasks: items.some(function (m) { return m.direct && (chartOf(m.id) || matrixOf(m.id)); }) };
         canvas.setPointerCapture(e.pointerId);
@@ -1777,7 +1796,7 @@
     function blockOf(gid) {
       var g = gid && group(gid);
       if (!g) return null;
-      if (g.lanes || g.gantt || g.risks || g.chart || g.table || g.entity || g.adr) return g.id;
+      if (g.lanes || g.gantt || g.risks || g.chart || g.table || g.entity || g.adr || g.sequence) return g.id;
       var up = g.parent && group(g.parent);
       if (up && up.lanes) return up.id;
       // a section moves as a whole (and keeps its place), unless boxes in it
@@ -2446,6 +2465,22 @@
         editLabel(id, true);
       }
     }
+    /* The messages of the sequence diagram arrow `e` is in, top to bottom ([] if none). */
+    function messagesOf(e) {
+      var a = node(e.from), b = node(e.to), g = a && b && a.group === b.group && a.group && group(a.group);
+      if (!g || !g.sequence) return [];
+      return (st.doc.edges || []).filter(function (m) { var x = node(m.from), y = node(m.to); return x && y && x.group === g.id && y.group === g.id; });
+    }
+    /* A sequence diagram with two participants and a request and its reply. */
+    function addSequence() {
+      var ids = freshIds(["sequence", "client", "server"]), gid = ids[0];
+      var res = applyOps([{ op: "merge", dsl: "sequence " + gid + ": Sequence {\n  " + ids[1] + ": Client\n  " + ids[2] + ": Server\n  " + ids[1] + " -> " + ids[2] + ": request\n  " + ids[2] + " ..> " + ids[1] + ": response\n}" }]);
+      if (res.ok) {
+        select([gid]);
+        reveal(gid);
+        editLabel(gid, true);
+      }
+    }
     /* A kanban board: To do, Doing, Done; the selected blocks go in To do. */
     function addKanban() {
       var members = st.sel.filter(function (id) { return node(id) && !node(id).parent && !chartOf(id); });
@@ -2519,7 +2554,16 @@
         if (!m.direct) return;
         var into = sectionAt(d.sections, m.x + d.dx + m.w / 2, m.y + d.dy + m.h / 2), was = node(m.id).group || null;
         if (live && into !== was && !chartOf(m.id)) return;
-        if (!live && kanbanColumn(into)) {
+        var sq = d.sections.find(function (g) { return g.id === into && g.seq; });
+        if (!live && sq && into === was) {
+          // a participant goes where it was dropped, left to right
+          var cx = m.x + d.dx + m.w / 2, at = 0;
+          st.doc.nodes.forEach(function (c) {
+            var g = c.group === into && c.id !== m.id && geom(c.id);
+            if (g && g.x + g.w / 2 < cx) at++;
+          });
+          ops.push({ op: "update_node", id: m.id, group: into, index: at });
+        } else if (!live && kanbanColumn(into)) {
           // a card goes where it was dropped among the column's cards
           var cy = m.y + d.dy + m.h / 2, index = 0;
           st.doc.nodes.forEach(function (c) {

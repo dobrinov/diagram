@@ -143,6 +143,9 @@ pub struct GroupBox {
     /// Swimlanes: this group holds lanes.
     #[serde(skip_serializing_if = "std::ops::Not::not")]
     pub lanes: bool,
+    /// A sequence diagram: participants in a row, messages below.
+    #[serde(skip_serializing_if = "std::ops::Not::not")]
+    pub sequence: bool,
     /// A lane: "row" (title strip on the left) or "column" (title strip on top).
     #[serde(skip_serializing_if = "Option::is_none")]
     pub lane: Option<&'static str>,
@@ -313,6 +316,8 @@ struct Ctx<'a> {
     gantt: Vec<Option<GanttBox>>,
     matrix: Vec<Option<MatrixBox>>,
     chart: Vec<bool>,
+    /// Sequence diagrams: participants in a row.
+    seq: Vec<bool>,
     /// Position of each node / group relative to its parent block.
     node_pos: Vec<(f64, f64)>,
     group_pos: Vec<(f64, f64)>,
@@ -377,6 +382,7 @@ pub fn layout_at(doc: &Document, today: Option<i64>) -> Layout {
         gantt: vec![None; doc.groups.len()],
         matrix: vec![None; doc.groups.len()],
         chart: vec![false; doc.groups.len()],
+        seq: vec![false; doc.groups.len()],
         node_pos: vec![(0.0, 0.0); doc.nodes.len()],
         group_pos: vec![(0.0, 0.0); doc.groups.len()],
         group_index: doc
@@ -609,6 +615,7 @@ pub fn layout_at(doc: &Document, today: Option<i64>) -> Layout {
             rect: rects[i],
             depth: depth(i),
             lanes: g.lanes,
+            sequence: g.sequence,
             lane: ctx.lane[i].map(|l| l.0),
             head: ctx.lane[i].map_or(0.0, |l| l.1),
             gantt: ctx.gantt[i].clone().map(|mut gb| {
@@ -714,6 +721,8 @@ fn members(
                 gantt_block(ctx, i)
             } else if ctx.doc.groups[i].risks {
                 matrix_block(ctx, i)
+            } else if ctx.doc.groups[i].sequence {
+                sequence_block(ctx, i, pn)
             } else if ctx.doc.groups[i].plotted() {
                 chart_block(ctx, i)
             } else {
@@ -743,6 +752,7 @@ impl Ctx<'_> {
             || self.gantt[g].is_some()
             || self.matrix[g].is_some()
             || self.chart[g]
+            || self.seq[g]
     }
 }
 
@@ -801,6 +811,8 @@ fn lanes_block(ctx: &mut Ctx, g: usize, pn: &[Option<usize>], pg: &[Option<usize
                 gantt_block(ctx, c)
             } else if ctx.doc.groups[c].risks {
                 matrix_block(ctx, c)
+            } else if ctx.doc.groups[c].sequence {
+                sequence_block(ctx, c, pn)
             } else if ctx.doc.groups[c].plotted() {
                 chart_block(ctx, c)
             } else {
@@ -952,6 +964,65 @@ fn lanes_block(ctx: &mut Ctx, g: usize, pn: &[Option<usize>], pg: &[Option<usize
     } else {
         (at, length)
     }
+}
+
+/// A sequence diagram: its participants in a row, far enough apart for the
+/// labels of the messages between neighbours, and room below for every
+/// message. Returns the content size.
+fn sequence_block(ctx: &mut Ctx, g: usize, pn: &[Option<usize>]) -> (f64, f64) {
+    use crate::sequence::{BOTTOM, GAP, STEP, TOP};
+    ctx.seq[g] = true;
+    let gid = ctx.doc.groups[g].id.as_str();
+    let people: Vec<usize> = (0..pn.len())
+        .filter(|&i| pn[i] == Some(g) && ctx.forest.root[i].is_none())
+        .collect();
+    if people.is_empty() {
+        return (0.0, 0.0);
+    }
+    let messages = crate::sequence::messages_of(ctx.doc, gid);
+    let at = |id: &str| people.iter().position(|&i| ctx.doc.nodes[i].id == id);
+    // centres left to right; neighbours make room for the labels between them
+    let mut centre = vec![0.0f64; people.len()];
+    for k in 0..people.len() {
+        let w = ctx.sizes[people[k]].0;
+        if k == 0 {
+            centre[k] = w / 2.0;
+            continue;
+        }
+        let prev = ctx.sizes[people[k - 1]].0;
+        let label = messages
+            .iter()
+            .filter(|m| {
+                let (a, b) = (at(&m.from), at(&m.to));
+                matches!((a, b), (Some(a), Some(b)) if a.min(b) == k - 1 && a.max(b) == k)
+            })
+            .filter_map(|m| m.label.as_deref())
+            .map(|l| text::width(l, 12.0) * 1.08 + 40.0)
+            .fold(0.0, f64::max);
+        centre[k] = centre[k - 1] + ((prev + w) / 2.0 + GAP).max(label);
+    }
+    let head = people.iter().map(|&i| ctx.sizes[i].1).fold(0.0, f64::max);
+    let mut right = 0.0f64;
+    for (k, &i) in people.iter().enumerate() {
+        let (w, h) = ctx.sizes[i];
+        ctx.node_pos[i] = (centre[k] - w / 2.0, (head - h) / 2.0);
+        right = right.max(centre[k] + w / 2.0);
+    }
+    // a message to itself loops out to the right, its label beside the loop
+    let loops = messages
+        .iter()
+        .filter(|m| m.from == m.to)
+        .filter_map(|m| {
+            let k = at(&m.from)?;
+            let w = m
+                .label
+                .as_deref()
+                .map_or(0.0, |l| text::width(l, 12.0) * 1.08 + 30.0);
+            Some(centre[k] + 50.0 + w)
+        })
+        .fold(0.0, f64::max);
+    let n = messages.len().max(1) as f64;
+    (right.max(loops), head + TOP + (n - 1.0) * STEP + BOTTOM)
 }
 
 /// A kanban board: its columns side by side, the cards in each stacked in

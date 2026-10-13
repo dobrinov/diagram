@@ -35,6 +35,7 @@ pub mod query;
 pub mod render;
 pub mod tables;
 pub mod risks;
+pub mod sequence;
 pub mod route;
 pub mod text;
 pub mod theme;
@@ -205,6 +206,7 @@ pub fn json_schema() -> Value {
                 "id": {"type": "string"}, "label": {"type": "string"}, "color": color, "parent": {"type": "string"},
                 "lanes": {"type": "boolean", "description": "swimlanes: the groups inside are lanes"},
                 "adr": {"type": "string", "enum": ["proposed", "accepted", "rejected", "superseded", "deprecated"], "description": "a decision record with this status: its nodes are its fields (label = field name, detail = text)"},
+                "sequence": {"type": "boolean", "description": "a sequence diagram: its nodes are participants side by side; arrows between them are messages, top to bottom in document order"},
                 "kanban": {"type": "boolean", "description": "a kanban board (with lanes): its lanes are columns of cards, stacked in document order"},
                 "gantt": {"type": "boolean", "description": "gantt chart: the nodes inside are tasks"},
                 "start": {"type": "string", "format": "date", "description": "gantt chart: its first day (YYYY-MM-DD)"},

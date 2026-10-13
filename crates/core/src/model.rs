@@ -304,6 +304,10 @@ pub struct Group {
     /// the cards in each stack in document order.
     #[serde(skip_serializing_if = "std::ops::Not::not")]
     pub kanban: bool,
+    /// A sequence diagram: its nodes are participants side by side, and the
+    /// arrows between them are messages, top to bottom in document order.
+    #[serde(skip_serializing_if = "std::ops::Not::not")]
+    pub sequence: bool,
     /// Gantt chart: the nodes inside are tasks on a timeline.
     #[serde(skip_serializing_if = "std::ops::Not::not")]
     pub gantt: bool,

@@ -1,5 +1,11 @@
 # Changelog
 
+## 0.25.0 — 2026-10-13
+
+- **Sequence diagrams:** `sequence login: Sign in {` with participants (`user: User [person]`) and then messages (`user -> web: opens /login`, `api ..> web: 201` for a reply). Participants sit side by side with dashed lifelines; messages run top to bottom in the order written, straight from lifeline to lifeline, and a message to itself loops back. Messages are ordinary arrows (labels, colours, comments) and are written inside their block; an edit keeps them there.
+- In the editor: a *Sequence diagram* tool (a request and its reply); connect two participants to add a message; right-click a message → *Move up* / *Move down*; drag a participant sideways to reorder; *Add participant*. Ops: `add_group` with `sequence`, `update_edge` with `index` (a message's place).
+- Prompts and `brief` list the participants and the numbered messages; `query kind:sequence`; `examples/sequence.diagram`; `scripts/e2e/sequence.mjs` in `make e2e`.
+
 ## 0.24.0 — 2026-10-13
 
 - **Decision records:** `adr db: Use Postgres for orders [accepted] {` with one field per line (`context: …`, `options: …`, `decision: …`, `consequences: …`, or any names). Drawn as a card: the status in a coloured pill (proposed, accepted, rejected, superseded, deprecated), then each field's name over its text. Fields are elements (`db.context`): comment on one, link to it, draw an arrow from one record to another (`supersedes`).

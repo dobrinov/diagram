@@ -380,6 +380,23 @@ fn draw(doc: &Document, opts: &RenderOptions, def: Option<crate::model::ThemeDef
         if let Some(m) = &gb.matrix {
             matrix_svg(&mut s, doc, gb, m, p, t);
         }
+        if gb.sequence {
+            // a dashed lifeline down from each participant
+            s.push_str(r#"<g class="dg-lifelines">"#);
+            for x in crate::sequence::participants_of(doc, &gb.id) {
+                if let Some(r) = lay.rect(&x.id) {
+                    let _ = write!(
+                        s,
+                        r#"<line x1="{0}" y1="{1}" x2="{0}" y2="{2}" stroke="{3}" stroke-width="1.5" stroke-dasharray="5 5"/>"#,
+                        n(r.cx()),
+                        n(r.bottom()),
+                        n(gb.rect.bottom() - layout::GROUP_PAD / 2.0),
+                        p.node_stroke
+                    );
+                }
+            }
+            s.push_str("</g>");
+        }
         if let Some(g) = doc.group(&gb.id).filter(|g| g.plotted()) {
             chart_svg(&mut s, doc, g, gb, p, t);
         }

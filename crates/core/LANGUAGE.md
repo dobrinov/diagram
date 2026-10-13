@@ -148,6 +148,26 @@ confirm -> invoice -> pay
 - Everything in all lanes is ranked together, so a step in one lane lines up with the steps before and after it in the others. Lanes share one length; a lane is as tall (or wide) as what it holds.
 - Lanes are laid out automatically: `x`/`y` on a block inside a lane are ignored. `lanes id: Title [x: 400, y: 120] {` pins the whole swimlanes (top-left), as dragging them in the editor does. Edges can leave the lanes for anything else on the board.
 
+### Sequence diagrams
+
+```diagram
+sequence login: Sign in {
+  user: User [person]
+  web: Web app
+  api: Auth API
+  user -> web: opens /login
+  web -> api: POST /session
+  api -> api: sign token
+  api ..> web: 201 + token
+  web ..> user: redirect to /home
+}
+```
+
+- The boxes in a `sequence` are its participants, side by side in the order written, each with a dashed lifeline. The arrows between them are its messages, top to bottom in the order written; `..>` (dashed) reads as a reply, and an arrow from a participant to itself loops back. An arrow that is written inside the block but leaves it is drawn as usual.
+- Messages are arrows like any other: labels, colours, comments. Participants are boxes: shapes, colours, links.
+- In the editor: the *Sequence diagram* tool; connect two participants to add a message (it goes last); right-click a message → *Move up* / *Move down*; drag a participant sideways to reorder; right-click the diagram → *Add participant*. Ops: `{"op":"update_edge","id":"web->api","index":0}` moves a message.
+- In JSON, a group with `"sequence": true`; messages are the edges between its nodes, in `edges` order. Prompts list the participants and the numbered messages; `query kind:sequence` finds them.
+
 ### Kanban boards
 
 ```diagram

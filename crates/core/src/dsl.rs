@@ -114,7 +114,8 @@ pub(crate) fn parse_lines(src: &str) -> (Document, Vec<Diagnostic>, Vec<LineInfo
             .map
             .as_ref()
             .map(|m| m.line - 1)
-            .or(p.gantt.as_ref().map(|g| g.1 - 1));
+            .or(p.gantt.as_ref().map(|g| g.1 - 1))
+            .or_else(|| p.open_sequence());
         if t.is_empty() || t.starts_with('#') || t.starts_with("//") {
             info.push(li);
             continue;
@@ -135,7 +136,9 @@ pub(crate) fn parse_lines(src: &str) -> (Document, Vec<Diagnostic>, Vec<LineInfo
             p.errors.push(Diagnostic::new(p.line, e));
         }
         // a line that opened a block is its first line
-        if li.block.is_none() && (p.map.is_some() || p.gantt.is_some()) {
+        if li.block.is_none()
+            && (p.map.is_some() || p.gantt.is_some() || p.open_sequence() == Some(i))
+        {
             li.block = Some(i);
         }
         li.elems = std::mem::take(&mut p.touched);
@@ -218,6 +221,15 @@ impl Parser {
         self.stack.last().map(|(g, _)| g.clone())
     }
 
+    /// The line (0-based) that opened the sequence diagram we are in: its
+    /// participants and messages are one block.
+    fn open_sequence(&self) -> Option<usize> {
+        self.stack
+            .iter()
+            .find(|(g, _)| self.doc.group(g).is_some_and(|g| g.sequence))
+            .map(|(_, line)| line - 1)
+    }
+
     fn statement(&mut self, t: &str) -> Result<(), String> {
         if t == "}" {
             return self
@@ -257,6 +269,21 @@ impl Parser {
                 let (lanes, n) = (word == "lanes", word.len());
                 c.advance(n);
                 return self.group_decl(c, lanes);
+            }
+            // a sequence diagram: participants, then messages between them
+            "sequence"
+                if c.rest()[8..].starts_with(|ch: char| ch.is_whitespace())
+                    && (t.trim_end().ends_with('{') || t.trim_end().ends_with("{}")) =>
+            {
+                c.advance(8);
+                self.group_decl(c, false)?;
+                if let Some(Elem::Group(id)) = self.touched.last() {
+                    let id = id.clone();
+                    if let Some(g) = self.doc.group_mut(&id) {
+                        g.sequence = true;
+                    }
+                }
+                return Ok(());
             }
             // a kanban board and its columns (swimlanes laid out as columns of cards)
             "kanban" | "column"
@@ -2090,6 +2117,23 @@ pub(crate) fn entity_block(doc: &Document, g: &Group, pad: &str, out: &mut Strin
 }
 
 /// A table: its header and one row per node, columns lined up.
+/// A sequence diagram: its participants, then its messages in order.
+pub(crate) fn sequence_block(doc: &Document, g: &Group, pad: &str, out: &mut String) {
+    let people = crate::sequence::participants_of(doc, &g.id);
+    if people.is_empty() {
+        out.push_str(&format!("{pad}{} {{}}\n", group_header(doc, g)));
+        return;
+    }
+    out.push_str(&format!("{pad}{} {{\n", group_header(doc, g)));
+    for n in people {
+        out.push_str(&format!("{pad}  {}\n", node_line(n)));
+    }
+    for e in crate::sequence::messages_of(doc, &g.id) {
+        out.push_str(&format!("{pad}  {}\n", edge_line(e)));
+    }
+    out.push_str(&format!("{pad}}}\n"));
+}
+
 /// A decision record: its status, then one field per line.
 pub(crate) fn adr_block(doc: &Document, g: &Group, pad: &str, out: &mut String) {
     let mut head = id_text(&g.id);
@@ -2668,7 +2712,9 @@ pub(crate) fn map_members(doc: &Document) -> impl Fn(&Node) -> bool + '_ {
 
 /// A group's opening line without its `{`: `group id: Label [attrs]`.
 pub(crate) fn group_header(doc: &Document, g: &Group) -> String {
-    let word = if g.kanban {
+    let word = if g.sequence {
+        "sequence"
+    } else if g.kanban {
         "kanban"
     } else if g.lanes {
         "lanes"
@@ -2725,6 +2771,10 @@ pub(crate) fn group_block(
     }
     if g.adr.is_some() {
         adr_block(doc, g, &pad, out);
+        return;
+    }
+    if g.sequence {
+        sequence_block(doc, g, &pad, out);
         return;
     }
     if g.gantt || g.risks {
@@ -2806,7 +2856,13 @@ pub fn print(doc: &Document) -> String {
         nodes.push_str(&node_line(n));
         nodes.push('\n');
     }
-    let edges: String = doc.edges.iter().map(|e| edge_line(e) + "\n").collect();
+    // messages are written inside their sequence diagram
+    let edges: String = doc
+        .edges
+        .iter()
+        .filter(|e| crate::sequence::sequence_of(doc, e).is_none())
+        .map(|e| edge_line(e) + "\n")
+        .collect();
     let mut comments = String::new();
     for c in &doc.comments {
         comment_lines(c, &mut comments);

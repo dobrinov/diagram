@@ -70,6 +70,12 @@ fn block_elems(doc: &Document, head: &Elem) -> Vec<Elem> {
                     .filter(|n| n.group.as_deref() == Some(g.as_str()))
                     .map(|n| Elem::Node(n.id.clone())),
             )
+            // a sequence diagram's messages are part of it
+            .chain(
+                crate::sequence::messages_of(doc, g)
+                    .into_iter()
+                    .map(|e| Elem::Edge(e.id.clone())),
+            )
             .collect(),
         _ => Vec::new(),
     }
@@ -103,6 +109,10 @@ fn block_text(doc: &Document, head: &Elem, pad: &str) -> Option<String> {
             }
             if g.adr.is_some() {
                 dsl::adr_block(doc, g, pad, &mut out);
+                return Some(out);
+            }
+            if g.sequence {
+                dsl::sequence_block(doc, g, pad, &mut out);
                 return Some(out);
             }
             if !g.gantt && !g.risks {
@@ -326,6 +336,7 @@ fn edit_lines(
                 if n.parent != g.parent
                     || n.lanes != g.lanes
                     || n.kanban != g.kanban
+                    || n.sequence != g.sequence
                     || n.gantt != g.gantt
                     || n.risks != g.risks
                     || n.chart.is_some() != g.chart.is_some()

@@ -230,6 +230,10 @@ pub enum Op {
         line: Option<String>,
         #[serde(default, skip_serializing_if = "Option::is_none")]
         color: Option<String>,
+        /// A message of a sequence diagram: its place among the messages
+        /// (0 = first); another arrow: among all arrows.
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        index: Option<usize>,
     },
     AddGroup {
         #[serde(default, skip_serializing_if = "Option::is_none")]
@@ -249,6 +253,10 @@ pub enum Op {
         /// A kanban board: its groups are columns of cards (implies `lanes`).
         #[serde(default, skip_serializing_if = "std::ops::Not::not")]
         kanban: bool,
+        /// A sequence diagram: its nodes are participants, arrows between
+        /// them messages in order.
+        #[serde(default, skip_serializing_if = "std::ops::Not::not")]
+        sequence: bool,
         /// Gantt chart: the nodes inside are tasks.
         #[serde(default, skip_serializing_if = "std::ops::Not::not")]
         gantt: bool,
@@ -305,6 +313,8 @@ pub enum Op {
         lanes: Option<bool>,
         #[serde(default, skip_serializing_if = "Option::is_none")]
         kanban: Option<bool>,
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        sequence: Option<bool>,
         #[serde(default, skip_serializing_if = "Option::is_none")]
         gantt: Option<bool>,
         /// Gantt chart: its first day (`YYYY-MM-DD`; "" clears it).
@@ -620,6 +630,38 @@ fn map_layout(s: &str) -> Result<MapLayout, String> {
 
 fn shape(s: &str) -> Result<Shape, String> {
     Shape::parse(s).ok_or_else(|| format!("unknown shape `{s}` (use {})", Shape::names()))
+}
+
+/// Move arrow `id` to place `k`: among its sequence diagram's messages, or
+/// among all arrows.
+fn move_edge(doc: &mut Document, id: &str, k: usize) {
+    let Some(from) = doc.edges.iter().position(|e| e.id == id) else {
+        return;
+    };
+    let seq = doc
+        .edge(id)
+        .and_then(|e| crate::sequence::sequence_of(doc, e))
+        .map(|g| g.id.clone());
+    let peers: Vec<usize> = (0..doc.edges.len())
+        .filter(|&i| {
+            i != from
+                && match &seq {
+                    Some(g) => {
+                        crate::sequence::sequence_of(doc, &doc.edges[i]).is_some_and(|s| s.id == *g)
+                    }
+                    None => true,
+                }
+        })
+        .collect();
+    let e = doc.edges.remove(from);
+    // positions shift by one past the removed arrow
+    let at = match peers.get(k) {
+        Some(&p) => p - usize::from(p > from),
+        None => peers
+            .last()
+            .map_or(from, |&p| p - usize::from(p > from) + 1),
+    };
+    doc.edges.insert(at.min(doc.edges.len()), e);
 }
 
 /// A decision record's status; "" is none (not a record).
@@ -1238,6 +1280,7 @@ fn apply_op(doc: &mut Document, op: &Op, created: &mut Vec<String>) -> Result<()
             arrow,
             line,
             color: c,
+            index,
         } => {
             for end in [from, to].into_iter().flatten() {
                 if doc.node(end).is_none() && doc.group(end).is_none() {
@@ -1280,6 +1323,9 @@ fn apply_op(doc: &mut Document, op: &Op, created: &mut Vec<String>) -> Result<()
             if let Some(c) = opt(c) {
                 e.color = c.map(|c| color(&c)).transpose()?;
             }
+            if let Some(k) = index {
+                move_edge(doc, &cur, *k);
+            }
         }
         Op::AddGroup {
             id,
@@ -1289,6 +1335,7 @@ fn apply_op(doc: &mut Document, op: &Op, created: &mut Vec<String>) -> Result<()
             members,
             lanes,
             kanban,
+            sequence,
             gantt,
             start,
             risks,
@@ -1322,6 +1369,7 @@ fn apply_op(doc: &mut Document, op: &Op, created: &mut Vec<String>) -> Result<()
                 parent: parent.clone().filter(|p| !p.is_empty()),
                 lanes: *lanes || *kanban,
                 kanban: *kanban,
+                sequence: *sequence,
                 gantt: *gantt,
                 start: chart_start(start)?.flatten(),
                 risks: *risks,
@@ -1355,6 +1403,7 @@ fn apply_op(doc: &mut Document, op: &Op, created: &mut Vec<String>) -> Result<()
             parent,
             lanes,
             kanban,
+            sequence,
             gantt,
             start,
             scale,
@@ -1394,6 +1443,9 @@ fn apply_op(doc: &mut Document, op: &Op, created: &mut Vec<String>) -> Result<()
             if let Some(k) = kanban {
                 g.kanban = *k;
                 g.lanes |= *k;
+            }
+            if let Some(s) = sequence {
+                g.sequence = *s;
             }
             if let Some(v) = gantt {
                 g.gantt = *v;
