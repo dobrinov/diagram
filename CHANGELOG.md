@@ -1,5 +1,11 @@
 # Changelog
 
+## 0.21.0 — 2026-10-13
+
+- **Links between boards:** `link: delivery.diagram` or `link: ../plans/q3.diagram#m1`, relative to the board. In the editor the link badge opens that board in place (the URL carries `?file=…&focus=m1`, so back returns), with the element selected; pending edits are saved first. Right-click → *Link to a board…* lists the other boards in the repository. The local server opens only `.diagram` files under the board's git repository (or folder).
+- `diagram check` reports links to boards that do not exist or have no such element. Badges and prompts say where a board link goes ("Go to m1 on delivery.diagram").
+- Editor API: `goTo(id)`; options `openBoard(path, id)` and `boards()`. `scripts/e2e/links.mjs` in `make e2e`.
+
 ## 0.20.0 — 2026-10-13
 
 - **Charts ask for their type:** the chart tool opens a menu (bars, lines, pie, …) and adds that chart with sample data to edit.

@@ -11,13 +11,15 @@
  *     shareUrl: null,     // playground URL, enables "Copy share link"
  *     ai: null,           // function (prompt) → Promise<string>: your model / harness.
  *                         // Without it, ✦ actions show the prompt to copy and take the reply.
+ *     openBoard: null,    // function (path, id): follow a `board.diagram#id` link (else a new tab)
+ *     boards: null,       // function () → Promise<[path]>: boards to offer in "Link to a board…"
  *     onChange: function (source, ed) {},
  *     onSave: function (source, ed) {}   // Cmd/Ctrl+S
  *   });
  *
  *   ed.getSource(fmt)  ed.setSource(src)  ed.apply(ops)  ed.getDocument()
  *   ed.setBase(src|null)  ed.prompt(opts)  ed.brief()  ed.exportSVG()  ed.exportPNG(scale)
- *   ed.select(ids)  ed.fit()  ed.setTheme(t)  ed.addButton({label, title, onClick})  ed.on(evt, fn)  ed.destroy()
+ *   ed.select(ids)  ed.goTo(id)  ed.fit()  ed.setTheme(t)  ed.addButton({label, title, onClick})  ed.on(evt, fn)  ed.destroy()
  *
  * Everything that changes the diagram goes through the core's ops API, so the
  * code pane, the canvas, undo and LLM replies all stay in step.
@@ -1082,7 +1084,8 @@
       var items = baseItems(t);
       if (t.type !== "node" || view) return items;
       var lk = node(t.id).link;
-      var links = [["Link to…", function () { startLinking(t.id); }, "Then click the element this one should take you to"]];
+      var links = [["Link to…", function () { startLinking(t.id); }, "Then click the element this one should take you to"],
+        ["Link to a board…", function () { linkToBoard(t.id, st.menuAt); }, "Another .diagram file; add #id to go to one element on it"]];
       if (lk) links.push(["Remove link", function () { applyOps([{ op: "update_node", id: t.id, link: "" }]); }, lk]);
       var cut = items.lastIndexOf("-");
       return cut > 0 ? items.slice(0, cut).concat(links, items.slice(cut)) : items.concat(["-"], links);
@@ -2180,8 +2183,31 @@
       toast.className = "dge-toast";
     }
     /* `#id` goes to that element on the board; anything else opens in a new tab. */
+    /* `delivery.diagram` or `../plans/q3.diagram#m1`: another board, relative to this one. */
+    function boardLink(link) {
+      var m = /^([^#]+\.diagram)(?:#(.*))?$/.exec(link || "");
+      return m && !/^[a-z][a-z0-9+.-]*:/i.test(link) ? { path: m[1], id: m[2] || null } : null;
+    }
+    function linkToBoard(id, at) {
+      var cur = node(id).link || "";
+      function set(v) { applyOps([{ op: "update_node", id: id, link: v }]); }
+      function typed() {
+        askAt(at, boardLink(cur) ? cur : "", "delivery.diagram#element", function (v) {
+          if (v && !boardLink(v)) return flash("A board link ends in .diagram, optionally with #id", true);
+          set(v);
+        });
+      }
+      if (!opts.boards) return typed();
+      opts.boards().then(function (list) {
+        if (!list.length) return typed();
+        openMenu(at, list.map(function (b) { return [b, function () { set(b); flash("Linked to " + b + " — add #id to the link to go to one element"); }]; })
+          .concat(["-", ["Type a link…", typed, "board.diagram#element"]]));
+      }).catch(typed);
+    }
     function followLink(link) {
       if (!link) return;
+      var b = boardLink(link);
+      if (b) { if (opts.openBoard) opts.openBoard(b.path, b.id); else window.open(link, "_blank", "noopener"); return; }
       if (link.charAt(0) !== "#") { window.open(link, "_blank", "noopener"); return; }
       var id = link.slice(1), g = geom(id);
       if (!g) { flash(kindOf(id) ? "“" + labelOf(id) + "” is folded away" : "“" + id + "” is not on the board any more", true); return; }
@@ -3016,6 +3042,7 @@
       exportSVG: exportSVG,
       exportPNG: exportPNG,
       select: function (ids) { select(ids || []); },
+      goTo: function (id) { followLink("#" + id); },
       fit: fit,
       setTheme: function (t) { st.dark = t === "dark"; applyChrome(); render(); },
       setMode: function (m) { view = m === "view"; el.classList.toggle("dge-view", view); buildToolbar(); applyChrome(); render(); },

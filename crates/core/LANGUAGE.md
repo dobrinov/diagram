@@ -83,7 +83,7 @@ Attributes go in square brackets at the end of the line as `key: value` pairs se
 
 | On | Keys |
 |---|---|
-| nodes | `shape`, `color`, `detail` (smaller second line), `link` (a web page, or `#id` to go to another element on the board), `tags` (space separated), `x`, `y` (pinned position; on a mindmap topic, relative to its centre), `w`, `h`; mindmap topics also `collapsed`, `id`, and a centre `layout` |
+| nodes | `shape`, `color`, `detail` (smaller second line), `link` (a web page; `#id` to go to another element on the board; `delivery.diagram` or `../plans/q3.diagram#m1` for another board, relative to this file: the editor opens it in place and `diagram check` reports links that lead nowhere), `tags` (space separated), `x`, `y` (pinned position; on a mindmap topic, relative to its centre), `w`, `h`; mindmap topics also `collapsed`, `id`, and a centre `layout` |
 | edges | `label`, `arrow` (`end`, `start`, `both`, `none`), `line` (`solid`, `dashed`, `dotted`, `thick`), `color`, `id` |
 | groups | `color`, `label`, `x`, `y` (placed by hand: the section keeps its place and its boxes are laid out in it) |
 | comments | `resolved` / `open`, `resolution`, `author`, `x`, `y` |

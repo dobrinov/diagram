@@ -34,13 +34,34 @@
   }
 
   // ------------------------------------------------------------ server mode
+  // `?file=plans/q3.diagram` opens another board under the same root (links
+  // between boards); `&focus=id` goes to an element on it.
+  var PARAMS = new URLSearchParams(location.search);
+  var FILE = PARAMS.get("file");
+  function api(p) { return FILE ? p + "?file=" + encodeURIComponent(FILE) : p; }
+  /* `a/b.diagram` + `../c/d.diagram` → `c/d.diagram` (null when it leaves the root). */
+  function joinPath(from, link) {
+    var parts = from.split("/").slice(0, -1);
+    for (var seg of link.split("/")) {
+      if (seg === "..") { if (!parts.length) return null; parts.pop(); }
+      else if (seg && seg !== ".") parts.push(seg);
+    }
+    return parts.join("/");
+  }
+  /* The path from board `from` to board `to` (both relative to the root). */
+  function relPath(from, to) {
+    var a = from.split("/").slice(0, -1), b = to.split("/");
+    while (a.length && b.length > 1 && a[0] === b[0]) { a.shift(); b.shift(); }
+    return a.map(function () { return ".."; }).concat(b).join("/");
+  }
   function serverMode(wasm) {
-    var mtime = null, saving = false, pending = null, timer = null, lastSaved = null;
+    var mtime = null, saving = false, pending = null, timer = null, lastSaved = null, rel = "";
+    var saved = Promise.resolve();
     function save(text) {
       if (saving) { pending = text; return; }
       saving = true;
       status("Saving…");
-      fetch("api/file", { method: "PUT", body: text }).then(function (r) { return r.json(); }).then(function (res) {
+      saved = fetch(api("api/file"), { method: "PUT", body: text }).then(function (r) { return r.json(); }).then(function (res) {
         saving = false;
         if (!res.ok) throw new Error(res.error);
         mtime = res.mtime;
@@ -49,9 +70,23 @@
         if (pending != null) { var p = pending; pending = null; save(p); }
       }).catch(function (e) { saving = false; status("Not saved: " + e.message, "error"); });
     }
+    /* Follow a link to another board: save what is pending, then open it here. */
+    function openBoard(path, id) {
+      var to = joinPath(rel, path);
+      if (to == null) { editor.flash(path + " is outside this repository", true); return; }
+      if (timer) { clearTimeout(timer); timer = null; if (editor.getSource() !== lastSaved) save(editor.getSource()); }
+      saved.then(function () {
+        return fetch("api/file?file=" + encodeURIComponent(to)).then(function (r) { return r.json(); });
+      }).then(function (f) {
+        if (f.ok === false) throw new Error(f.error);
+        location.href = "?file=" + encodeURIComponent(to) + (id ? "&focus=" + encodeURIComponent(id) : "");
+      }).catch(function (e) { editor.flash(e.message, true); });
+    }
     var ai = fetch("api/ai").then(function (r) { return r.json(); }).catch(function () { return {}; });
-    return Promise.all([fetch("api/file").then(function (r) { return r.json(); }), ai]).then(function (both) {
+    return Promise.all([fetch(api("api/file")).then(function (r) { return r.json(); }), ai]).then(function (both) {
       var f = both[0], harness = both[1];
+      if (f.ok === false) { status(f.error, "error"); return; }
+      rel = f.rel || f.name;
       mtime = f.mtime;
       lastSaved = f.source;
       fileEl.textContent = f.path;
@@ -76,15 +111,22 @@
           clearTimeout(timer);
           timer = setTimeout(function () { save(text); }, 400);
         },
-        onSave: function (text) { clearTimeout(timer); save(text); }
+        onSave: function (text) { clearTimeout(timer); save(text); },
+        openBoard: openBoard,
+        boards: function () {
+          return fetch("api/boards").then(function (r) { return r.json(); }).then(function (b) {
+            return b.boards.filter(function (x) { return x !== rel; }).map(function (x) { return relPath(rel, x); });
+          });
+        }
       });
       status("Saved");
+      if (PARAMS.get("focus")) setTimeout(function () { editor.goTo(PARAMS.get("focus")); }, 50);
       // pick up changes made outside the editor
       setInterval(function () {
         if (saving || document.hidden) return;
-        fetch("api/version").then(function (r) { return r.json(); }).then(function (v) {
+        fetch(api("api/version")).then(function (r) { return r.json(); }).then(function (v) {
           if (v.mtime === mtime || saving) return;
-          return fetch("api/file").then(function (r) { return r.json(); }).then(function (f2) {
+          return fetch(api("api/file")).then(function (r) { return r.json(); }).then(function (f2) {
             mtime = f2.mtime;
             if (f2.source === editor.getSource()) return;
             lastSaved = f2.source;

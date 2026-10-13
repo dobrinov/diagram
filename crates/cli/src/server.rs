@@ -65,6 +65,71 @@ fn url_decode(s: &str) -> String {
     String::from_utf8_lossy(&out).into_owned()
 }
 
+/// Where links between boards may lead: the git repository the board is in,
+/// or its folder.
+fn board_root(file: &Path) -> PathBuf {
+    let abs = std::fs::canonicalize(file).unwrap_or_else(|_| file.to_path_buf());
+    let dir = abs.parent().unwrap_or(Path::new(".")).to_path_buf();
+    std::process::Command::new("git")
+        .arg("-C")
+        .arg(&dir)
+        .args(["rev-parse", "--show-toplevel"])
+        .output()
+        .ok()
+        .filter(|o| o.status.success())
+        .map(|o| PathBuf::from(String::from_utf8_lossy(&o.stdout).trim()))
+        .and_then(|p| std::fs::canonicalize(p).ok())
+        .unwrap_or(dir)
+}
+
+/// A path relative to the root, with `/` separators.
+fn rel_to(root: &Path, p: &Path) -> String {
+    let abs = std::fs::canonicalize(p).unwrap_or_else(|_| p.to_path_buf());
+    abs.strip_prefix(root)
+        .map(|r| r.to_string_lossy().replace('\\', "/"))
+        .unwrap_or_else(|_| p.display().to_string())
+}
+
+/// The board a request is about: `?file=REL` (another board under the root,
+/// reached by a link) or the one the server was started with.
+fn target(url: &str, root: &Path) -> Option<Result<(PathBuf, String), String>> {
+    let rel = query_param(url, "file").filter(|r| !r.is_empty())?;
+    if !rel.ends_with(".diagram") {
+        return Some(Err(format!("{rel}: only .diagram boards open here")));
+    }
+    Some(match std::fs::canonicalize(root.join(&rel)) {
+        Ok(p) if p.starts_with(root) => Ok((p, rel)),
+        Ok(_) => Err(format!("{rel} is outside {}", root.display())),
+        Err(_) => Err(format!("{rel} does not exist")),
+    })
+}
+
+/// The boards under the root, for linking to one (hidden folders, `target`
+/// and `node_modules` left out).
+fn boards(root: &Path) -> Vec<String> {
+    let mut out = Vec::new();
+    let mut stack = vec![root.to_path_buf()];
+    while let Some(dir) = stack.pop() {
+        let Ok(rd) = std::fs::read_dir(&dir) else {
+            continue;
+        };
+        for e in rd.flatten() {
+            let p = e.path();
+            let name = e.file_name().to_string_lossy().into_owned();
+            if name.starts_with('.') || name == "target" || name == "node_modules" {
+                continue;
+            }
+            if p.is_dir() {
+                stack.push(p);
+            } else if name.ends_with(".diagram") && out.len() < 500 {
+                out.push(rel_to(root, &p));
+            }
+        }
+    }
+    out.sort();
+    out
+}
+
 fn respond_json(req: Request, status: u16, v: Value) {
     let h = Header::from_bytes("Content-Type", "application/json; charset=utf-8").unwrap();
     let _ = req.respond(
@@ -116,10 +181,26 @@ pub fn serve(
         .map(|o| String::from_utf8_lossy(&o.stdout).trim().to_string())
         .filter(|s| !s.is_empty())
         .or_else(|| std::env::var("USER").ok());
+    let root = board_root(&file);
+    let start = (file.clone(), display.clone());
     for mut req in server.incoming_requests() {
         let url = req.url().to_string();
         let path = url.split('?').next().unwrap_or("/").to_string();
+        // `?file=` picks another board (links between boards); default: the one we started with
+        let (file, display) = match target(&url, &root) {
+            None => start.clone(),
+            Some(Ok(t)) => t,
+            Some(Err(e)) => {
+                respond_json(req, 404, json!({ "ok": false, "error": e }));
+                continue;
+            }
+        };
         match (req.method().clone(), path.as_str()) {
+            (Method::Get, "/api/boards") => respond_json(
+                req,
+                200,
+                json!({ "boards": boards(&root), "current": rel_to(&root, &file) }),
+            ),
             (Method::Get, "/api/file") => {
                 let source = std::fs::read_to_string(&file).unwrap_or_default();
                 let name = file
@@ -138,7 +219,7 @@ pub fn serve(
                 respond_json(
                     req,
                     200,
-                    json!({ "path": display, "name": name, "source": source, "themes": themes, "mtime": mtime(&file).to_string(), "author": author, "format": crate::format_for(&display), "version": env!("CARGO_PKG_VERSION") }),
+                    json!({ "path": display, "rel": rel_to(&root, &file), "name": name, "source": source, "themes": themes, "mtime": mtime(&file).to_string(), "author": author, "format": crate::format_for(&display), "version": env!("CARGO_PKG_VERSION") }),
                 );
             }
             (Method::Get, "/api/ai") => respond_json(
@@ -233,6 +314,24 @@ pub fn serve(
 
 #[cfg(test)]
 mod tests {
+    #[test]
+    fn other_boards_stay_under_the_root() {
+        let dir = std::env::temp_dir().join(format!("diagram-srv-{}", std::process::id()));
+        std::fs::create_dir_all(dir.join("sub")).unwrap();
+        std::fs::write(dir.join("a.diagram"), "a\n").unwrap();
+        std::fs::write(dir.join("sub/b.diagram"), "b\n").unwrap();
+        let root = std::fs::canonicalize(&dir).unwrap();
+        let t = |q: &str| super::target(&format!("/api/file?file={q}"), &root);
+        assert_eq!(t("sub/b.diagram").unwrap().unwrap().1, "sub/b.diagram");
+        assert!(t("sub/../a.diagram").unwrap().is_ok());
+        assert!(t("../x.diagram").unwrap().is_err());
+        assert!(t("sub/missing.diagram").unwrap().is_err());
+        assert!(t("a.json").unwrap().is_err());
+        assert!(super::target("/api/file", &root).is_none());
+        assert_eq!(super::boards(&root), ["a.diagram", "sub/b.diagram"]);
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
     #[test]
     fn decodes_query() {
         assert_eq!(

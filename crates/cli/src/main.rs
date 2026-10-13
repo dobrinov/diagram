@@ -273,6 +273,32 @@ fn git_show(reference: &str, file: &str) -> Result<String, String> {
     Ok(String::from_utf8_lossy(&out.stdout).into_owned())
 }
 
+/// Links to other boards (`delivery.diagram#m1`) that lead nowhere: the board
+/// is missing, or has no such element.
+fn board_link_problems(doc: &Document, file: &str) -> Vec<String> {
+    let dir = Path::new(file).parent().unwrap_or(Path::new(""));
+    let mut out = Vec::new();
+    for n in &doc.nodes {
+        let Some((path, id)) = n.link.as_deref().and_then(diagram_core::model::board_link) else {
+            continue;
+        };
+        let Ok(src) = std::fs::read_to_string(dir.join(path)) else {
+            out.push(format!("`{}` links to {path}, which does not exist", n.id));
+            continue;
+        };
+        if let Some(id) = id {
+            let (other, _) = diagram_core::dsl::parse_lenient(&src);
+            if other.node(id).is_none() && other.group(id).is_none() {
+                out.push(format!(
+                    "`{}` links to `{id}` on {path}, which has no `{id}`",
+                    n.id
+                ));
+            }
+        }
+    }
+    out
+}
+
 pub fn git_show_pub(reference: &str, file: &str) -> Result<String, String> {
     git_show(reference, file)
 }
@@ -1042,7 +1068,12 @@ fn run(args: Args) -> Result<ExitCode, String> {
                 let src = read_text(f)?;
                 match diagram_core::parse(&src) {
                     Ok(doc) => {
-                        let problems = doc.check();
+                        let mut problems = doc.check();
+                        problems.extend(
+                            board_link_problems(&doc, f)
+                                .into_iter()
+                                .map(|m| diagram_core::model::Diagnostic::new(0, m)),
+                        );
                         if problems.is_empty() {
                             let open = doc
                                 .comments

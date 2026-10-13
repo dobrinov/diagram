@@ -1882,9 +1882,12 @@ fn node_svg(
     s.push_str("</g>");
 }
 
-/// A node's link when it is a web page (`#id` links point at elements).
+/// A node's link when it is a web page (`#id` links point at elements,
+/// `x.diagram#id` at other boards; the editor follows those).
 fn web_link(node: &Node) -> Option<&str> {
-    node.link.as_deref().filter(|l| !l.starts_with('#'))
+    node.link
+        .as_deref()
+        .filter(|l| !l.starts_with('#') && crate::model::board_link(l).is_none())
 }
 
 /// The tooltip of a link badge: where it goes.
@@ -1900,7 +1903,11 @@ fn link_title(doc: &Document, link: &str) -> String {
                 None => format!("Go to {id} (not on the board)"),
             }
         }
-        None => link.to_string(),
+        None => match crate::model::board_link(link) {
+            Some((path, Some(id))) => format!("Go to {id} on {path}"),
+            Some((path, None)) => format!("Open {path}"),
+            None => link.to_string(),
+        },
     }
 }
 

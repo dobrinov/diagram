@@ -575,7 +575,11 @@ pub(crate) fn link_md(doc: &Document, label: &str, link: Option<&str>) -> String
                 None => label.to_string(),
             }
         }
-        Some(l) => format!("[{label}]({l})"),
+        Some(l) => match crate::model::board_link(l) {
+            Some((path, Some(id))) => format!("{label} (see `{id}` on {path})"),
+            Some((path, None)) => format!("{label} (see {path})"),
+            None => format!("[{label}]({l})"),
+        },
         None => label.to_string(),
     }
 }
