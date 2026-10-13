@@ -117,9 +117,10 @@ function opsText(ops) {
   throw new TypeError("apply: expected an array of ops, {ops: [...]}, or a reply string");
 }
 
-function textOrThrow(out, prefix) {
-  if (out.startsWith(prefix)) throw new DiagramError(out.slice("error: ".length));
-  return out;
+function textOrThrow(out) {
+  const r = JSON.parse(out);
+  if (!r.ok) throw new DiagramError(r.error);
+  return r.text;
 }
 
 /** A board (one `.diagram` document) being read or edited. Wraps the WASM `Diagram`. */
@@ -168,7 +169,7 @@ export class Board {
 
   /** The board as `dsl` (default), `json`, `mermaid`, `brief` (Markdown for LLMs) or `svg`. */
   source(format = "dsl") {
-    return textOrThrow(this.#live().source(format), "error: unknown format");
+    return textOrThrow(this.#live().source_result(format));
   }
 
   /** The document model (the JSON format) as an object. */
@@ -183,7 +184,7 @@ export class Board {
 
   /** A prompt asking a model to act on the open review comments. */
   prompt(options) {
-    return textOrThrow(this.#live().prompt(json(promptOptions(options))), "error: invalid options");
+    return textOrThrow(this.#live().prompt_result(json(promptOptions(options))));
   }
 
   /** A Markdown description of the board, for LLM context. */

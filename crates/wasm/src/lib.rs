@@ -21,6 +21,14 @@ fn err(e: impl std::fmt::Display) -> String {
     json!({ "error": e.to_string() }).to_string()
 }
 
+fn text_result(r: Result<String, impl std::fmt::Display>) -> String {
+    match r {
+        Ok(text) => json!({ "ok": true, "text": text }),
+        Err(e) => json!({ "ok": false, "error": e.to_string() }),
+    }
+    .to_string()
+}
+
 /// A document being edited.
 #[wasm_bindgen]
 pub struct Diagram {
@@ -46,6 +54,11 @@ impl Diagram {
         self.inner
             .source(format)
             .unwrap_or_else(|e| format!("error: {e}"))
+    }
+
+    /// Like `source`, with errors kept apart: `{ok, text}` or `{ok: false, error}`.
+    pub fn source_result(&self, format: &str) -> String {
+        text_result(self.inner.source(format))
     }
 
     /// The document model as JSON.
@@ -135,6 +148,11 @@ impl Diagram {
             Ok(o) => self.inner.prompt(&o),
             Err(e) => format!("error: {e}"),
         }
+    }
+
+    /// Like `prompt`, with errors kept apart: `{ok, text}` or `{ok: false, error}`.
+    pub fn prompt_result(&self, options: &str) -> String {
+        text_result(opts::<PromptOptions>(options).map(|o| self.inner.prompt(&o)))
     }
 
     pub fn brief(&self) -> String {

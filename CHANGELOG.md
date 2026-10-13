@@ -1,5 +1,10 @@
 # Changelog
 
+## 0.22.0 — 2026-10-13
+
+- **JS package:** `source()` and `prompt()` get their errors as data from the WASM side (`source_result`, `prompt_result`: `{ok, text}` or `{ok: false, error}`) instead of looking for an `error:` prefix in the text, and throw `DiagramError`.
+- **Types stay true:** a test (`js/test/types.test.mjs`) checks that every op in `index.d.ts` has the same fields, and the same required ones, as the Rust `Op` enum, so the types cannot drift from the format.
+
 ## 0.21.0 — 2026-10-13
 
 - **Links between boards:** `link: delivery.diagram` or `link: ../plans/q3.diagram#m1`, relative to the board. In the editor the link badge opens that board in place (the URL carries `?file=…&focus=m1`, so back returns), with the element selected; pending edits are saved first. Right-click → *Link to a board…* lists the other boards in the repository. The local server opens only `.diagram` files under the board's git repository (or folder).

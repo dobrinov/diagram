@@ -66,8 +66,13 @@ test("apply: arrays, {ops}, one op; created ids; source formats", () => {
   assert.equal(JSON.parse(b.source("json")).nodes.length, 2);
   assert.match(b.source("brief"), /Orders API/);
   assert.match(b.source("svg"), /^<svg/);
-  assert.throws(() => b.source("xml"), /unknown format `xml`/);
+  assert.throws(() => b.source("xml"), (e) => e instanceof DiagramError && /unknown format `xml`/.test(e.message));
+  assert.throws(() => b.prompt({ target: "nowhere" }), DiagramError);
   b.free();
+  // a board can say "error:" without being taken for one
+  const e = Board.parse("error: unknown format\nok: Fine\nerror -> ok");
+  assert.match(e.source(), /^error: unknown format$/m);
+  e.free();
 });
 
 test("apply: a model's reply with a ```json block", () => {
