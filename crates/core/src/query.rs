@@ -9,7 +9,7 @@
 //! | `map:ID` | a topic (or centre) and its branches |
 //! | `near:ID` | a box, its arrows and the boxes at their other ends |
 //! | `label~TEXT` | boxes and groups whose label or detail contains TEXT |
-//! | `kind:box\|topic\|task\|milestone\|risk\|sticky\|decision\|group\|chart\|matrix\|kanban\|edge\|comment` | elements of a kind |
+//! | `kind:box\|topic\|task\|milestone\|risk\|sticky\|decision\|group\|chart\|matrix\|kanban\|adr\|edge\|comment` | elements of a kind |
 //! | `owner:NAME` · `tag:NAME` · `color:NAME` | boxes with that owner, tag or colour |
 //! | `comments:open` · `comments` | open (or all) comments and what they are on |
 //!
@@ -74,7 +74,7 @@ fn pick(doc: &Document, sel: &str) -> Result<Vec<String>, String> {
         let val = val.trim();
         let low = val.to_lowercase();
         return Ok(match key {
-            "group" | "chart" | "lanes" | "section" | "lane" | "matrix" | "risks" | "kanban" => {
+            "group" | "chart" | "lanes" | "section" | "lane" | "matrix" | "risks" | "kanban" | "adr" => {
                 if doc.group(val).is_none() {
                     return Err(format!("no group `{val}`"));
                 }
@@ -135,6 +135,7 @@ fn pick(doc: &Document, sel: &str) -> Result<Vec<String>, String> {
                     "entity" | "schema" => doc.groups.iter().filter(|g| g.entity).map(|g| g.id.clone()).collect(),
                     "lanes" | "swimlanes" => doc.groups.iter().filter(|g| g.lanes).map(|g| g.id.clone()).collect(),
                     "kanban" => doc.groups.iter().filter(|g| g.kanban).map(|g| g.id.clone()).collect(),
+                    "adr" | "record" => doc.groups.iter().filter(|g| g.adr.is_some()).map(|g| g.id.clone()).collect(),
                     k => doc
                         .nodes
                         .iter()

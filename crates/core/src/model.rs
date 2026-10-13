@@ -344,6 +344,10 @@ pub struct Group {
     /// A table: its nodes are rows; these are its columns' names.
     #[serde(skip_serializing_if = "std::ops::Not::not")]
     pub table: bool,
+    /// A decision record, with its status (`proposed`, `accepted`, …): its
+    /// nodes are its fields (context, options, decision, consequences).
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub adr: Option<String>,
     #[serde(skip_serializing_if = "Vec::is_empty")]
     pub columns: Vec<String>,
     /// Chart: its size (content, without the frame).
@@ -393,6 +397,12 @@ impl Scale {
 }
 
 impl Group {
+    /// Drawn from a plot with its nodes at fixed places: a chart, a table, a
+    /// database table or a decision record.
+    pub fn plotted(&self) -> bool {
+        self.chart.is_some() || self.table || self.entity || self.adr.is_some()
+    }
+
     pub fn display(&self) -> &str {
         if self.label.is_empty() {
             &self.id

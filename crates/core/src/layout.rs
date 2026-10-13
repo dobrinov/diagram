@@ -714,10 +714,7 @@ fn members(
                 gantt_block(ctx, i)
             } else if ctx.doc.groups[i].risks {
                 matrix_block(ctx, i)
-            } else if ctx.doc.groups[i].chart.is_some()
-                || ctx.doc.groups[i].table
-                || ctx.doc.groups[i].entity
-            {
+            } else if ctx.doc.groups[i].plotted() {
                 chart_block(ctx, i)
             } else {
                 block(ctx, Some(i), pn, pg)
@@ -804,10 +801,7 @@ fn lanes_block(ctx: &mut Ctx, g: usize, pn: &[Option<usize>], pg: &[Option<usize
                 gantt_block(ctx, c)
             } else if ctx.doc.groups[c].risks {
                 matrix_block(ctx, c)
-            } else if ctx.doc.groups[c].chart.is_some()
-                || ctx.doc.groups[c].table
-                || ctx.doc.groups[c].entity
-            {
+            } else if ctx.doc.groups[c].plotted() {
                 chart_block(ctx, c)
             } else {
                 block(ctx, Some(c), pn, pg)
@@ -1023,14 +1017,7 @@ fn kanban_block(ctx: &mut Ctx, owners: &[Option<usize>], bands: &[Vec<Item>]) ->
 /// A chart: its rows are where [`crate::charts::plot`] puts their bars,
 /// points or slices. Returns the chart's content size.
 fn chart_block(ctx: &mut Ctx, g: usize) -> (f64, f64) {
-    let grp = &ctx.doc.groups[g];
-    let plot = if grp.entity {
-        crate::entities::plot(ctx.doc, grp)
-    } else if grp.table {
-        crate::tables::plot(ctx.doc, grp)
-    } else {
-        crate::charts::plot(ctx.doc, grp)
-    };
+    let plot = crate::charts::plot_any(ctx.doc, &ctx.doc.groups[g]);
     ctx.chart[g] = true;
     for (id, r) in &plot.rows {
         if let Some(&i) = ctx.node_index.get(id.as_str()) {

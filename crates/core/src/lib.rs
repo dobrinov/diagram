@@ -18,6 +18,7 @@
 //! - [`Session`]: a stateful wrapper used by the WASM build and editors
 // the JSON Schema is one large `json!` literal
 #![recursion_limit = "256"]
+pub mod adr;
 pub mod charts;
 pub mod diff;
 pub mod entities;
@@ -203,6 +204,7 @@ pub fn json_schema() -> Value {
             "groups": {"type": "array", "items": {"type": "object", "required": ["id"], "additionalProperties": false, "properties": {
                 "id": {"type": "string"}, "label": {"type": "string"}, "color": color, "parent": {"type": "string"},
                 "lanes": {"type": "boolean", "description": "swimlanes: the groups inside are lanes"},
+                "adr": {"type": "string", "enum": ["proposed", "accepted", "rejected", "superseded", "deprecated"], "description": "a decision record with this status: its nodes are its fields (label = field name, detail = text)"},
                 "kanban": {"type": "boolean", "description": "a kanban board (with lanes): its lanes are columns of cards, stacked in document order"},
                 "gantt": {"type": "boolean", "description": "gantt chart: the nodes inside are tasks"},
                 "start": {"type": "string", "format": "date", "description": "gantt chart: its first day (YYYY-MM-DD)"},

@@ -236,7 +236,11 @@ impl Parser {
             a.edge_op().is_some() || a.rest().starts_with(',')
         };
         let word = match word {
-            "group" | "gantt" | "risks" | "chart" | "table" | "entity" | "mindmap" if !opens => "",
+            "group" | "gantt" | "risks" | "chart" | "table" | "entity" | "adr" | "mindmap"
+                if !opens =>
+            {
+                ""
+            }
             "comment" | "reply" if arrow_next => "",
             w => w,
         };
@@ -306,6 +310,10 @@ impl Parser {
             "entity" if c.rest()[6..].starts_with(|ch: char| ch.is_whitespace()) => {
                 c.advance(6);
                 return self.entity_decl(c);
+            }
+            "adr" if c.rest()[3..].starts_with(|ch: char| ch.is_whitespace()) => {
+                c.advance(3);
+                return self.adr_decl(c);
             }
             "reply" if c.rest()[5..].starts_with(|ch: char| ch.is_whitespace()) => {
                 c.advance(5);
@@ -827,6 +835,100 @@ impl Parser {
         Ok(())
     }
 
+    /// `adr id: Title [accepted] {` … one field per line … `}`.
+    fn adr_decl(&mut self, mut c: Cursor) -> Result<(), String> {
+        c.skip_ws();
+        let (id, qlabel) = c.reference()?;
+        let (label, attrs) = label_and_attrs_until_brace(&mut c)?;
+        c.skip_ws();
+        if !c.eat('{') {
+            return Err(
+                "a decision record needs a body: `adr id: Title [accepted] {` … `context: …` … `}`"
+                    .into(),
+            );
+        }
+        c.skip_ws();
+        let closes_inline = c.eat('}');
+        if !c.at_end() {
+            return Err("put the record's fields on the following lines".into());
+        }
+        if self.doc.node(&id).is_some() {
+            return Err(format!("`{id}` is already a node"));
+        }
+        let parent = self.group();
+        if self.doc.group(&id).is_none() {
+            self.doc.groups.push(Group {
+                id: id.clone(),
+                ..Default::default()
+            });
+        }
+        let g = self.doc.group_mut(&id).unwrap();
+        g.parent = parent;
+        g.adr = Some("proposed".into());
+        if let Some(l) = label.or(qlabel) {
+            g.label = l;
+        }
+        for (k, v) in &attrs {
+            match (k.as_str(), v) {
+                ("status", Some(v)) if crate::adr::valid_status(v) => g.adr = Some(v.clone()),
+                (v, None) if crate::adr::valid_status(v) => g.adr = Some(v.to_string()),
+                ("status", Some(v)) => return Err(crate::adr::status_error(v)),
+                ("color" | "colour", Some(v)) => g.color = Some(color(v)?),
+                (c, None) if valid_color(c) => g.color = Some(c.to_string()),
+                ("x", Some(v)) => g.x = Some(num("x", v)?),
+                ("y", Some(v)) => g.y = Some(num("y", v)?),
+                ("w" | "width", Some(v)) => g.w = Some(num("w", v)?),
+                (k, _) => {
+                    return Err(format!(
+                        "unknown decision record attribute `{k}` (a status, color, x, y, w)"
+                    ))
+                }
+            }
+        }
+        self.touched.push(Elem::Group(id.clone()));
+        if !closes_inline {
+            self.gantt = Some((id, self.line));
+        }
+        Ok(())
+    }
+
+    /// A field of a decision record: `context: Orders and payments … [attrs]`.
+    fn adr_line(&mut self, record: &str, t: &str) -> Result<(), String> {
+        let (name, text) = t
+            .split_once(':')
+            .ok_or("a decision record's lines are fields: `context: what is going on`")?;
+        let name = name.trim();
+        if name.is_empty() {
+            return Err("a field needs a name: `context: …`".into());
+        }
+        let (text, attrs) = split_attrs(text);
+        let mut attrs = parse_attrs(attrs.unwrap_or(""))?;
+        let mut explicit = None;
+        attrs.retain(|(k, v)| match (k.as_str(), v) {
+            ("id", Some(v)) => {
+                explicit = Some(v.clone());
+                false
+            }
+            _ => true,
+        });
+        let wanted = explicit.clone().unwrap_or_else(|| row_id(record, name));
+        let id = if !self.doc.id_taken(&wanted) {
+            wanted
+        } else if explicit.is_some() {
+            return Err(format!("id `{wanted}` is already used"));
+        } else {
+            self.doc.fresh_id(&wanted)
+        };
+        let mut n = Node::new(&id);
+        n.label = name.to_string();
+        n.group = Some(record.to_string());
+        n.detail = Some(unescape_label(text)).filter(|d| !d.is_empty());
+        apply_node_attrs(&mut n, &attrs)?;
+        self.touched.push(Elem::Node(n.id.clone()));
+        self.doc.nodes.push(n);
+        Ok(())
+    }
+
     /// A row of a table, `Local | $0 | 40 ms [green]`; the first is the header.
     fn table_line(&mut self, table: &str, t: &str) -> Result<(), String> {
         let (text, attrs) = split_attrs(t);
@@ -951,6 +1053,9 @@ impl Parser {
         }
         if self.doc.group(&block).is_some_and(|g| g.entity) {
             return self.column_line(&block, t);
+        }
+        if self.doc.group(&block).is_some_and(|g| g.adr.is_some()) {
+            return self.adr_line(&block, t);
         }
         let t = crate::mindmap::strip_bullet(t);
         let (text, attrs) = split_attrs(t);
@@ -1395,6 +1500,8 @@ fn is_flag(item: &str) -> bool {
         // charts
         || ChartKind::parse(item).is_some()
         || matches!(item, "stacked" | "horizontal")
+        // decision records
+        || crate::adr::valid_status(item)
         // gantt: a date or a duration
         || crate::gantt::parse_date(item).is_some()
         || (item.ends_with(['d', 'w', 'm', 'q']) && crate::gantt::parse_days(item).is_some())
@@ -1983,6 +2090,56 @@ pub(crate) fn entity_block(doc: &Document, g: &Group, pad: &str, out: &mut Strin
 }
 
 /// A table: its header and one row per node, columns lined up.
+/// A decision record: its status, then one field per line.
+pub(crate) fn adr_block(doc: &Document, g: &Group, pad: &str, out: &mut String) {
+    let mut head = id_text(&g.id);
+    if !g.label.is_empty() && g.label != g.id {
+        head.push_str(": ");
+        head.push_str(&label_text(&g.label));
+    }
+    let mut a = vec![g.adr.clone().unwrap_or_else(|| "proposed".into())];
+    if let Some(c) = &g.color {
+        a.push(if c.starts_with('#') {
+            format!("color: {c}")
+        } else {
+            c.clone()
+        });
+    }
+    if let Some(w) = g.w {
+        a.push(format!("w: {}", fmt_num(w)));
+    }
+    a.extend(group_pos(g));
+    head.push_str(&attrs_text(&a));
+    let fields = crate::adr::fields_of(doc, &g.id);
+    if fields.is_empty() {
+        out.push_str(&format!(
+            "{pad}adr {head} {{}}
+"
+        ));
+        return;
+    }
+    out.push_str(&format!(
+        "{pad}adr {head} {{
+"
+    ));
+    for n in fields {
+        let mut m = n.clone();
+        m.detail = None;
+        let mut a = node_attrs(&m);
+        if row_id(&g.id, n.display()) != n.id {
+            a.insert(0, format!("id: {}", attr_value(&n.id)));
+        }
+        let text = n.detail.as_deref().map(label_text).unwrap_or_default();
+        let line = format!(
+            "{}: {text}{}",
+            n.display().replace(':', " "),
+            attrs_text(&a)
+        );
+        out.push_str(&format!("{pad}  {}\n", line.trim_end()));
+    }
+    out.push_str(&format!("{pad}}}\n"));
+}
+
 pub(crate) fn table_block(doc: &Document, g: &Group, pad: &str, out: &mut String) {
     let mut head = id_text(&g.id);
     if !g.label.is_empty() && g.label != g.id {
@@ -2564,6 +2721,10 @@ pub(crate) fn group_block(
     }
     if g.entity {
         entity_block(doc, g, &pad, out);
+        return;
+    }
+    if g.adr.is_some() {
+        adr_block(doc, g, &pad, out);
         return;
     }
     if g.gantt || g.risks {

@@ -380,10 +380,8 @@ fn draw(doc: &Document, opts: &RenderOptions, def: Option<crate::model::ThemeDef
         if let Some(m) = &gb.matrix {
             matrix_svg(&mut s, doc, gb, m, p, t);
         }
-        if gb.chart.is_some() || gb.table || gb.entity {
-            if let Some(g) = doc.group(&gb.id) {
-                chart_svg(&mut s, doc, g, gb, p, t);
-            }
+        if let Some(g) = doc.group(&gb.id).filter(|g| g.plotted()) {
+            chart_svg(&mut s, doc, g, gb, p, t);
         }
     }
     s.push_str("</g>");
@@ -940,13 +938,7 @@ fn chart_svg(
         gb.rect.x + layout::GROUP_PAD,
         gb.rect.y + layout::GROUP_HEAD,
     );
-    let plot = if g.entity {
-        crate::entities::plot(doc, g)
-    } else if g.table {
-        crate::tables::plot(doc, g)
-    } else {
-        crate::charts::plot(doc, g)
-    };
+    let plot = crate::charts::plot_any(doc, g);
     let paint = |k: &Paint| -> String {
         match k {
             Paint::Color(c) => theme::tint(c, t)
@@ -1068,6 +1060,8 @@ fn datum_svg(
             crate::entities::tooltip(node)
         } else if crate::tables::table_of(doc, node).is_some() {
             crate::tables::tooltip(doc, node)
+        } else if crate::adr::record_of(doc, node).is_some() {
+            node.display().to_string()
         } else {
             crate::charts::tooltip(doc, node)
         }),

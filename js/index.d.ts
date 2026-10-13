@@ -171,6 +171,8 @@ export interface Group {
   columns?: string[];
   /** A database table (its nodes are columns). */
   entity?: boolean;
+  /** A decision record with this status; its nodes are its fields (label = name, detail = text). */
+  adr?: AdrStatus;
   /** Chart: its size. */
   w?: number;
   h?: number;
@@ -317,6 +319,9 @@ export interface AddOutlineOp {
   group?: string;
 }
 
+/** A decision record's status. */
+export type AdrStatus = "proposed" | "accepted" | "rejected" | "superseded" | "deprecated";
+
 /** Rename an id everywhere it is referenced. */
 export interface RenameOp {
   op: "rename";
@@ -413,6 +418,8 @@ export interface AddGroupOp {
   columns?: string[];
   /** A database table (its nodes are columns). */
   entity?: boolean;
+  /** A decision record with this status; its nodes are its fields (label = name, detail = text). */
+  adr?: AdrStatus;
   /** Gantt chart: its first day (`YYYY-MM-DD`). */
   start?: string;
 }
@@ -451,6 +458,8 @@ export interface UpdateGroupOp {
   columns?: string[];
   /** A database table (its nodes are columns). */
   entity?: boolean;
+  /** A decision record with this status; its nodes are its fields (label = name, detail = text). */
+  adr?: AdrStatus;
 }
 
 export interface AddCommentOp {

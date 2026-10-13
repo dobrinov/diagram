@@ -1,5 +1,11 @@
 # Changelog
 
+## 0.24.0 — 2026-10-13
+
+- **Decision records:** `adr db: Use Postgres for orders [accepted] {` with one field per line (`context: …`, `options: …`, `decision: …`, `consequences: …`, or any names). Drawn as a card: the status in a coloured pill (proposed, accepted, rejected, superseded, deprecated), then each field's name over its text. Fields are elements (`db.context`): comment on one, link to it, draw an arrow from one record to another (`supersedes`).
+- In the editor: a *Decision record* tool; right-click a record → *Status…*, *Edit as text…*, *Add field*; a field → *Edit text…*, *Rename field* (its id follows), *Colour…*, *Delete field*. Ops: `add_group` / `update_group` with `adr` (the status); fields are nodes with `detail`. Prompts list the fields in bold; `query kind:adr`.
+- Charts, tables, database tables and decision records share one path (`Group::plotted`, `charts::plot_any`). `examples/decisions.diagram`; `scripts/e2e/adr.mjs` in `make e2e`.
+
 ## 0.23.0 — 2026-10-13
 
 - **Kanban boards:** `kanban sprint: Sprint 12 {` with `column todo: To do {` … `}` inside; cards are boxes, stacked in the order written, all as wide as the widest; each column's title shows its card count. It is swimlanes laid out as columns (`"lanes": true, "kanban": true` in JSON), so moving, colouring, comments and arrows work as before.

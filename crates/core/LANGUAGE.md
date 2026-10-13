@@ -171,6 +171,26 @@ api -> search: unblocks
 - In the editor: the *Kanban* tool (To do, Doing, Done; selected boxes go in To do); drag a card to another column or to another place in its column; right-click a column → *Add card*, *Add column after*, *Remove column*. Ops: `{"op":"update_node","id":"api","group":"done","index":0}` moves a card to the top of Done.
 - In JSON, the board is a group with `"lanes": true, "kanban": true`; its columns are the groups whose `parent` it is. Prompts list each column with its cards; `query kind:kanban` finds boards.
 
+### Decision records
+
+```diagram
+adr db: Use Postgres for orders [accepted] {
+  context: Orders and payments change together; reporting needs ad-hoc queries.
+  options: Postgres (RDS), DynamoDB, MongoDB Atlas
+  decision: Postgres on RDS, one schema per service.
+  consequences: Migrations become part of every release.
+}
+adr mongo: Store orders in MongoDB [superseded] {
+  decision: MongoDB Atlas.
+}
+db -> mongo: supersedes
+```
+
+- A decision record (ADR): a status — `proposed` (the default), `accepted`, `rejected`, `superseded` or `deprecated` (or `status: …`) — then one field per line, `name: text` (`\n` for a line break). Any names work; the editor starts with context, options, decision and consequences.
+- A field's id is its record's and its name (`db.context`), so comments, links and arrows can point at one part of a decision. A colour tints a field. `w:` sets the width; `x`/`y` place it.
+- When it was decided and by whom is in git: the record is text in the board's history.
+- In the editor: the *Decision record* tool; right-click a record → *Status…*, *Edit as text…*, *Add field*; right-click a field → *Edit text…*, *Rename field*, *Colour…*, *Delete field*. Prompts show it as the fields in bold with their text. In JSON a record is a group with `adr` (its status); its fields are nodes whose `label` is the name and `detail` the text. `query kind:adr` finds them.
+
 ### Gantt charts
 
 ```diagram

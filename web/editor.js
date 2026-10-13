@@ -54,6 +54,7 @@
     chart: '<path d="M4 20h16"/><rect x="6" y="11" width="3" height="7" rx="0.5" fill="currentColor" stroke="none"/><rect x="11" y="6" width="3" height="12" rx="0.5" fill="currentColor" stroke="none"/><rect x="16" y="9" width="3" height="9" rx="0.5" fill="currentColor" stroke="none"/>',
     risks: '<rect x="4" y="4" width="16" height="16" rx="2"/><path d="M4 12h16M12 4v16"/><circle cx="16" cy="8" r="2" fill="currentColor" stroke="none"/><circle cx="8.5" cy="15.5" r="1.6" fill="currentColor" stroke="none"/>',
     gantt: '<path d="M4 4v16h16"/><rect x="7" y="6.5" width="7" height="3" rx="1" fill="currentColor" stroke="none"/><rect x="11" y="11" width="8" height="3" rx="1" fill="currentColor" stroke="none"/><rect x="9" y="15.5" width="5" height="3" rx="1" fill="currentColor" stroke="none"/>',
+    adr: '<rect x="5" y="3" width="14" height="18" rx="2"/><path d="M8 8h8M8 12h8M8 16h5"/><circle cx="17" cy="17" r="3.2" fill="currentColor" stroke="none"/>',
     lanes: '<rect x="3" y="4" width="18" height="16" rx="2"/><path d="M3 9.5h18M3 14.5h18M8 4v16"/>',
     kanban: '<rect x="3" y="4" width="18" height="16" rx="2"/><path d="M9 4v16M15 4v16"/><rect x="4.8" y="7" width="2.4" height="2.4" rx=".6" fill="currentColor" stroke="none"/><rect x="4.8" y="11" width="2.4" height="2.4" rx=".6" fill="currentColor" stroke="none"/><rect x="10.8" y="7" width="2.4" height="2.4" rx=".6" fill="currentColor" stroke="none"/><rect x="16.8" y="7" width="2.4" height="2.4" rx=".6" fill="currentColor" stroke="none"/>',
     section: '<rect x="3" y="8" width="18" height="12" rx="2"/><rect x="3" y="3" width="9" height="3.5" rx="1.2" fill="currentColor" stroke="none"/>',
@@ -240,6 +241,7 @@
             tools.appendChild(btn({ class: "dge-tool", "data-act": "table", title: "Table: rows and columns of text. Right-click it to edit it as text or add a row.", onclick: function () { canvas.focus({ preventScroll: true }); addTable(); } }, icon("table")));
             tools.appendChild(btn({ class: "dge-tool", "data-act": "entity", title: "Database table: columns with types and keys; a foreign key is drawn to the column it references. Right-click to edit the columns.", onclick: function () { canvas.focus({ preventScroll: true }); addEntity(); } }, icon("entity")));
             tools.appendChild(btn({ class: "dge-tool", "data-act": "chart", title: "Chart: bars, lines, areas, pie, donut or scatter from a small table. Right-click it to change the type or edit the data.", onclick: function (e) { chartMenu(e.currentTarget); } }, icon("chart")));
+            tools.appendChild(btn({ class: "dge-tool", "data-act": "adr", title: "Decision record: context, options, decision and consequences, with a status. Right-click it to change the status or edit it as text.", onclick: function () { canvas.focus({ preventScroll: true }); addRecord(); } }, icon("adr")));
             tools.appendChild(btn({ class: "dge-tool", "data-act": "risks", title: "Risk matrix: risks by probability and impact. Drag a dot to another cell to re-rate it; hover it for its description.", onclick: function () { canvas.focus({ preventScroll: true }); addRisks(); } }, icon("risks")));
             tools.appendChild(btn({ class: "dge-tool", "data-act": "section", title: "Section (" + MOD + "G): put the selected blocks in a titled section. Drag blocks in or out of a section to change what is in it.", onclick: function () { canvas.focus({ preventScroll: true }); groupSelection(); } }, icon("section")));
           }
@@ -1140,6 +1142,41 @@
         "-",
         ["Delete", function () { applyOps([{ op: "remove", id: t.id, keep_members: false }]); select([]); }, "The table and its columns"]
       ];
+      if (t.type === "node" && !view && recordOf(t.id)) {
+        var rf = node(t.id), rg = recordOf(t.id);
+        return [
+          ["Edit text…", function () {
+            askAt(st.menuAt, (rf.detail || "").replace(/\n/g, "\\n"), "What it says", function (v) {
+              applyOps([{ op: "update_node", id: t.id, detail: v.replace(/\\n/g, "\n") }]);
+            });
+          }, rf.label || rf.id],
+          ["Rename field", function () {
+            askAt(st.menuAt, rf.label || rf.id, "Field name", function (v) {
+              var ops = [];
+              ops.push({ op: "update_node", id: relabel(rf, rg.id, v, ops), label: v });
+              applyOps(ops);
+            });
+          }],
+          ["Colour…", function () { colourMenu(t.id, "update_node", rf.color); }, "Tint the field"],
+          ["Edit as text…", function () { editRecord(rg.id); }, "The whole record"],
+          "-",
+          ["Delete field", function () { applyOps([{ op: "remove", id: t.id }]); select([]); }]
+        ];
+      }
+      if (gr && !view && gr.adr) return [
+        ["Rename", function () { editLabel(t.id); }],
+        ["Status…", function () { statusMenu(t.id); }, gr.adr],
+        ["Edit as text…", function () { editRecord(t.id); }, "One field per line: `context: …`"],
+        ["Add field", function () {
+          askAt(st.menuAt, "", "Field name, e.g. risks", function (v) {
+            var id = freshId(t.id + "." + slug(v));
+            if (applyOps([{ op: "add_node", id: id, label: v, group: t.id }]).ok) select([id]);
+          });
+        }],
+        ["Colour…", function () { colourMenu(t.id, "update_group", gr.color); }],
+        "-",
+        ["Delete", function () { applyOps([{ op: "remove", id: t.id, keep_members: false }]); select([]); }]
+      ];
       if (t.type === "node" && !view && tableOf(t.id)) {
         var tr = node(t.id), tg = tableOf(t.id);
         return [
@@ -1740,7 +1777,7 @@
     function blockOf(gid) {
       var g = gid && group(gid);
       if (!g) return null;
-      if (g.lanes || g.gantt || g.risks || g.chart || g.table || g.entity) return g.id;
+      if (g.lanes || g.gantt || g.risks || g.chart || g.table || g.entity || g.adr) return g.id;
       var up = g.parent && group(g.parent);
       if (up && up.lanes) return up.id;
       // a section moves as a whole (and keeps its place), unless boxes in it
@@ -1858,6 +1895,60 @@
       };
       showModal("Columns: " + (group(gid).label || gid), h("div", {}, [
         h("p", { class: "dge-muted" }, ["One column per line: `name: type [pk, unique, null, fk: table.column, default: now()]`."]),
+        ta
+      ]), [
+        h("button", { onclick: closeModal }, ["Cancel"]),
+        h("button", { class: "primary", onclick: save }, ["Save"])
+      ]);
+      setTimeout(function () { ta.focus(); }, 0);
+    }
+    function recordOf(id) { var n = node(id), g = n && n.group && group(n.group); return g && g.adr ? g : null; }
+    var STATUSES = ["proposed", "accepted", "rejected", "superseded", "deprecated"];
+    function statusMenu(gid) {
+      var cur = group(gid).adr;
+      setTimeout(function () {
+        openMenu(st.menuAt, STATUSES.map(function (k) {
+          return [(k === cur ? "✓ " : "\u2003") + k.charAt(0).toUpperCase() + k.slice(1), function () { applyOps([{ op: "update_group", id: gid, adr: k }]); }];
+        }));
+      }, 0);
+    }
+    /* A decision record with the usual fields to fill in; its title is typed next. */
+    function addRecord() {
+      var gid = freshId("decision");
+      var res = applyOps([{ op: "merge", dsl: "adr " + gid + ": Decision [proposed] {\n  context: What is going on, and why decide now?\n  options: What we considered\n  decision: What we chose\n  consequences: What gets easier or harder\n}" }]);
+      if (res.ok) {
+        select([gid]);
+        reveal(gid);
+        editLabel(gid, true);
+      }
+    }
+    /* The record's fields as text, one per line (`name: text`); saving updates,
+       adds, reorders and removes fields by name. */
+    function editRecord(gid) {
+      var fields = function () { return st.doc.nodes.filter(function (n) { return n.group === gid; }); };
+      var ta = h("textarea", { class: "dge-chart-data", spellcheck: "false", rows: "12" });
+      ta.value = fields().map(function (n) { return (n.label || n.id) + ": " + (n.detail || "").replace(/\n/g, "\\n"); }).join("\n");
+      var save = function () {
+        var have = fields(), ops = [], keep = [], bad = null;
+        ta.value.split("\n").filter(function (l) { return l.trim(); }).forEach(function (l, i) {
+          var k = l.indexOf(":");
+          if (k <= 0) { bad = bad || l; return; }
+          var name = l.slice(0, k).trim(), text = l.slice(k + 1).trim().replace(/\\n/g, "\n");
+          var f = have.find(function (n) { return (n.label || n.id) === name && keep.indexOf(n.id) < 0; });
+          if (f) { keep.push(f.id); ops.push({ op: "update_node", id: f.id, detail: text, index: i }); }
+          else {
+            var id = gid + "." + slug(name), j = 2;
+            while (node(id) || keep.indexOf(id) >= 0) id = gid + "." + slug(name) + "-" + j++;
+            keep.push(id);
+            ops.push({ op: "add_node", id: id, label: name, group: gid, detail: text || undefined, index: i });
+          }
+        });
+        if (bad) return flash("Could not read “" + bad + "”: write `name: text`", true);
+        var drop = have.filter(function (n) { return keep.indexOf(n.id) < 0; }).map(function (n) { return { op: "remove", id: n.id }; });
+        if (applyOps(drop.concat(ops)).ok) closeModal();
+      };
+      showModal("Decision: " + (group(gid).label || gid), h("div", {}, [
+        h("p", { class: "dge-muted" }, ["One field per line: `context: what is going on`. `\\n` starts a new line within a field."]),
         ta
       ]), [
         h("button", { onclick: closeModal }, ["Cancel"]),

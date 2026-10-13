@@ -28,6 +28,7 @@ STATIC='<script>window.DIAGRAM_STATIC = { shareUrl: "'"$SITE_URL"'app/", example
   { name: "User onboarding flow", url: "../examples/onboarding.diagram" },
   { name: "Retro board", url: "../examples/retro.diagram" },
   { name: "Kanban board", url: "../examples/kanban.diagram" },
+  { name: "Decision records", url: "../examples/decisions.diagram" },
   { name: "A prompt as a mindmap", url: "../examples/prompt-mindmap.diagram" }
 ] };</script>'
 python3 - "$ROOT/web/index.html" "$OUT/app/index.html" "$STATIC" <<'PY'

@@ -92,6 +92,20 @@ pub struct Plot {
     pub rows: Vec<(String, Rect)>,
 }
 
+/// Any plotted block drawn ([`Group::plotted`]): a chart, a table, a
+/// database table or a decision record.
+pub fn plot_any(doc: &Document, g: &Group) -> Plot {
+    if g.entity {
+        crate::entities::plot(doc, g)
+    } else if g.table {
+        crate::tables::plot(doc, g)
+    } else if g.adr.is_some() {
+        crate::adr::plot(doc, g)
+    } else {
+        plot(doc, g)
+    }
+}
+
 /// The rows of chart `g`, in document order.
 pub fn rows_of<'a>(doc: &'a Document, g: &str) -> Vec<&'a Node> {
     doc.nodes
