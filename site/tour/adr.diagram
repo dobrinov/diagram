@@ -1,0 +1,10 @@
+direction: down
+adr psp: Use one payment provider [accepted] {
+  context: Two providers double the integration work.
+  decision: Stripe only, with payment intents.
+  consequences: An outage stops checkout; we keep a status page.
+}
+adr wallets: Add Apple Pay first [proposed] {
+  decision: Ship wallets before saved cards.
+}
+wallets -> psp: builds on

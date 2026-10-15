@@ -1,0 +1,13 @@
+# render: --comments open
+user: Customer [person]
+group backend: Backend [blue] {
+  api: Orders API [detail: Rust · Axum]
+  db: Postgres [cylinder]
+}
+stripe: Stripe [cloud, purple]
+user -> api: POST /orders
+api -> db
+api -> stripe: charge
+comment on api by deyan: Should payments be a service of its own?
+reply c1 by ana: Not before launch.
+comment on stripe by sam: Retry the webhook?

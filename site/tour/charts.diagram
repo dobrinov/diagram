@@ -1,0 +1,14 @@
+layout: grid
+chart conversion: Checkout conversion [line, unit: %] {
+  week | Web | Mobile
+  W1   | 61  | 48
+  W2   | 63  | 51
+  W3   | 66  | 55
+  W4   | 70  | 60
+}
+chart methods: Payment methods [donut, unit: %] {
+  Card 62
+  Apple Pay 21
+  PayPal 12
+  Other 5
+}

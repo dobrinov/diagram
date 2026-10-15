@@ -1,0 +1,13 @@
+mindmap task: Add saved cards to checkout {
+  Context
+    Stripe already integrated
+    Customers re-enter cards
+  Constraints [red]
+    No new services
+    PCI scope must not grow
+  Steps
+    Stripe SetupIntent
+    Picker on checkout
+  Acceptance [green]
+    Second order needs no card
+}

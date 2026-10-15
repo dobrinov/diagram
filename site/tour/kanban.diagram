@@ -1,0 +1,13 @@
+kanban sprint: Sprint 12 {
+  column todo: To do {
+    picker: Card picker [owner: ana]
+    a11y: Accessibility pass
+  }
+  column doing: Doing {
+    intent: SetupIntent flow [blue, owner: sam]
+  }
+  column done: Done {
+    model: Data model [green]
+    flag: Feature flag
+  }
+}

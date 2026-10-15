@@ -1,0 +1,7 @@
+theme: blueprint
+web: Storefront [rounded, detail: Next.js]
+api: Orders API [detail: Rust]
+db: Postgres [cylinder]
+mail: E-mail [cloud]
+web -> api -> db
+api ..> mail: receipt

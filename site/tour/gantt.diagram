@@ -1,0 +1,8 @@
+# render: --as-of 2026-10-30
+gantt launch: Launch plan [start: 2026-10-12] {
+  Design [5d, owner: mia, done]
+  Build [2w, after: design, done: 40%]
+  Docs [3d, after: design, purple]
+  Beta [1w, after: build, orange]
+  Launch day [after: beta docs, milestone, green]
+}

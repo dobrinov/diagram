@@ -1,0 +1,6 @@
+risks delivery: Delivery risks {
+  Stripe review slips [p: 4, i: 4, owner: ana]
+  3-D Secure timeouts [p: 3, i: 4]
+  Scope creep [p: 2, i: 3]
+  Key engineer leaves [p: 1, i: 5]
+}

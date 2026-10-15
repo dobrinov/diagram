@@ -1,0 +1,8 @@
+# render: --base _ask-before.diagram
+api: Orders API [detail: Rust · Axum]
+cache: Redis [cylinder]
+db: Postgres [cylinder]
+queue: Webhook retries [pill]
+api -> cache: read-through
+cache -> db
+api ..> queue: on failure

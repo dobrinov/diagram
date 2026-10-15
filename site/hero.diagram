@@ -1,0 +1,99 @@
+title: Saved cards
+theme: midnight
+
+try: Try it — double-click Delivery plan · ⌘K asks AI · right-click anything [sticky, yellow, x: 860, y: 340]
+
+
+mindmap goal: Saved cards at checkout [x: 0, y: 70] {
+  Why
+    38% of tickets
+  Steps
+    SetupIntent
+    Card picker
+  Done when [green]
+    No card on 2nd order
+}
+
+kanban sprint: Sprint 12 [x: -10, y: 300] {
+  column todo: To do {
+    picker: Card picker [owner: ana]
+  }
+  column doing: Doing {
+    intent: SetupIntent flow [blue, owner: sam]
+  }
+  column done: Done {
+    model: Data model [green]
+  }
+}
+
+group inside: Boards inside this board [x: 690, y: 10] {
+  plan-link: Delivery plan [pill, blue, canvas: plan]
+  data-link: Data model [canvas: data, detail: ER · crow's feet]
+  flow-link: Payment flow [rounded, purple, canvas: flow]
+  metrics-link: Metrics [text, canvas: metrics]
+}
+
+comment on goal by ana: Do we need Apple Pay first?
+reply c1 by sam: Interviews say yes — see the decision in Delivery plan.
+
+canvas plan: Delivery plan {
+  gantt launch: Launch plan [start: 2026-10-12] {
+    Design [5d, owner: mia, done]
+    Build [2w, after: design, done: 40%]
+    Beta [1w, after: build, orange]
+    Launch day [after: beta, milestone, green]
+  }
+
+  risks delivery: Delivery risks {
+    Stripe review slips [p: 4, i: 4, owner: ana]
+    3-D Secure timeouts [p: 3, i: 4]
+    Scope creep [p: 2, i: 3]
+  }
+
+  adr wallets: Add Apple Pay first [proposed] {
+    context: Interviews ask for wallets more than saved cards.
+    decision: Ship Apple Pay before saved cards.
+  }
+}
+
+canvas data: Data model {
+  entity customers: Customers {
+    id:    uuid [pk]
+    email: citext [unique]
+  }
+  entity cards: Saved cards {
+    id:          uuid [pk]
+    customer_id: uuid [fk: customers, rel: owned by]
+    stripe_pm:   text [unique]
+  }
+}
+
+canvas flow: Payment flow {
+  sequence pay: Pay for an order {
+    shopper: Shopper [person]
+    page: Checkout
+    api: Orders API
+    psp: Stripe [cloud]
+    shopper -> page: Pay €42
+    page -> api: POST /pay
+    api -> psp: create intent
+    psp ..> api: client secret
+    page ..> shopper: Thank you
+  }
+}
+
+canvas metrics: Metrics {
+  layout: grid
+  chart conversion: Checkout conversion [line, unit: %] {
+    week | Web | Mobile
+    W1   | 61  | 48
+    W2   | 63  | 51
+    W3   | 66  | 55
+    W4   | 70  | 60
+  }
+  chart methods: Payment methods [donut, unit: %] {
+    Card 62
+    Apple Pay 21
+    Other 17
+  }
+}

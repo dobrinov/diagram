@@ -1,0 +1,3 @@
+api: Orders API [detail: Rust · Axum]
+db: Postgres [cylinder]
+api -> db

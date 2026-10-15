@@ -1,0 +1,12 @@
+sequence pay: Pay for an order {
+  shopper: Shopper [person]
+  page: Checkout
+  api: Orders API
+  psp: Stripe [cloud]
+  shopper -> page: Pay €42
+  page -> api: POST /pay
+  api -> psp: create intent
+  psp ..> api: client secret
+  api ..> page: client secret
+  page ..> shopper: Thank you
+}

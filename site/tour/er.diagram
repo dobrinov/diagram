@@ -1,0 +1,13 @@
+entity customers: Customers {
+  id:    uuid [pk]
+  email: citext [unique]
+}
+entity cards: Saved cards {
+  id:          uuid [pk]
+  customer_id: uuid [fk: customers, rel: owned by]
+  stripe_pm:   text [unique]
+}
+entity profiles: Profiles {
+  customer_id: uuid [pk, fk: customers]
+  nickname:    text [null]
+}

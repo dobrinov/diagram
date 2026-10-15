@@ -1,0 +1,17 @@
+lanes order: Order to cash {
+  lane buyer: Customer {
+    place: Place order [pill, green]
+    paid: Pay invoice
+  }
+  lane sales: Sales {
+    check: Credit OK? [diamond]
+    confirm: Confirm order
+  }
+  lane finance: Finance [blue] {
+    invoice: Send invoice
+  }
+}
+place -> check
+check -> confirm: yes
+check -> place: no
+confirm -> invoice -> paid

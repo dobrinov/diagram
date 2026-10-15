@@ -26,7 +26,18 @@ html = open(page).read()
 assert "<!-- CHANGELOG -->" in html, "site/index.html lost its <!-- CHANGELOG --> marker"
 open(page, "w").write(html.replace("<!-- CHANGELOG -->", fragment, 1))
 PY
-cp "$ROOT/site/site.css" "$ROOT/site/og.png" "$ROOT/site/apple-touch-icon.png" "$ROOT/web/favicon.svg" "$OUT/"
+# the live board in the hero is site/hero.diagram
+python3 - "$OUT/index.html" "$ROOT/site/hero.diagram" <<'PY'
+import sys
+page, hero = sys.argv[1:3]
+html, board = open(page).read(), open(hero).read()
+assert "{{HERO}}" in html, "site/index.html lost its {{HERO}} marker"
+assert "</script" not in board.lower()
+open(page, "w").write(html.replace("{{HERO}}", board.rstrip("\n"), 1))
+PY
+cp "$ROOT/site/site.css" "$ROOT/site/og.png" "$ROOT/site/apple-touch-icon.png" "$ROOT/site/merge.png" "$ROOT/web/favicon.svg" "$OUT/"
+# the feature tour: a picture per feature, drawn from site/tour/*.diagram
+"$ROOT/scripts/render-tour.sh" "$BIN" "$OUT/tour"
 
 # one bundle (JS + inlined WASM + the editor) for every embedded board
 "$BIN" embed -o "$OUT/diagram.embed.js" 2>/dev/null

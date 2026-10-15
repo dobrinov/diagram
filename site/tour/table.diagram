@@ -1,0 +1,6 @@
+table raci: Who does what {
+  task      | lead | PM | VP Eng
+  Discovery | R    | A  | I
+  Spec      | A    | R  | C
+  Release   | R    | C  | A [green]
+}
