@@ -24,13 +24,7 @@ cp "$ROOT/site/site.css" "$ROOT/web/favicon.svg" "$OUT/"
 cp "$ROOT/web/app.js" "$ROOT/web/editor.js" "$ROOT/web/editor.css" "$ROOT/web/favicon.svg" "$OUT/app/"
 cp "$ROOT/web/pkg/diagram_wasm.js" "$ROOT/web/pkg/diagram_wasm_bg.wasm" "$OUT/app/pkg/"
 STATIC='<script>window.DIAGRAM_STATIC = { shareUrl: "'"$SITE_URL"'app/", examples: [
-  { name: "Checkout architecture", url: "../examples/checkout.diagram" },
-  { name: "User onboarding flow", url: "../examples/onboarding.diagram" },
-  { name: "Retro board", url: "../examples/retro.diagram" },
-  { name: "Kanban board", url: "../examples/kanban.diagram" },
-  { name: "Decision records", url: "../examples/decisions.diagram" },
-  { name: "Sequence diagram", url: "../examples/sequence.diagram" },
-  { name: "A prompt as a mindmap", url: "../examples/prompt-mindmap.diagram" }
+  { name: "Checkout relaunch (every feature)", url: "../examples/example.diagram" }
 ] };</script>'
 python3 - "$ROOT/web/index.html" "$OUT/app/index.html" "$STATIC" <<'PY'
 import sys

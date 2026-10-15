@@ -44,7 +44,7 @@ site: release
 
 # Serve the frontend from disk while hacking on web/ (no rebuild needed)
 dev: build
-	DIAGRAM_WEB_DIR=web ./target/debug/diagram examples/checkout.diagram
+	DIAGRAM_WEB_DIR=web ./target/debug/diagram examples/example.diagram
 
 clean:
 	cargo clean

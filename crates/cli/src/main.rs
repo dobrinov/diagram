@@ -623,12 +623,12 @@ fn default_out(file: &str, ext: &str) -> Option<String> {
 }
 
 pub const TEMPLATES: &[(&str, &str)] = &[
-    ("flow", include_str!("../../../examples/onboarding.diagram")),
+    ("flow", include_str!("../templates/flow.diagram")),
     (
         "architecture",
-        include_str!("../../../examples/checkout.diagram"),
+        include_str!("../templates/architecture.diagram"),
     ),
-    ("board", include_str!("../../../examples/retro.diagram")),
+    ("board", include_str!("../templates/board.diagram")),
 ];
 
 fn run(args: Args) -> Result<ExitCode, String> {

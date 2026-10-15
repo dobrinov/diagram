@@ -1,5 +1,15 @@
 # Changelog
 
+## 0.29.1 — 2026-10-15
+
+- **One example:** `examples/example.diagram` replaces the thirteen separate examples. It tells one project, a checkout relaunch, and uses every feature. The top board holds the architecture: all 13 shapes, colours and `#hex`, details, tags, web and `#id` links, nested sections, every kind of arrow, comments with replies and a resolved one, and a theme of its own with light and dark. Canvases open from links in four styles:
+  - *Discovery:* a prompt mindmap with a topic linking to a sticky, a retro mindmap laid out down, an image, and a canvas of interview notes inside it.
+  - *Delivery plan:* two gantt charts with a cross-chart dependency, milestones, progress and owners; a kanban board; a risk matrix; three decision records; tables.
+  - *Data & flows:* an ER model with crow's feet, named relationships and a one-to-one; a sequence diagram; swimlanes.
+  - *Metrics:* every chart type, on the `paper` theme.
+- The `diagram new` templates (flow, architecture, board) now live in `crates/cli/templates/`. `make dev` and the site use the new example.
+- Dark mode: the link and canvas badges' icons were white on a light badge and could not be seen; they are dark now.
+
 ## 0.29.0 — 2026-10-15
 
 - **Merging boards:** `diagram merge --install` makes git merge `.diagram` files element by element. Different changes to the same box (one person's colour, another's detail) both land; additions and removals merge, canvases inside merge in turn. Only the same field changed two ways, or a change on one side and a removal on the other, is a conflict. The file keeps yours with a `# merge: …` note on top, and git leaves it unmerged.

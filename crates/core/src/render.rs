@@ -539,6 +539,8 @@ fn draw(doc: &Document, opts: &RenderOptions, def: Option<crate::model::ThemeDef
         .iter()
         .filter_map(|nb| Some((nb, doc.node(&nb.id)?.link.as_deref()?)))
         .collect();
+    // badge icons: light on the dark accent, dark on the light one in dark mode
+    let badge_ink = if t == Theme::Dark { p.bg } else { p.on_accent };
     if !linked.is_empty() {
         s.push_str(r#"<g class="dg-links">"#);
         for (nb, link) in linked {
@@ -557,7 +559,7 @@ fn draw(doc: &Document, opts: &RenderOptions, def: Option<crate::model::ThemeDef
                 esc(&link_title(doc, link)),
                 p.group_accent,
                 p.node_fill,
-                p.on_accent,
+                badge_ink,
                 if open.is_empty() { "" } else { "</a>" }
             );
         }
@@ -584,8 +586,8 @@ fn draw(doc: &Document, opts: &RenderOptions, def: Option<crate::model::ThemeDef
                 c.doc.size(),
                 p.group_accent,
                 p.node_fill,
-                p.on_accent,
-                p.on_accent
+                badge_ink,
+                badge_ink
             );
         }
         s.push_str("</g>");

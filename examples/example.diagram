@@ -1,0 +1,349 @@
+title: Checkout relaunch
+description: One board for the whole project: the system as it is, and canvases inside it for discovery, the plan, the data and the numbers. Every feature of diagram is used somewhere here.
+direction: right
+routing: orthogonal
+theme: brand
+
+# ---------------------------------------------------------------- the system
+# shapes, colours, details, tags, links, sections, every kind of arrow
+
+customer: Customer [person]
+support: Support team [person, teal]
+stripe: Stripe [cloud, purple, detail: payments, link: https://docs.stripe.com/payments]
+mail: E-mail provider [cloud]
+note: Every write carries an\nidempotency key [sticky, link: #orders]
+legacy: Legacy cart [document, gray, detail: retired in Q1, tags: legacy deprecated]
+ledger: Ledger export [parallelogram]
+status: All systems normal [text, green]
+
+group edge: Edge [gray] {
+  web: Storefront [rounded, detail: Next.js, tags: frontend]
+  gateway: API gateway [hexagon]
+}
+group backend: Backend [blue] {
+  orders: Orders API [detail: Rust · Axum, tags: core]
+  group pay: Payments [purple] {
+    payments: Payments [detail: Rust, link: #payments-flow-link]
+    fraud: Fraud score > 80? [diamond, orange]
+  }
+  group async: Async [teal] {
+    queue: Job queue [pill]
+    worker: Fulfilment worker
+  }
+  db: Postgres [cylinder]
+  cache: Redis [cylinder, #d1495b]
+}
+
+customer -> web: browses
+web -> gateway: HTTPS [thick]
+gateway -> orders: POST /orders
+orders -> payments: charge
+payments -> fraud
+fraud -> stripe: no
+fraud -> support: yes [red]
+orders -> db, cache
+orders ..> queue: order.created
+queue ..> worker
+worker -> mail: receipt
+worker => ledger: nightly
+legacy -- orders: replaced by [dotted]
+cache <-> db: warm-up [dashed]
+
+# ---------------------------------------------------------------- the way into the canvases
+# a box with `canvas:` opens a board inside this one; its shape is how the link looks
+
+group inside: Inside this board [gray] {
+  discovery-link: Discovery [pill, blue, canvas: discovery]
+  plan-link: Delivery plan [canvas: plan, detail: gantt · kanban · risks · decisions]
+  data-link: Data & flows [text, canvas: data]
+  metrics-link: Metrics [sticky, yellow, canvas: metrics]
+  payments-flow-link: Payments, step by step [rounded, purple, canvas: data]
+}
+
+discovery-link -> plan-link -> data-link
+
+# ---------------------------------------------------------------- review
+comment on payments by deyan: Should payments own its own database?
+reply c1 by ana: Not before launch; a separate schema is enough.
+comment on queue->worker by ana: What happens when the worker crashes mid-order?
+comment c3 at 40,-60 by deyan: Add the admin dashboard to this picture
+comment on legacy by sam: Can we delete it now? [resolved, resolution: "Removed from the menu; code goes in Q1"]
+
+# ---------------------------------------------------------------- a theme of our own
+theme brand {
+  font: Inter, system-ui, sans-serif
+  radius: 10
+  blue: #3b6fd8
+  light {
+    background: #f7f8fa
+    section: #eef2f8
+  }
+  dark {
+    background: #0f1318
+    section: #161c24
+  }
+}
+
+# ================================================================ canvases
+
+canvas discovery: Discovery {
+  # what we learned, and the task for the coding agent, as a prompt mindmap
+  direction: right
+
+  quote: "I type my card in every single time" — interview #4 [sticky, yellow]
+  screen: Today's checkout [image: wire, w: 248, h: 178]
+  tickets: 38% of support tickets are about cards [text, red]
+
+  mindmap task: Add saved payment methods to checkout [layout: both] {
+    Context
+      Rails monolith, Stripe already integrated
+      Checkout is one page: app/views/checkout
+      Customers re-enter cards on every order [link: #quote]
+    Goal
+      Returning customers pay in one click
+      Cards stored by Stripe, never by us
+    Constraints [red]
+      No new services
+      PCI scope must not grow
+      Feature flag: saved_cards
+    Steps
+      Model: customer has many payment methods
+      Stripe SetupIntent on first payment
+      Picker on the checkout page
+    Acceptance [green]
+      Second order needs no card details
+      Flag off: checkout unchanged
+    Open questions [collapsed]
+      Default card per customer?
+      What about expired cards?
+  }
+
+  mindmap retro: Sprint 42 retro [layout: down] {
+    Went well [green]
+      Shipped the importer a week early
+      Pairing on the parser
+    Didn't [red]
+      Flaky CI on macOS runners
+    Try next [blue]
+      Async stand-ups
+  }
+
+  quote ..> customers-re-enter-cards-on-every-order
+
+  comment on quote by ana: Same in interviews #2 and #7
+
+  canvas interviews: Interview notes {
+    layout: grid
+
+    i1: Shops weekly, always re-enters the card [sticky, green]
+    i2: Gave up when 3-D Secure timed out [sticky, red]
+    i3: Wants Apple Pay more than saved cards [sticky, blue]
+    i4: Didn't notice the guest checkout [sticky]
+  }
+
+  interviews-link: All interview notes [box, canvas: interviews]
+
+  asset wire: data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAPAAAACWCAIAAABvmpKCAAACRklEQVR42u3drRHCMBiA4WpmqKjqYMyDRHcAFBqBQiDKHYJZyqGKQNYgSki+PNy7AMkDR/NzNG3XS2FqDIGAloCWgJaAFtCL5h+/DL2AloAW0EALaKAFtGTZTgJaQEtAS0BLQEtL0NPzJYUJaAEtAS0BLQEtoCWgJaAloCWgBbRUA+jr7aFsq2fu1gTto59n34Cu5J0CDTTQAhpoAQ20gAYaaKCBBhpoAQ20gM4c9G4/FBfQnw7HU7YBDTTQQAMNNNBAAw000IWAllUOy3YCGmgBnQD0+TIqWUCnAO07Mk1AAw000EADDbRKBG0dGmiggRbQQAtooIEG2saKjRWrHLL1DbSABlpAAw000G6sAA000EADDbQ7hS7JAg000EADbZUDaKAFNNCyyuHWt4B2fNTxUaCBBhpoAQ20gAYaaKCBBhpooIEGWkDbWJGNFVewBDTQQAMNdFTQbddnG9BAA+3GCtBAAw000EADDTTQQAMNNNBWOYAGWjZWbKwIaIeT5HCS46OOjwINNNBAAw000AIaaAENNNBAAx0RdJiABrq6bKwE31gB2qgF/GUJtFEDGmgBDbSABlqmBmiggTZqQAMtoIEW0EDL1KwJerO9K1lAAw000EADDbSABlpAAw000PFAz399AQ000EADDTTQQAMNtIdCD4VAAw000AIaaAENNNBAAw20A/5ywB9oAQ20TA3QQANt1IAGWkADLaCBlqkBGmigjRrQQAvoUkCr6H/vA1oCWgJaAloCWkBLQEtAS0BLQCtybx5lt8ChRZBrAAAAAElFTkSuQmCC
+}
+
+canvas plan: Delivery plan {
+  # when, who does what, what could go wrong, and why we chose what we chose
+
+  gantt launch: Launch plan [start: 2026-10-12, scale: week] {
+    Design [5d, owner: mia, done]
+    Build [2w, after: design, owner: sam, done: 40%]
+    Docs [3d, after: design, purple]
+    Beta [1w, after: build, orange]
+    Launch day [after: beta docs, milestone, green]
+  }
+
+  gantt marketing: Marketing [start: 2026-10-19, scale: week] {
+    Landing page [1w]
+    Announcement [after: launch/launch-day, milestone]
+  }
+
+  kanban sprint: Sprint 12 {
+    column todo: To do {
+      saved: Saved cards [owner: ana]
+      a11y: Accessibility pass [detail: forms and focus order]
+    }
+    column doing: Doing {
+      onepage: One-page checkout [blue, owner: sam, link: #build]
+    }
+    column review: In review {
+      emails: Order emails
+    }
+    column done: Done {
+      intent: Payment intents [green]
+    }
+  }
+
+  risks delivery: Delivery risks {
+    Stripe review slips [p: 4, i: 4, owner: ana, detail: "Their review takes up to 4 weeks"]
+    3-D Secure timeouts [p: 3, i: 4]
+    Scope creep [p: 2, i: 3]
+    Key engineer leaves [p: 1, i: 5, owner: deyan]
+    Unknown unknowns
+  }
+
+  adr psp: Use one payment provider [accepted] {
+    context: Two providers double the integration and reconciliation work.
+    options: Stripe only; Stripe + Adyen
+    decision: Stripe only, with payment intents.
+    consequences: A Stripe outage stops checkout; we keep a status page.
+  }
+
+  adr wallets: Add Apple Pay first [proposed] {
+    context: Interviews ask for wallets more than saved cards.
+    decision: Ship Apple Pay before saved cards.
+  }
+
+  adr cart: Keep the legacy cart [superseded] {
+    decision: Run both carts side by side.
+  }
+
+  table raci: Who does what {
+    task      | lead | PM | VP Eng
+    Discovery | R    | A  | I
+    Spec      | A    | R  | C
+    Release   | R    | C  | A [green]
+  }
+
+  table options: Hosting options {
+    option | cost          | latency | notes
+    Local  | $0            | 40 ms   | Needs an 8B model on every laptop
+    Hosted | $1.2k / month | 300 ms  | Data leaves the laptop [red]
+  }
+
+  wallets -> cart: supersedes
+
+  comment on beta by mia: Do we need a second week?
+}
+
+canvas data: Data & flows {
+  # the data model as an ER diagram, the payment as a sequence, order-to-cash in swimlanes
+
+  entity teams: Teams {
+    id:         uuid [pk]
+    name:       text [unique]
+    created_at: timestamptz [default: now()]
+  }
+  entity customers: Customers {
+    id:         uuid [pk]
+    team_id:    uuid [fk: teams, rel: belongs to]
+    email:      citext [unique]
+    bio:        text [null]
+  }
+  entity cards: Saved cards {
+    id:          uuid [pk]
+    customer_id: uuid [fk: customers, rel: owned by]
+    stripe_pm:   text [unique]
+  }
+  entity profiles: Profiles {
+    customer_id [pk, fk: customers]
+    nickname
+  }
+
+  sequence pay: Pay for an order {
+    shopper: Shopper [person]
+    page: Checkout page
+    api: Orders API
+    psp: Stripe [cloud]
+    shopper -> page: Pay €42
+    page -> api: POST /orders/42/pay
+    api -> psp: create payment intent
+    psp ..> api: client secret
+    api ..> page: client secret
+    page -> psp: confirm card (3-D Secure)
+    psp -> api: webhook payment.succeeded
+    api -> api: mark order paid
+    page ..> shopper: Thank you page
+  }
+
+  lanes order: Order to cash {
+    lane buyer: Customer {
+      place: Place order [pill, green]
+      paid: Pay invoice
+    }
+    lane sales: Sales {
+      check: Credit OK? [diamond]
+      confirm: Confirm order
+    }
+    lane finance: Finance [blue] {
+      invoice: Send invoice
+      book: Book payment [pill]
+    }
+  }
+
+  crm: CRM [cylinder]
+
+  place -> check
+  check -> confirm: yes
+  check -> place: no
+  confirm -> invoice -> paid -> book
+  confirm ..> crm
+
+  comment on check: Who sets the credit limit?
+}
+
+canvas metrics: Metrics {
+  layout: grid
+  theme: paper
+
+  chart revenue: Revenue by quarter [bar, unit: k€] {
+    quarter | EU  | US
+    Q1      | 120 | 80
+    Q2      | 150 | 95
+    Q3      | 170 | 130
+    Q4      | 160 | 150
+  }
+
+  chart stacked: Revenue, stacked [bar, stacked, unit: k€] {
+    quarter | EU  | US
+    Q1      | 120 | 80
+    Q2      | 150 | 95
+    Q3      | 170 | 130
+  }
+
+  chart ttv: Time to pay [bar, horizontal, unit: s] {
+    Guest checkout 74
+    Saved card 12 [green]
+    Apple Pay 8
+  }
+
+  chart conversion: Checkout conversion [line, unit: %] {
+    week | Web | Mobile
+    W1   | 61  | 48
+    W2   | 63  | 51
+    W3   | 66  | 55
+    W4   | 70  | 60
+  }
+
+  chart tokens: Tokens per AI edit [area, stacked] {
+    week | Prompt | Reply
+    W1   | 1800   | 300
+    W2   | 1500   | 260
+    W3   | 1100   | 240
+  }
+
+  chart methods: Payment methods [pie, unit: %] {
+    Card 62
+    Apple Pay 21
+    PayPal 12
+    Other 5
+  }
+
+  chart budget: Budget [donut, unit: k€] {
+    Engineering 420
+    Design 90
+    Infra 60
+  }
+
+  chart ideas: Effort vs impact [scatter] {
+    idea          | effort | impact
+    Saved cards   | 5      | 8
+    Apple Pay     | 3      | 9
+    One-page      | 8      | 7
+    Guest by default | 2   | 4
+  }
+}
