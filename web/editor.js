@@ -3546,6 +3546,60 @@
       session: st.session
     };
 
+    /* Tooltips for the editor's buttons: sooner and clearer than the
+       browser's. A control's `title` becomes its tooltip: the name, its
+       shortcut as a key, then what it does. */
+    var tip = h("div", { class: "dge-tip", role: "tooltip", hidden: true });
+    el.appendChild(tip);
+    var tipTimer = null, tipShownAt = 0, tipFor = null;
+    function tipParts(text) {
+      var m = /^([^:(]+?)\s*(?:\(([^)]{1,12})\))?\s*(?::\s*([\s\S]*))?$/.exec(text);
+      var more = m && m[3] ? m[3].charAt(0).toUpperCase() + m[3].slice(1) : "";
+      return m ? { name: m[1], key: m[2] || "", more: more } : { name: text, key: "", more: "" };
+    }
+    function showTip(target) {
+      var text = target.getAttribute("data-tip");
+      if (!text) return;
+      var t = tipParts(text);
+      tip.innerHTML = "";
+      var head = h("div", { class: "dge-tip-head" }, [t.name]);
+      if (t.key) head.appendChild(h("kbd", {}, [t.key]));
+      tip.appendChild(head);
+      if (t.more) tip.appendChild(h("div", { class: "dge-tip-more" }, [t.more]));
+      tip.hidden = false;
+      var box = el.getBoundingClientRect(), r = target.getBoundingClientRect();
+      var w = tip.offsetWidth, ht = tip.offsetHeight;
+      var x = Math.max(8, Math.min(r.left + r.width / 2 - w / 2 - box.left, box.width - w - 8));
+      // above what sits in the lower half, below what sits in the upper half
+      var below = r.top + r.height / 2 < box.top + box.height / 2;
+      var y = below ? r.bottom - box.top + 8 : r.top - box.top - ht - 8;
+      tip.style.left = x + "px";
+      tip.style.top = y + "px";
+      tipShownAt = Date.now();
+    }
+    function hideTip() {
+      clearTimeout(tipTimer);
+      // the title goes back while the pointer is away (selectors, other tools)
+      if (tipFor && tipFor.hasAttribute("data-tip")) { tipFor.setAttribute("title", tipFor.getAttribute("data-tip")); tipFor.removeAttribute("data-tip"); }
+      tipFor = null;
+      if (!tip.hidden) { tip.hidden = true; tipShownAt = Date.now(); }
+    }
+    el.addEventListener("mouseover", function (e) {
+      var t = e.target.closest && e.target.closest("button[title], select[title], label[title], button[data-tip], select[data-tip], label[data-tip]");
+      if (!t || !el.contains(t) || t === tipFor) return;
+      hideTip();
+      // the browser's own tooltip would show too: the title waits in data-tip
+      if (t.hasAttribute("title")) { t.setAttribute("data-tip", t.getAttribute("title")); t.removeAttribute("title"); }
+      tipFor = t;
+      // right after another tooltip, the next one shows at once
+      tipTimer = setTimeout(function () { if (tipFor === t) showTip(t); }, Date.now() - tipShownAt < 600 ? 0 : 350);
+    });
+    el.addEventListener("mouseout", function (e) {
+      if (tipFor && !(e.relatedTarget && tipFor.contains(e.relatedTarget))) hideTip();
+    });
+    el.addEventListener("pointerdown", hideTip, true);
+    el.addEventListener("wheel", hideTip, { passive: true });
+
     buildToolbar();
     buildTabs();
     applyChrome();

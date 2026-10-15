@@ -1,5 +1,9 @@
 # Changelog
 
+## 0.29.2 — 2026-10-15
+
+- **Tooltips:** every button in the editor (the tools, the toolbar, zoom) shows a tooltip after a moment, or at once when you move along the toolbar. It gives the name, the keyboard shortcut as a key, and what the button does, above the bottom toolbar and below the top one, in light and dark. It replaces the browser's slow plain tooltip; the `title` attributes stay for scripts and accessibility.
+
 ## 0.29.1 — 2026-10-15
 
 - **One example:** `examples/example.diagram` replaces the thirteen separate examples. It tells one project, a checkout relaunch, and uses every feature. The top board holds the architecture: all 13 shapes, colours and `#hex`, details, tags, web and `#id` links, nested sections, every kind of arrow, comments with replies and a resolved one, and a theme of its own with light and dark. Canvases open from links in four styles:

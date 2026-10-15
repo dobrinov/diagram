@@ -32,6 +32,13 @@ try {
   await p.goto(`http://127.0.0.1:${port}/`, { waitUntil: "domcontentloaded" });
   await p.waitForSelector(".dge-canvas svg"); await sleep(300);
 
+  // tooltips: a tool's name, its shortcut and what it does
+  await p.locator('button[data-tool="select"]').hover(); await sleep(500);
+  assert.equal(await p.locator(".dge-tip .dge-tip-head").textContent(), "SelectV");
+  assert.match(await p.locator(".dge-tip .dge-tip-more").textContent(), /^Click or drag a box around things/);
+  await p.mouse.move(600, 300); await sleep(100);
+  assert.equal(await p.locator(".dge-tip").isHidden(), true);
+
   // drag a section by its frame: it keeps its place, its boxes stay unpinned
   const g = await p.locator('.dg-group[data-id="a"]').boundingBox();
   await p.mouse.move(g.x + 20, g.y + 14); await p.mouse.down();
