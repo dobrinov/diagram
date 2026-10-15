@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# Builds the static GitHub Pages site (landing page, playground, examples).
+# Builds the static GitHub Pages site (landing page, the example, playground).
 # Usage: scripts/build-site.sh [OUT_DIR]   (default: ./docs)
 set -euo pipefail
 ROOT=$(cd "$(dirname "$0")/.." && pwd)
@@ -9,6 +9,7 @@ BIN=${DIAGRAM_BIN:-$ROOT/target/release/diagram}
 
 REPO_URL=${SITE_REPO_URL:-$(git -C "$ROOT" remote get-url origin 2>/dev/null | sed -E 's#^git@github.com:#https://github.com/#; s#\.git$##' || true)}
 REPO_URL=${REPO_URL:-https://github.com/dobrinov/diagram}
+# https://github.com/owner/repo → https://owner.github.io/repo/ (override with SITE_URL)
 SITE_URL=${SITE_URL:-$(echo "$REPO_URL" | sed -nE 's#^https://github.com/([^/]+)/([^/]+)$#https://\1.github.io/\2/#p')}
 SITE_URL=${SITE_URL:-/}
 
@@ -17,8 +18,27 @@ mkdir -p "$OUT/app/pkg" "$OUT/examples"
 subst() { sed -e "s#{{REPO_URL}}#$REPO_URL#g" -e "s#{{SITE_URL}}#$SITE_URL#g" "$1" > "$2"; }
 
 subst "$ROOT/site/index.html" "$OUT/index.html"
-cp "$ROOT/site/site.css" "$ROOT/web/favicon.svg" "$OUT/"
+# the changelog section is rendered from CHANGELOG.md
+python3 - "$OUT/index.html" "$(python3 "$ROOT/scripts/changelog.py" html)" <<'PY'
+import sys
+page, fragment = sys.argv[1:3]
+html = open(page).read()
+assert "<!-- CHANGELOG -->" in html, "site/index.html lost its <!-- CHANGELOG --> marker"
+open(page, "w").write(html.replace("<!-- CHANGELOG -->", fragment, 1))
+PY
+cp "$ROOT/site/site.css" "$ROOT/site/og.png" "$ROOT/site/apple-touch-icon.png" "$ROOT/web/favicon.svg" "$OUT/"
+
+# one bundle (JS + inlined WASM + the editor) for every embedded board
 "$BIN" embed -o "$OUT/diagram.embed.js" 2>/dev/null
+
+# the example: its source, and a picture of the board and of each canvas in it
+subst "$ROOT/site/examples/index.html" "$OUT/examples/index.html"
+EX="$ROOT/examples/example.diagram"
+cp "$EX" "$OUT/examples/"
+"$BIN" svg "$EX" --comments none -o "$OUT/examples/board.svg" 2>/dev/null
+for c in discovery plan data metrics; do
+  "$BIN" svg "$EX" --canvas "$c" --comments none -o "$OUT/examples/$c.svg" 2>/dev/null
+done
 
 # playground: the editor app without a server
 cp "$ROOT/web/app.js" "$ROOT/web/editor.js" "$ROOT/web/editor.css" "$ROOT/web/favicon.svg" "$OUT/app/"
@@ -36,24 +56,17 @@ html = html.replace(marker, static + "\n" + marker).replace("<title>diagram</tit
 open(dst, "w").write(html)
 PY
 
-# examples: source, SVG, PNG and a standalone page each
-cards=""
-for f in "$ROOT"/examples/*.diagram; do
-  name=$(basename "$f" .diagram)
-  cp "$f" "$OUT/examples/"
-  "$BIN" svg "$f" --comments none -o "$OUT/examples/$name.svg" 2>/dev/null
-  "$BIN" png "$f" --comments none -o "$OUT/examples/$name.png" 2>/dev/null
-  "$BIN" html "$f" -o "$OUT/examples/$name.html" 2>/dev/null
-  title=$(sed -n 's/^title: //p' "$f" | head -1)
-  cards+="<figure><a href=\"$name.html\"><img src=\"$name.svg\" alt=\"$title\"></a><figcaption><b>$title</b><a href=\"$name.diagram\">source</a><a href=\"$name.html\">interactive</a><a href=\"$name.png\">PNG</a></figcaption></figure>"$'\n'
-done
-subst "$ROOT/site/examples/index.html" "$OUT/examples/index.html"
-python3 - "$OUT/examples/index.html" "$cards" <<'PY'
-import sys
-page, cards = sys.argv[1:3]
-html = open(page).read()
-open(page, "w").write(html.replace("<!-- EXAMPLES -->", cards, 1))
+# analytics for the hosted site only (never in the CLI editor or user exports)
+if [ -z "${SITE_NO_ANALYTICS:-}" ]; then
+  python3 - "$OUT" "$ROOT/site/analytics.html" <<'PY'
+import pathlib, sys
+out, snippet = pathlib.Path(sys.argv[1]), pathlib.Path(sys.argv[2]).read_text()
+for page in out.rglob("*.html"):
+    html = page.read_text()
+    if "</head>" in html and "stats.aparatnata.com" not in html:
+        page.write_text(html.replace("</head>", snippet + "</head>", 1))
 PY
+fi
 
 touch "$OUT/.nojekyll"
 echo "site written to $OUT ($(du -sh "$OUT" | cut -f1))"

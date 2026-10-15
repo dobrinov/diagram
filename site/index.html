@@ -3,83 +3,258 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
-<title>diagram — FigJam-style diagrams as text, with review comments that become LLM prompts</title>
-<meta name="description" content="Lightweight diagrams you write as text or draw in a browser editor. Comment like in FigJam, then turn the comments into a prompt for Claude, Codex or any LLM. SVG/PNG export, Mermaid, a Rust crate and a JS library.">
+<title>diagram — a FigJam-style board for the agentic world, in plain text</title>
+<meta name="description" content="Draw, discuss and specify on a board that lives in git as plain text: mindmaps, kanban, gantt, sequence and ER diagrams, decision records and more. Review comments become prompts; Ask AI runs on your own AI subscription. Rust + WebAssembly.">
 <link rel="icon" type="image/svg+xml" href="favicon.svg">
+<link rel="apple-touch-icon" href="apple-touch-icon.png">
+<meta property="og:type" content="website">
+<meta property="og:site_name" content="diagram">
+<meta property="og:title" content="diagram — a FigJam-style board for the agentic world, in plain text">
+<meta property="og:description" content="Mindmaps, kanban, gantt, sequence and ER diagrams on one board that lives in git. Comments become prompts; Ask AI runs on your own AI subscription.">
+<meta property="og:url" content="{{SITE_URL}}">
+<meta property="og:image" content="{{SITE_URL}}og.png">
+<meta property="og:image:width" content="1200">
+<meta property="og:image:height" content="630">
+<meta property="og:image:alt" content="diagram: a mindmap, a kanban board, a sequence diagram and a decision record on one board">
+<meta name="twitter:card" content="summary_large_image">
+<meta name="twitter:image" content="{{SITE_URL}}og.png">
 <link rel="stylesheet" href="site.css">
 </head>
 <body>
 <header class="nav">
-  <a class="brand" href="./"><img src="favicon.svg" width="22" height="22" alt="">diagram</a>
-  <nav><a href="app/">Playground</a><a href="examples/">Examples</a><a href="{{REPO_URL}}/blob/main/crates/core/LANGUAGE.md">Language</a><a href="{{REPO_URL}}">GitHub</a></nav>
+  <a class="brand" href="./"><img class="logo" src="favicon.svg" alt="">diagram</a>
+  <nav>
+    <a href="#install">Install</a>
+    <a href="#features">Features</a>
+    <a href="examples/">Example</a>
+    <a href="app/">Playground</a>
+    <a href="#agents">AI agents</a>
+    <a href="#embed">Embed</a>
+    <a href="#changelog">Changelog</a>
+    <a class="gh" href="{{REPO_URL}}">GitHub</a>
+  </nav>
 </header>
 
-<main>
 <section class="hero">
-  <h1>Diagrams as text,<br>reviews as prompts.</h1>
-  <p class="lead">A lightweight FigJam for engineers. You can write a diagram in a small, readable language or draw it in the browser. Colleagues comment on boxes and arrows, and one click turns those comments into a prompt your LLM can act on.</p>
-  <p class="cta"><a class="button primary" href="app/">Open the playground</a> <a class="button" href="{{REPO_URL}}#install">Install the CLI</a></p>
-</section>
-
-<section class="demo">
-  <div class="split">
-    <pre class="code"><code>title: Checkout
+  <div class="hero-text">
+    <p class="eyebrow">Rust · WebAssembly · Git · Any AI subscription</p>
+    <h1>Draw it. Discuss it.<br><span class="grad">Hand it to your agent.</span></h1>
+    <p class="lede">diagram is a FigJam-style board that lives in your repository as plain text. Map a problem in mindmaps,
+      plan it on kanban and gantt charts, specify it with sequence and ER diagrams — then turn the review comments into a
+      prompt, or ask your own Claude, Codex or Gemini subscription to change the board.</p>
+    <div class="cta">
+      <a class="btn primary" href="app/">Open the playground</a>
+      <a class="btn" href="examples/">See every feature</a>
+    </div>
+    <div class="install-line">
+      <code id="brew-cmd">brew install dobrinov/tap/diagram</code>
+      <button type="button" id="brew-copy" title="Copy to clipboard">Copy</button>
+      <a href="#install">Binaries &amp; source ↓</a>
+    </div>
+    <div class="terminal">
+      <div class="term-bar"><i></i><i></i><i></i></div>
+<pre><span class="p">$</span> diagram docs/checkout.diagram
+<span class="o">diagram: editing docs/checkout.diagram at http://127.0.0.1:5591/</span>
+<span class="o">diagram: ✦ AI via `claude -p`</span>
+<span class="p">$</span> diagram ask docs/checkout.diagram "add a cache"</pre>
+    </div>
+  </div>
+  <div class="hero-demo">
+    <div class="demo-frame" data-diagram data-mode="edit" data-theme="dark"><script type="text/plain">title: Checkout
 user: Customer [person]
+stripe: Stripe [cloud, purple, detail: payments]
+note: Every write carries an\nidempotency key [sticky]
+
 group backend: Backend [blue] {
   api: Orders API [detail: Rust · Axum]
+  queue: Job queue [pill]
+  worker: Fulfilment worker
   db: Postgres [cylinder]
 }
-mail: E-mail [cloud]
-user -> api: POST /orders
-api -> db
-api ..> mail: receipt
 
-comment on api by deyan: Split payments out?</code></pre>
-    <div class="live" data-diagram data-mode="view"><script type="text/plain">title: Checkout
-user: Customer [person]
-group backend: Backend [blue] {
-  api: Orders API [detail: Rust · Axum]
-  db: Postgres [cylinder]
-}
-mail: E-mail [cloud]
 user -> api: POST /orders
+api -> stripe: charge
 api -> db
-api ..> mail: receipt
+api ..> queue: order.created
+queue ..> worker
 
-comment on api by deyan: Split payments out?</script></div>
+comment on api by deyan: Should payments be a service of its own?
+reply c1 by ana: Not before launch.</script></div>
+    <p class="caption">This is the real editor — double-click to add a box, drag a box's dot to connect, right-click for everything else.</p>
   </div>
 </section>
 
-<section class="features">
-  <div><h3>Two languages</h3><p>The <b>DSL</b> is for people: one statement per line, easy to diff in a PR. The <b>JSON model</b> and <b>ops</b> are for programs and LLMs: strict, schema-checked edits that are applied all at once or not at all. Mermaid works in both directions.</p></div>
-  <div><h3>A real editor</h3><p>Double-click to add a box. Drag a dot to connect two boxes, or drop it on empty space to create a new one. You get sticky notes, groups, an inspector, undo, a live code pane, light and dark themes, and pan and zoom.</p></div>
-  <div><h3>Comments → prompts</h3><p>Press <kbd>M</kbd> and click anything to start a thread. <b>Prompt</b> turns the open threads into a task for an agent: change the diagram, change the code, or just discuss. Paste the reply back and the changes are applied and the comments resolved.</p></div>
-  <div><h3>Export anywhere</h3><p>Export SVG and PNG, or a single self-contained HTML file. You can also copy Mermaid for GitHub, copy a Markdown brief for LLM context, or share a link that carries the whole diagram in the URL.</p></div>
-  <div><h3>Git-aware</h3><p><code>diagram svg arch.diagram --base main</code> draws what a branch changed: green for added, red for removed, amber for changed. <code>diagram diff</code> prints the same changes as Markdown.</p></div>
-  <div><h3>A library</h3><p>Use the Rust crate on servers, or one <code>diagram.embed.js</code> file (JS plus WASM) to render diagrams or mount the full editor in your app. It is the same engine everywhere.</p></div>
-</section>
-
-<section class="loop">
-  <h2>The review loop</h2>
-  <ol>
-    <li><b>Draw</b>: <code>diagram docs/checkout.diagram</code> opens the editor and saves to the file as you work.</li>
-    <li><b>Review</b>: colleagues comment in the editor, or with <code>diagram comment FILE --on api "…"</code>.</li>
-    <li><b>Prompt</b>: <code>diagram prompt FILE --target code</code>, or the Prompt button.</li>
-    <li><b>Apply</b>: paste the LLM's reply into <i>Apply reply</i> or pipe it to <code>diagram apply FILE</code>. Each comment is resolved with a note on what was done.</li>
-  </ol>
-</section>
-
-<section class="install" id="install">
+<section id="install" class="install">
   <h2>Install</h2>
-  <pre class="code"><code>git clone {{REPO_URL}} && cd diagram
-make install          # needs Rust, the wasm32 target and wasm-pack
-diagram new docs/arch.diagram --template architecture
-diagram docs/arch.diagram</code></pre>
-  <p>Agent skills for Claude Code: <code>diagram skills install</code>.</p>
+  <div class="install-grid">
+    <div>
+      <h3>Homebrew <span>macOS · Linux</span></h3>
+<pre class="code">brew install dobrinov/tap/diagram</pre>
+      <p class="sub">Later: <code>brew upgrade diagram</code>.</p>
+    </div>
+    <div>
+      <h3>Binaries <span>macOS · Linux · Windows</span></h3>
+      <p class="sub">Grab an archive from the <a href="{{REPO_URL}}/releases/latest">latest release</a> (Apple silicon and Intel, Linux x86_64 and arm64, Windows x86_64), unpack it and put <code>diagram</code> on your <code>PATH</code>.</p>
+    </div>
+    <div>
+      <h3>From source</h3>
+<pre class="code">git clone {{REPO_URL}} diagram && cd diagram
+make install</pre>
+      <p class="sub">Needs Rust with the <code>wasm32-unknown-unknown</code> target and <code>wasm-pack</code>.</p>
+    </div>
+  </div>
+  <p class="sub">Then run <code>diagram</code> in a repository: it opens the editor in your browser and saves to the file as you work. AI features use the CLI of a subscription you already have (Claude Code, Codex or Gemini CLI) — no API keys.</p>
 </section>
-</main>
 
-<footer>MIT · <a href="{{REPO_URL}}">{{REPO_URL}}</a></footer>
+<section id="features" class="features">
+  <h2>One board for the whole project</h2>
+  <p class="sub">Discover the problem, plan the work and specify what should happen — on the same board, in a file that diffs and reviews like code.</p>
+  <div class="grid">
+    <article>
+      <div class="ico">✳</div>
+      <h3>Mindmaps, and prompts as mindmaps</h3>
+      <p>Press <kbd>T</kbd> and type: <kbd>Tab</kbd> adds a branch, <kbd>Enter</kbd> a sibling. A map with Context, Constraints, Steps and Acceptance branches becomes a Markdown prompt for your coding agent in one click.</p>
+    </article>
+    <article>
+      <div class="ico">▦</div>
+      <h3>Every block you plan with</h3>
+      <p>Kanban boards, gantt charts with forecasts, swimlanes, sequence diagrams, risk matrices, tables, charts and decision records — next to free boxes, stickies, sections and arrows.</p>
+    </article>
+    <article>
+      <div class="ico">⌗</div>
+      <h3>ER diagrams</h3>
+      <p>Database tables with keys and types; foreign keys drawn in crow's-foot notation worked out from the columns, with named relationships. <code>diff</code> reviews a schema change column by column.</p>
+    </article>
+    <article>
+      <div class="ico">◫</div>
+      <h3>Canvases inside a board</h3>
+      <p>Open a board inside a board from a button, a card or a text link — each with its own blocks and comments, all in one file. Add images by pasting them; they stay in the file too.</p>
+    </article>
+    <article>
+      <div class="ico">✦</div>
+      <h3>AI on your subscription</h3>
+      <p>Ask AI (<kbd>⌘K</kbd>) describes a change in words; your Claude, Codex or Gemini CLI answers with a few ops, retried on errors, shown before you keep them. Models read compact outlines, never coordinates.</p>
+    </article>
+    <article>
+      <div class="ico">⎇</div>
+      <h3>Git is the database</h3>
+      <p>Edits change only the lines that changed. <code>--base main</code> draws what a branch changed. A merge driver merges boards element by element, and the editor settles real clashes — or the AI does, from a sentence.</p>
+    </article>
+    <article>
+      <div class="ico">▣</div>
+      <h3>Library-first</h3>
+      <p>The same Rust engine runs in the CLI, the browser editor, a typed npm package and a single-file embed. Export SVG, PNG, Mermaid or a self-contained HTML page.</p>
+    </article>
+  </div>
+</section>
+
+<section class="split">
+  <div>
+    <h2>A small language, made to diff</h2>
+    <p>One statement per line. Write it by hand, draw it in the editor, or let an agent edit it with ops — the file stays as you wrote it, and a pull request shows exactly what changed.</p>
+    <ul class="checks">
+      <li>Blocks are written as blocks: <code>kanban</code>, <code>gantt</code>, <code>sequence</code>, <code>entity</code>, <code>adr</code>, <code>mindmap</code>…</li>
+      <li>Review threads live in the file: <code>comment on api by ana: …</code></li>
+      <li>Light and dark themes, presets or your own <code>theme</code> block</li>
+    </ul>
+  </div>
+<pre class="code"><span class="c"># docs/launch.diagram</span>
+kanban sprint: Sprint 12 {
+  column todo: To do {
+    saved: Saved cards [owner: ana]
+  }
+  column doing: Doing {
+    onepage: One-page checkout [blue]
+  }
+}
+
+gantt launch: Launch plan [start: 2026-10-12] {
+  Design [5d, done]
+  Build [2w, after: design, done: 40%]
+  Launch day [after: build, milestone]
+}
+
+entity cards: Saved cards {
+  id:          uuid [pk]
+  customer_id: uuid [fk: customers, rel: owned by]
+}
+
+comment on onepage by mia: Behind a flag?</pre>
+</section>
+
+<section id="agents" class="split reverse">
+<pre class="code"><span class="c"># in your terminal</span>
+<span class="p">$</span> diagram ask docs/launch.diagram "split Build into API and UI"
+<span class="c"># your Claude Code / Codex / Gemini CLI answers with a few ops;
+# a reply that does not apply goes back with its error</span>
+
+<span class="c"># comments → a task for your coding agent</span>
+<span class="p">$</span> diagram prompt docs/launch.diagram --target code
+
+<span class="c"># let an agent read a few lines, not the whole board</span>
+<span class="p">$</span> diagram query docs/launch.diagram kind:kanban near:onepage</pre>
+  <div>
+    <h2>Made for AI agents</h2>
+    <p>Install the bundled skills and your coding agent knows how to read, draw and grow boards with few tokens: indented outlines for mindmaps, a handful of ops for edits.</p>
+<pre class="code small">diagram skills install          <span class="c"># ./.claude/skills</span>
+diagram skills install --global <span class="c"># ~/.claude/skills</span></pre>
+    <ul class="checks">
+      <li><b>diagram ask</b> — change a board in words, on your AI subscription</li>
+      <li><b>diagram prompt</b> — open comments become a task for an agent</li>
+      <li><b>diagram outline --md</b> — a mindmap as a Markdown prompt</li>
+      <li><b>diagram brief / query</b> — just the part of a board an agent needs</li>
+      <li><b>diagram merge</b> — boards merged element by element in git</li>
+    </ul>
+  </div>
+</section>
+
+<section id="embed" class="split">
+  <div>
+    <h2>Embed boards anywhere</h2>
+    <p>One script tag gives any HTML page a board — read-only or the full editor. Everything renders in the browser; nothing is uploaded.</p>
+    <p><a class="btn" href="examples/">See the example board →</a></p>
+  </div>
+<pre class="code">&lt;script src="diagram.embed.js"&gt;&lt;/script&gt;
+
+&lt;div data-diagram data-mode="view" style="height:420px"&gt;
+  &lt;script type="text/plain"&gt;
+    user: Customer [person]
+    user -> api: POST /orders
+  &lt;/script&gt;
+&lt;/div&gt;
+
+<span class="c">// or from JavaScript</span>
+const svg = await Diagram.render(src, { theme: "dark" });
+const editor = await Diagram.mount(el, { source: src, mode: "edit" });
+
+<span class="c">// or the npm package (Node and browsers)</span>
+import { init, Board } from "diagram";</pre>
+</section>
+
+<section id="changelog" class="changelog">
+  <h2>Changelog</h2>
+  <p class="sub">What changed in each release. The full history is in <a href="{{REPO_URL}}/blob/main/CHANGELOG.md">CHANGELOG.md</a>, and every release is on the <a href="{{REPO_URL}}/releases">Releases page</a>.</p>
+  <div class="releases">
+<!-- CHANGELOG -->
+  </div>
+</section>
+
+<footer>
+  <span>diagram · MIT</span>
+  <a href="app/">Playground</a><a href="examples/">Example</a><a href="{{REPO_URL}}/blob/main/crates/core/LANGUAGE.md">Language</a><a href="#changelog">Changelog</a><a href="{{REPO_URL}}">Source</a><a href="https://dobrinov.github.io/products/">More products</a>
+</footer>
+
 <script src="diagram.embed.js"></script>
+<script>
+  // the install one-liner in the hero: copy on click
+  var brewCopy = document.getElementById("brew-copy");
+  if (brewCopy) brewCopy.addEventListener("click", function () {
+    var text = document.getElementById("brew-cmd").textContent;
+    (navigator.clipboard ? navigator.clipboard.writeText(text) : Promise.reject()).then(function () {
+      brewCopy.textContent = "Copied";
+      setTimeout(function () { brewCopy.textContent = "Copy"; }, 1500);
+    }, function () { window.prompt("Copy:", text); });
+  });
+</script>
 </body>
 </html>

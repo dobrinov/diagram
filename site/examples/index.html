@@ -3,21 +3,75 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
-<title>Examples — diagram</title>
+<title>Example — diagram</title>
 <link rel="icon" type="image/svg+xml" href="../favicon.svg">
+<link rel="apple-touch-icon" href="../apple-touch-icon.png">
+<meta property="og:type" content="website">
+<meta property="og:site_name" content="diagram">
+<meta property="og:title" content="Example — diagram">
+<meta property="og:description" content="One board that uses every feature of diagram: mindmaps, kanban, gantt, sequence and ER diagrams, decision records, charts, canvases inside the board and images.">
+<meta property="og:url" content="{{SITE_URL}}examples/">
+<meta property="og:image" content="{{SITE_URL}}og.png">
+<meta property="og:image:width" content="1200">
+<meta property="og:image:height" content="630">
+<meta name="twitter:card" content="summary_large_image">
+<meta name="twitter:image" content="{{SITE_URL}}og.png">
 <link rel="stylesheet" href="../site.css">
 </head>
 <body>
 <header class="nav">
-  <a class="brand" href="../"><img src="../favicon.svg" width="22" height="22" alt="">diagram</a>
-  <nav><a href="../app/">Playground</a><a href="{{REPO_URL}}">GitHub</a></nav>
+  <a class="brand" href="../"><img class="logo" src="../favicon.svg" alt="">diagram</a>
+  <nav>
+    <a href="../#features">Features</a>
+    <a href="./">Example</a>
+    <a href="../app/">Playground</a>
+    <a class="gh" href="{{REPO_URL}}">GitHub</a>
+  </nav>
 </header>
-<main>
-<h1>Examples</h1>
-<p>Each example is a <code>.diagram</code> file rendered by the CLI. The HTML version is a self-contained page made with <code>diagram html</code>.</p>
-<div class="examples">
-<!-- EXAMPLES -->
-</div>
+
+<main class="page">
+  <h1>One board, every feature</h1>
+  <p class="sub">A checkout relaunch, start to finish, in one file: <a href="example.diagram">example.diagram</a>. The top board is the system;
+    four canvases inside it hold the discovery, the plan, the data and the numbers. Open it in the
+    <a href="../app/">playground</a> to click through the canvases, or in your terminal with <code>diagram example.diagram</code>.</p>
+  <nav class="toc">
+    <a href="#top">The system</a><a href="#discovery">Discovery</a><a href="#plan">Delivery plan</a><a href="#data">Data &amp; flows</a><a href="#metrics">Metrics</a>
+  </nav>
+
+  <section class="example" id="top">
+    <h2>The system</h2>
+    <p>All thirteen shapes, colours, details, tags, web and in-board links, nested sections, every kind of arrow, review comments with replies, and a theme of its own. The <i>Inside this board</i> section holds the links into the canvases — a button, a card, a text link and a sticky.</p>
+    <a class="shot" href="board.svg"><img src="board.svg" alt="The checkout architecture with its sections, shapes, arrows and comments" loading="lazy"></a>
+  </section>
+
+  <section class="example" id="discovery">
+    <h2>Discovery</h2>
+    <p>A prompt written as a mindmap (Context, Goal, Constraints, Steps, Acceptance — "Copy as prompt" turns it into Markdown for a coding agent), a retro as a top-down mindmap, a pasted wireframe, and a canvas of interview notes inside this canvas.</p>
+    <a class="shot" href="discovery.svg"><img src="discovery.svg" alt="A prompt mindmap, a retro mindmap and a wireframe image" loading="lazy"></a>
+  </section>
+
+  <section class="example" id="plan">
+    <h2>Delivery plan</h2>
+    <p>A kanban board, two gantt charts (one waits for the other's milestone), a risk matrix, decision records with their status, and tables.</p>
+    <a class="shot" href="plan.svg"><img src="plan.svg" alt="Kanban, gantt charts, a risk matrix, decision records and tables" loading="lazy"></a>
+  </section>
+
+  <section class="example" id="data">
+    <h2>Data &amp; flows</h2>
+    <p>An ER model with crow's-foot cardinality and named relationships, the payment as a sequence diagram, and order-to-cash in swimlanes.</p>
+    <a class="shot" href="data.svg"><img src="data.svg" alt="An ER diagram, a sequence diagram and swimlanes" loading="lazy"></a>
+  </section>
+
+  <section class="example" id="metrics">
+    <h2>Metrics</h2>
+    <p>Every chart type — bars, stacked and horizontal bars, lines, areas, pie, donut and scatter — drawn from small tables, on the <code>paper</code> theme.</p>
+    <a class="shot" href="metrics.svg"><img src="metrics.svg" alt="Bar, line, area, pie, donut and scatter charts" loading="lazy"></a>
+  </section>
 </main>
+
+<footer>
+  <span>diagram · MIT</span>
+  <a href="../">Home</a><a href="../app/">Playground</a><a href="example.diagram">example.diagram</a><a href="{{REPO_URL}}">Source</a>
+</footer>
 </body>
 </html>

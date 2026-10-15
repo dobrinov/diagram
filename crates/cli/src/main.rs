@@ -216,6 +216,10 @@ fn main() -> ExitCode {
             return ExitCode::from(2);
         }
     };
+    if args.flag("-V") || args.flag("--version") {
+        println!("diagram {}", env!("CARGO_PKG_VERSION"));
+        return ExitCode::SUCCESS;
+    }
     if args.flag("-h") || args.flag("--help") {
         print!("{HELP}");
         return ExitCode::SUCCESS;

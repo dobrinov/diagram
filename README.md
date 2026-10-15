@@ -94,7 +94,15 @@ Whiteboard tools are great for talking. Their output, though, ends up in a forma
 
 ## Install
 
-Requirements: Rust with the `wasm32-unknown-unknown` target, and `wasm-pack`.
+**Homebrew** (macOS, Linux):
+
+```bash
+brew install dobrinov/tap/diagram
+```
+
+**Binaries:** download an archive for macOS (Apple silicon or Intel), Linux (x86_64 or arm64) or Windows (x86_64) from the [latest release](https://github.com/dobrinov/diagram/releases/latest), unpack it and put `diagram` on your `PATH`. `SHA256SUMS` lists the checksums.
+
+**From source:** you need Rust with the `wasm32-unknown-unknown` target, and `wasm-pack`.
 
 ```bash
 rustup target add wasm32-unknown-unknown

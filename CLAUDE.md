@@ -46,5 +46,5 @@ DIAGRAM_WEB_DIR=web ./target/debug/diagram FILE --no-open --port N --ai CMD   # 
 - Every change goes through ops in the core; the editor, CLI, LLM replies and undo all rely on that. Keep the DSL round-trip exact (`parse(print(doc)) == doc`) and add a test when the format changes.
 - Check UI changes in a real browser (screenshots via Playwright), in light and dark.
 - Run `cargo fmt` only on files you change (the tree isn't fmt-clean; don't reformat unrelated files).
-- Release per shipped change: bump `Cargo.toml` version, add a `CHANGELOG.md` entry, commit, tag `vX.Y.Z`. Don't push unless asked.
+- Release per shipped change: bump `Cargo.toml` version, add a `CHANGELOG.md` entry, commit, tag `vX.Y.Z`. Don't push unless asked. Pushing a tag runs `.github/workflows/release.yml` (binaries for macOS / Linux / Windows, the GitHub Release, the Homebrew formula in dobrinov/homebrew-tap); pushing `main` deploys the site (`site/`, `scripts/build-site.sh`) to dobrinov.github.io/diagram.
 - On design questions: explain how it works today, propose two options (high level), build after the owner picks.

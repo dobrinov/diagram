@@ -1,5 +1,11 @@
 # Changelog
 
+## 0.30.0 — 2026-10-15
+
+- **Install it anywhere:** every tag `vX.Y.Z` builds diagram for macOS (Apple silicon and Intel), Linux (x86_64 and arm64) and Windows (x86_64), and publishes them on GitHub Releases with checksums and notes from this changelog. Homebrew: `brew install dobrinov/tap/diagram`.
+- **Website:** a new landing page at dobrinov.github.io/diagram, with a live editor in the hero, install steps, the features and this changelog. Also the example board with a picture of every canvas, and the playground. It is built and deployed on every push to `main`.
+- `diagram --version` (and `-V`) prints the version.
+
 ## 0.29.2 — 2026-10-15
 
 - **Tooltips:** every button in the editor (the tools, the toolbar, zoom) shows a tooltip after a moment, or at once when you move along the toolbar. It gives the name, the keyboard shortcut as a key, and what the button does, above the bottom toolbar and below the top one, in light and dark. It replaces the browser's slow plain tooltip; the `title` attributes stay for scripts and accessibility.
