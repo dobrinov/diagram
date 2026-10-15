@@ -30,7 +30,7 @@ jobs:
       - name: Install wasm-pack
         run: curl -sSf https://rustwasm.github.io/wasm-pack/installer/init.sh | sh
       - name: Test
-        run: make wasm && DIAGRAM_SKIP_WASM=1 cargo test --workspace && node --test web/test/
+        run: make wasm && DIAGRAM_SKIP_WASM=1 cargo test --workspace && node --test web/test/*.test.mjs
       - name: Check the example
         run: DIAGRAM_SKIP_WASM=1 cargo run -q -p diagram -- check examples/example.diagram
       - name: Build site

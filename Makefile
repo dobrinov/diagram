@@ -26,9 +26,9 @@ install: wasm
 
 test:
 	cargo test --workspace
-	node --test web/test/
+	node --test web/test/*.test.mjs
 	@# the js/ package tests need js/pkg (`make js`); skipped when it is not built
-	@if [ -f js/pkg/diagram_wasm_bg.wasm ]; then node --test js/test/; else echo "skipping js/ tests: run 'make js' first"; fi
+	@if [ -f js/pkg/diagram_wasm_bg.wasm ]; then node --test js/test/*.test.mjs; else echo "skipping js/ tests: run 'make js' first"; fi
 
 # Browser tests of the editor (Playwright + the installed Chrome; serves web/ from disk)
 e2e: build
