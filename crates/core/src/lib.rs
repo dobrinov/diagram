@@ -174,6 +174,7 @@ pub fn json_schema() -> Value {
                 "color": color,
                 "group": {"type": "string", "description": "id of the enclosing group"},
                 "link": {"type": "string", "description": "a URL, or #id to go to another element on the board"},
+                "image": {"type": "string", "description": "the id of an asset (an image) the box shows"},
                 "tags": {"type": "array", "items": {"type": "string"}},
                 "x": {"type": "number"}, "y": {"type": "number"}, "w": {"type": "number"}, "h": {"type": "number"},
                 "parent": {"type": "string", "description": "mindmap: id of the topic this one branches from"},
@@ -225,6 +226,10 @@ pub fn json_schema() -> Value {
                 "w": {"type": "number"}, "h": {"type": "number"},
                 "x": {"type": "number", "description": "swimlanes / gantt chart: pinned left edge"},
                 "y": {"type": "number", "description": "swimlanes / gantt chart: pinned top edge"}
+            }}},
+            "assets": {"type": "array", "items": {"type": "object", "required": ["id", "data"], "additionalProperties": false, "properties": {
+                "id": {"type": "string"},
+                "data": {"type": "string", "description": "a data:image/png;base64,… (or jpeg, gif, webp, svg+xml) URI"}
             }}},
             "comments": {"type": "array", "items": {"type": "object", "required": ["text"], "additionalProperties": false, "properties": {
                 "id": {"type": "string", "description": "defaults to c1, c2, …"},

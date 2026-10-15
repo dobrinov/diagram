@@ -169,6 +169,7 @@ fn exists(doc: &Document, e: &Elem) -> bool {
         Elem::Group(id) => doc.group(id).is_some(),
         Elem::Comment(id) => doc.comment(id).is_some(),
         Elem::Setting(k) => dsl::setting_line(doc, k).is_some(),
+        Elem::Asset(id) => doc.asset(id).is_some(),
     }
 }
 
@@ -179,6 +180,7 @@ fn same(old: &Document, new: &Document, e: &Elem) -> bool {
         Elem::Group(id) => old.group(id) == new.group(id),
         Elem::Comment(id) => old.comment(id) == new.comment(id),
         Elem::Setting(k) => dsl::setting_line(old, k) == dsl::setting_line(new, k),
+        Elem::Asset(id) => old.asset(id) == new.asset(id),
     }
 }
 
@@ -203,6 +205,11 @@ fn statement(doc: &Document, e: &Elem, pad: &str, out: &mut Vec<String>) {
             }
         }
         Elem::Setting(k) => out.extend(dsl::setting_line(doc, k)),
+        Elem::Asset(id) => {
+            if let Some(a) = doc.asset(id) {
+                out.push(format!("{pad}{}", dsl::asset_line(a)));
+            }
+        }
         Elem::Group(_) => {}
     }
 }
@@ -215,6 +222,7 @@ struct Anchors {
     blocks: Option<usize>,
     edges: Option<usize>,
     comments: Option<usize>,
+    assets: Option<usize>,
     /// The first comment line, so new arrows go before the comments.
     first_comment: Option<usize>,
 }
@@ -507,6 +515,7 @@ fn edit_lines(
                     at.first_comment.get_or_insert(out.len() - 1);
                     at.comments = Some(out.len());
                 }
+                Elem::Asset(_) => at.assets = Some(out.len()),
                 _ => {}
             }
         }
@@ -596,7 +605,15 @@ fn edit_lines(
             statement(new, &e, "", &mut chunk);
         }
     }
-    add(at.comments, end, chunk);
+    add(at.comments, end, std::mem::take(&mut chunk));
+    // images last
+    for a in &new.assets {
+        let e = Elem::Asset(a.id.clone());
+        if !done.contains(&e) {
+            statement(new, &e, "", &mut chunk);
+        }
+    }
+    add(at.assets, end, chunk);
 
     // later positions first, so earlier ones stay put (and at the same spot,
     // the later kind first); a new section is set off by blank lines

@@ -1378,10 +1378,13 @@
     }
     canvas.addEventListener("contextmenu", function (e) {
       var t = st.r && hit(e.target);
-      var items = t ? contextItems(t) : [];
+      var at = toDiagram(e.clientX, e.clientY);
+      var items = t ? contextItems(t) : view ? [] : [
+        ["Insert image…", function () { pickImages(at); }, "Or paste an image, or drop image files on the board"]
+      ];
       if (!items.length) return;
       e.preventDefault();
-      if ((t.type === "node" || t.type === "edge" || t.type === "group") && st.sel.indexOf(t.id) < 0) select([t.id]);
+      if (t && (t.type === "node" || t.type === "edge" || t.type === "group") && st.sel.indexOf(t.id) < 0) select([t.id]);
       st.menuAt = { x: e.clientX, y: e.clientY };
       openMenu(st.menuAt, items);
     });
@@ -1648,9 +1651,100 @@
       if (view || !modal.hidden) return;
       var a = document.activeElement, tag = (a && a.tagName) || "";
       if (tag === "INPUT" || tag === "TEXTAREA" || !(a === canvas || canvas.contains(a))) return;
+      // an image (a screenshot, a copied picture) becomes an image box
+      var files = imageFiles(e.clipboardData);
+      if (files.length) {
+        e.preventDefault();
+        var r = canvas.getBoundingClientRect();
+        importImages(files, toDiagram(r.left + canvas.clientWidth / 2, r.top + canvas.clientHeight / 2));
+        return;
+      }
       var text = e.clipboardData && e.clipboardData.getData("text/plain");
       if (text && pasteOutline(text)) e.preventDefault();
     }
+
+    /* Image files in a clipboard or a drop. */
+    function imageFiles(dt) {
+      if (!dt) return [];
+      var out = [];
+      Array.prototype.forEach.call(dt.files || [], function (f) { if (/^image\//.test(f.type)) out.push(f); });
+      if (!out.length) Array.prototype.forEach.call(dt.items || [], function (it) {
+        if (it.kind === "file" && /^image\//.test(it.type)) { var f = it.getAsFile(); if (f) out.push(f); }
+      });
+      return out;
+    }
+    /* Images as boxes around `at` (diagram coordinates), one beside the other. */
+    function importImages(files, at) {
+      var x = at.x;
+      files.reduce(function (p, f) {
+        return p.then(function () {
+          return imageData(f).then(function (img) {
+            var id = addImageBox(img, { x: x, y: at.y });
+            if (id) x += img.w + 32;
+          });
+        });
+      }, Promise.resolve()).catch(function (e) { flash("Could not read the image: " + (e.message || e), true); });
+    }
+    /* A file as a data URI and its size; big ones are scaled down (at most
+       1600px) and photos past ~400 KB stored as JPEG, so the board stays small. */
+    function imageData(file) {
+      var read = function (blob) {
+        return new Promise(function (ok, fail) {
+          var fr = new FileReader();
+          fr.onload = function () { ok(fr.result); };
+          fr.onerror = function () { fail(fr.error); };
+          fr.readAsDataURL(blob);
+        });
+      };
+      return read(file).then(function (uri) {
+        return new Promise(function (ok, fail) {
+          var img = new Image();
+          img.onload = function () {
+            var nw = img.naturalWidth || 320, nh = img.naturalHeight || 200;
+            var sc = Math.min(1, 1600 / Math.max(nw, nh));
+            var w = Math.round(nw * sc), h = Math.round(nh * sc);
+            var keep = sc === 1 && (file.size < 400000 || file.type === "image/svg+xml") && /^image\/(png|jpeg|gif|webp|svg\+xml)$/.test(file.type);
+            if (keep) return ok({ data: uri, w: w, h: h });
+            var c = document.createElement("canvas");
+            c.width = w; c.height = h;
+            c.getContext("2d").drawImage(img, 0, 0, w, h);
+            var png = c.toDataURL("image/png");
+            ok({ data: png.length < 540000 ? png : c.toDataURL("image/jpeg", 0.85), w: w, h: h });
+          };
+          img.onerror = function () { fail(new Error("not an image the browser can read")); };
+          img.src = uri;
+        });
+      });
+    }
+    /* An image box (shown at most 480px wide) with its asset; returns its id. */
+    function addImageBox(img, at) {
+      var ids = (st.doc.assets || []).map(function (a) { return a.id; }), k = 1;
+      while (ids.indexOf("img" + k) >= 0) k++;
+      var aid = "img" + k, id = freshId("image");
+      var bw = Math.min(480, img.w), bh = Math.round(img.h * bw / img.w);
+      var res = applyOps([
+        { op: "add_asset", id: aid, data: img.data },
+        { op: "add_node", id: id, label: "", image: aid, w: bw + 8, h: bh + 8, x: Math.round(at.x - (bw + 8) / 2), y: Math.round(at.y - (bh + 8) / 2) }
+      ]);
+      if (!res.ok) return null;
+      select([id]);
+      return id;
+    }
+    function pickImages(at) {
+      var input = h("input", { type: "file", accept: "image/*", multiple: "multiple" });
+      input.onchange = function () { if (input.files.length) importImages(Array.prototype.slice.call(input.files), at); };
+      input.click();
+    }
+    canvas.addEventListener("dragover", function (e) {
+      if (!view && e.dataTransfer && Array.prototype.indexOf.call(e.dataTransfer.types || [], "Files") >= 0) e.preventDefault();
+    });
+    canvas.addEventListener("drop", function (e) {
+      if (view) return;
+      var files = imageFiles(e.dataTransfer);
+      if (!files.length) return;
+      e.preventDefault();
+      importImages(files, toDiagram(e.clientX, e.clientY));
+    });
 
     canvas.addEventListener("wheel", function (e) {
       e.preventDefault();

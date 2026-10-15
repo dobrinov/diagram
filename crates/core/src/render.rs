@@ -527,6 +527,7 @@ fn draw(doc: &Document, opts: &RenderOptions, def: Option<crate::model::ThemeDef
             _ if nb.task => task_svg(&mut s, node, nb, p, t, change),
             _ if nb.risk => risk_svg(&mut s, doc, node, nb, p, t, change),
             _ if nb.datum => datum_svg(&mut s, doc, node, nb, p, change),
+            _ if node.image.is_some() => image_svg(&mut s, doc, node, nb, p, change),
             Some(st) => map_node_svg(&mut s, node, nb, st, p, t, change),
             None => node_svg(&mut s, node, nb, p, t, change),
         }
@@ -1645,6 +1646,77 @@ fn text_lines(
             esc(l)
         );
     }
+}
+
+/// A box showing an image: the picture, its caption (the label) under it,
+/// and a thin frame.
+fn image_svg(
+    s: &mut String,
+    doc: &Document,
+    node: &Node,
+    nb: &layout::NodeBox,
+    p: &Palette,
+    change: Option<Change>,
+) {
+    let r = nb.rect;
+    let stroke = match change {
+        Some(c) => change_colors(c, p).1,
+        None => p.node_stroke.to_string(),
+    };
+    let caption = if nb.lines.is_empty() {
+        0.0
+    } else {
+        nb.lines.len() as f64 * 16.0 + 8.0
+    };
+    let _ = write!(
+        s,
+        r#"<g class="dg-node dg-image" data-id="{}"><title>{}</title>"#,
+        esc(&node.id),
+        esc(node.display())
+    );
+    let _ = write!(
+        s,
+        r#"<rect class="dg-shape" x="{}" y="{}" width="{}" height="{}" rx="6" fill="{}" stroke="{stroke}" stroke-width="1" filter="url(#dg-shadow)"/>"#,
+        n(r.x),
+        n(r.y),
+        n(r.w),
+        n(r.h),
+        p.node_fill
+    );
+    match node.image.as_deref().and_then(|i| doc.asset(i)) {
+        Some(a) => {
+            let _ = write!(
+                s,
+                r#"<image x="{}" y="{}" width="{}" height="{}" preserveAspectRatio="xMidYMid meet" href="{}"/>"#,
+                n(r.x + 4.0),
+                n(r.y + 4.0),
+                n((r.w - 8.0).max(1.0)),
+                n((r.h - 8.0 - caption).max(1.0)),
+                a.data
+            );
+        }
+        None => {
+            let _ = write!(
+                s,
+                r#"<text x="{}" y="{}" text-anchor="middle" font-size="12" fill="{}">image `{}` is missing</text>"#,
+                n(r.cx()),
+                n(r.cy()),
+                p.muted,
+                esc(node.image.as_deref().unwrap_or(""))
+            );
+        }
+    }
+    for (k, l) in nb.lines.iter().enumerate() {
+        let _ = write!(
+            s,
+            r#"<text x="{}" y="{}" text-anchor="middle" font-size="12" fill="{}">{}</text>"#,
+            n(r.cx()),
+            n(r.bottom() - caption + 14.0 + k as f64 * 16.0),
+            p.muted,
+            esc(l)
+        );
+    }
+    s.push_str("</g>");
 }
 
 fn node_svg(

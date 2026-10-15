@@ -94,6 +94,20 @@ Attributes go in square brackets at the end of the line as `key: value` pairs se
 
 Nodes without `x`/`y` are placed automatically. Dragging a node in the editor pins it there. `diagram apply FILE` with `{"op":"unpin"}` releases every pinned node.
 
+### Images
+
+```diagram
+shot: Login screen [image: img1, w: 328, h: 228]
+
+asset img1: data:image/png;base64,iVBORw0KGgo…
+```
+
+- `image: img1` makes a box show an image; the label, if any, is its caption. `w`/`h` size it (the picture keeps its proportions inside).
+- The image itself is an `asset` line at the end of the file: its id and a `data:image/png;base64,…` URI (png, jpeg, gif, webp or svg+xml). One asset can be shown by several boxes; removing the last box that shows it removes it too.
+- Prompts, `brief` and `query` leave the base64 out and say which images there are, so a model reads `[image: img1]`, not the data. A whole-diagram reply keeps the board's images.
+- In the editor: paste an image (a screenshot, a copied picture), drop image files on the board, or right-click the empty board → *Insert image…*. Images over 1600px are scaled down, and large photos are stored as JPEG, to keep the file small.
+- Ops: `{"op":"add_asset","id":"img1","data":"data:image/png;base64,…"}`, then `add_node` / `update_node` with `"image":"img1"`; `remove` an asset id to drop it from every box.
+
 ### Themes
 
 ```diagram

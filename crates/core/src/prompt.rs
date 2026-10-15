@@ -69,7 +69,7 @@ const SMALL_BOARD: usize = 60;
 /// with `Section`, the blocks around it. None: the whole board.
 fn context_ids(doc: &Document, comments: &[&Comment], context: Context) -> Option<Vec<String>> {
     let context = match context {
-        Context::Auto if dsl::print(doc).lines().count() <= SMALL_BOARD => return None,
+        Context::Auto if dsl::print_lean(doc).lines().count() <= SMALL_BOARD => return None,
         Context::Auto => Context::Section,
         Context::All => return None,
         c => c,
@@ -137,6 +137,7 @@ pub const OPS_REFERENCE: &str = r#"Operations (fields in [] are optional; ids ar
 - {"op":"theme","source":"theme brand {\n  blue: #3b6fd8\n  light {\n    background: #faf9f6\n  }\n  dark {\n    background: #101418\n  }\n}"}   (adds or replaces a theme; top lines apply in both modes, light { } and dark { } what differs; keys: background, dots, text, muted, surface, border, line, section, header, title, title-text, pin, font, radius and the named colours)
 - {"op":"merge","dsl":"cache: Redis [cylinder]\napi -> cache: reads\napi [red]"}   (statements in the diagram language, as if written at the end of the file: adds new elements; one written again by its id gets the attributes given. Cheapest for many changes)
 - Database table: {"op":"add_group","id":"users","label":"Users","entity":true}; its columns are add_node / update_node with "id":"users.email","label":"email","group":"users","column":{"type":"text",["pk":true,"unique":true,"null":true,"fk":"teams.id","default":"now()"]}. Or merge: "entity users: Users {\n  id: uuid [pk]\n  team_id: uuid [fk: teams]\n}"
+- Images: a box with "image":"img1" shows asset img1 (its data is not shown to you); keep the image attribute when you rewrite a box.
 - Sequence diagram: {"op":"add_group","id":"login","label":"Sign in","sequence":true}; participants are nodes in it, messages are add_edge between them (in order; {"op":"update_edge","id":"web->api","index":0} moves one). Or merge: "sequence login: Sign in {\n  user: User\n  web: Web app\n  user -> web: opens /login\n  web ..> user: page\n}" (..> is a reply)
 - Decision record: {"op":"add_group","id":"db","label":"Use Postgres","adr":"proposed"} (status: proposed, accepted, rejected, superseded, deprecated); its fields are add_node / update_node with "id":"db.context","label":"context","group":"db","detail":"the text". Or merge: "adr db: Use Postgres [accepted] {\n  context: …\n  decision: …\n}"
 - Kanban: {"op":"add_group","id":"sprint","label":"Sprint 12","kanban":true}, its columns {"op":"add_group","id":"doing","label":"Doing","parent":"sprint"}; a card is a node in a column; move one with {"op":"update_node","id":"login","group":"doing","index":0}. Or merge: "kanban sprint: Sprint 12 {\n  column todo: To do {\n    login: Login page\n  }\n  column doing: Doing {}\n}"
@@ -222,12 +223,12 @@ pub fn ask(doc: &Document, ids: &[String], request: &str) -> String {
             s.push_str(&format!(
                 "## The part of the board this is about\n\nSelected: {}. Shown with what is around it ({shown} of the board's {all} elements); the rest exists too: keep its ids, do not remove or recreate it.\n\n```diagram\n{}```\n\n",
                 ids.iter().map(|i| format!("`{i}`")).collect::<Vec<_>>().join(", "),
-                dsl::print(&sub)
+                dsl::print_lean(&sub)
             ));
         }
         None => s.push_str(&format!(
             "## The board\n\n```diagram\n{}```\n\n",
-            dsl::print(doc)
+            dsl::print_lean(doc)
         )),
     }
     s.push_str(&format!("## The request\n\n{}\n\n", request.trim()));
@@ -328,7 +329,7 @@ pub fn brief(doc: &Document) -> String {
     }
     s.push_str(&format!(
         "## Source\n\n```diagram\n{}```\n",
-        dsl::print(doc)
+        dsl::print_lean(doc)
     ));
     s
 }
@@ -372,9 +373,9 @@ pub fn prompt(doc: &Document, opts: &PromptOptions) -> String {
             let shown = part.nodes.len() + part.edges.len() + part.groups.len();
             let all = doc.nodes.len() + doc.edges.len() + doc.groups.len();
             s.push_str(&format!("The part of the board the comments are about ({shown} of its {all} elements). The rest exists too: keep its ids and do not remove or recreate it.\n\n"));
-            s.push_str(&format!("```diagram\n{}```\n\n", dsl::print(&part)));
+            s.push_str(&format!("```diagram\n{}```\n\n", dsl::print_lean(&part)));
         }
-        None => s.push_str(&format!("```diagram\n{}```\n\n", dsl::print(doc))),
+        None => s.push_str(&format!("```diagram\n{}```\n\n", dsl::print_lean(doc))),
     }
     s.push_str(&format!("## Comments to address ({})\n\n", comments.len()));
     if comments.is_empty() {

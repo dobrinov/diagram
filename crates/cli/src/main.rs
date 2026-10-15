@@ -986,7 +986,9 @@ fn run(args: Args) -> Result<ExitCode, String> {
                     Some(start) => {
                         let body = &patch[start + 10..];
                         let body = &body[..body.find("```").unwrap_or(body.len())];
-                        let new = parse_doc(body, "the ```diagram block")?;
+                        let mut new = parse_doc(body, "the ```diagram block")?;
+                        // prompts leave the images' data out: keep the board's
+                        new.adopt_assets(&doc);
                         if args.flag("--dry-run") {
                             print!(
                                 "{}",

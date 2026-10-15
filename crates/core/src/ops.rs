@@ -33,6 +33,9 @@ pub enum Op {
         group: Option<String>,
         #[serde(default, skip_serializing_if = "Option::is_none")]
         link: Option<String>,
+        /// The asset the box shows (see `add_asset`).
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        image: Option<String>,
         #[serde(default, skip_serializing_if = "Vec::is_empty")]
         tags: Vec<String>,
         #[serde(default, skip_serializing_if = "Option::is_none")]
@@ -100,6 +103,9 @@ pub enum Op {
         group: Option<String>,
         #[serde(default, skip_serializing_if = "Option::is_none")]
         link: Option<String>,
+        /// The asset the box shows ("" for none).
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        image: Option<String>,
         #[serde(default, skip_serializing_if = "Option::is_none")]
         tags: Option<Vec<String>>,
         #[serde(default, skip_serializing_if = "Option::is_none")]
@@ -168,6 +174,13 @@ pub enum Op {
         /// A new mindmap: the section it goes into.
         #[serde(default, skip_serializing_if = "Option::is_none")]
         group: Option<String>,
+    },
+    /// Keep an image in the board: `data` is a `data:image/…;base64,…` URI.
+    /// Boxes show it with `image: ID`.
+    AddAsset {
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        id: Option<String>,
+        data: String,
     },
     /// Rename an id everywhere it is referenced (edges, comments, members).
     Rename {
@@ -673,6 +686,15 @@ fn adr_status(s: &Option<String>) -> Result<Option<String>, String> {
     }
 }
 
+/// An `image` value: an asset the board has ("" or none: no image).
+fn need_asset(doc: &Document, image: &Option<String>) -> Result<Option<String>, String> {
+    match image.as_deref().filter(|i| !i.is_empty()) {
+        None => Ok(None),
+        Some(i) if doc.asset(i).is_some() => Ok(Some(i.to_string())),
+        Some(i) => Err(format!("no asset `{i}` (add it with add_asset)")),
+    }
+}
+
 fn need_container(doc: &Document, g: &str) -> Result<(), String> {
     if doc.group(g).is_none() {
         return Err(format!("no group `{g}`"));
@@ -711,7 +733,21 @@ fn apply_one(doc: &mut Document, op: &Op, created: &mut Vec<String>) -> Result<(
             .collect(),
         _ => Vec::new(),
     };
+    let shown = |doc: &Document| -> Vec<String> {
+        doc.nodes.iter().filter_map(|n| n.image.clone()).collect()
+    };
+    let before = if matches!(op, Op::Remove { .. }) {
+        shown(doc)
+    } else {
+        Vec::new()
+    };
     apply_op(doc, op, created)?;
+    // an image no box shows any more after a removal goes with it
+    if !before.is_empty() {
+        let now = shown(doc);
+        doc.assets
+            .retain(|a| !before.contains(&a.id) || now.contains(&a.id));
+    }
     if let Op::Rename { id, to } = op {
         for r in rows {
             let new = format!("{to}{}", &r[id.len()..]);
@@ -733,6 +769,7 @@ fn apply_op(doc: &mut Document, op: &Op, created: &mut Vec<String>) -> Result<()
             detail,
             group,
             link,
+            image,
             tags,
             x,
             y,
@@ -778,6 +815,7 @@ fn apply_op(doc: &mut Document, op: &Op, created: &mut Vec<String>) -> Result<()
             n.detail = detail.clone().filter(|d| !d.is_empty());
             n.group = group.clone().filter(|g| !g.is_empty());
             n.link = link.clone().filter(|l| !l.is_empty());
+            n.image = need_asset(doc, image)?;
             n.tags = tags.clone();
             (n.x, n.y, n.w, n.h) = (*x, *y, *w, *h);
             if let Some(m) = mindmap.as_deref().filter(|m| !m.is_empty()) {
@@ -811,6 +849,7 @@ fn apply_op(doc: &mut Document, op: &Op, created: &mut Vec<String>) -> Result<()
             detail,
             group,
             link,
+            image,
             tags,
             w,
             h,
@@ -869,6 +908,11 @@ fn apply_op(doc: &mut Document, op: &Op, created: &mut Vec<String>) -> Result<()
             if let Some(g) = opt(group) {
                 n.group = g;
             }
+            if image.is_some() {
+                let i = need_asset(doc, image)?;
+                doc.node_mut(id).unwrap().image = i;
+            }
+            let n = doc.node_mut(id).unwrap();
             if let Some(l) = opt(link) {
                 n.link = l;
             }
@@ -930,6 +974,25 @@ fn apply_op(doc: &mut Document, op: &Op, created: &mut Vec<String>) -> Result<()
                 }
             }
             created.extend(ids);
+        }
+        Op::AddAsset { id, data } => {
+            let data = data.trim();
+            if crate::model::Asset::media_type(data).is_none() {
+                return Err("an asset is an image as a data URI: `data:image/png;base64,…`".into());
+            }
+            let id = match id.as_deref().filter(|i| !i.is_empty()) {
+                Some(i) if !crate::dsl::is_ident(i) => return Err(format!("`{i}` is not an id")),
+                Some(i) if doc.asset(i).is_some() => {
+                    return Err(format!("asset `{i}` is already used"))
+                }
+                Some(i) => i.to_string(),
+                None => doc.fresh_asset_id(),
+            };
+            doc.assets.push(crate::model::Asset {
+                id: id.clone(),
+                data: data.to_string(),
+            });
+            created.push(id);
         }
         Op::Rename { id, to } => {
             if id == to {
@@ -1153,6 +1216,13 @@ fn apply_op(doc: &mut Document, op: &Op, created: &mut Vec<String>) -> Result<()
                 detach_comments(doc, id, &[]);
             } else if doc.comment(id).is_some() {
                 doc.comments.retain(|c| c.id != *id);
+            } else if doc.asset(id).is_some() {
+                doc.assets.retain(|a| a.id != *id);
+                for n in &mut doc.nodes {
+                    if n.image.as_deref() == Some(id.as_str()) {
+                        n.image = None;
+                    }
+                }
             } else {
                 return Err(format!("nothing has the id `{id}`"));
             }
@@ -1896,6 +1966,76 @@ mod tests {
         assert_eq!(r.created[0], "ideas");
         assert_eq!(d.node("ideas").unwrap().mindmap, Some(MapLayout::Right));
         assert_eq!(d.node("ideas").unwrap().x, Some(500.0));
+    }
+
+    #[test]
+    fn images_are_assets_shown_by_boxes() {
+        const PNG: &str = "data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mP8z8BQDwAEhQGAhKmMIQAAAABJRU5ErkJggg==";
+        let mut d = crate::dsl::parse("title: T\nnote: Hi\n").unwrap();
+        let r = apply(
+            &mut d,
+            &parse_ops(&format!(
+                r#"{{"ops":[{{"op":"add_asset","data":"{PNG}"}},{{"op":"add_node","id":"shot","label":"Login","image":"img1","w":120,"h":80}}]}}"#
+            ))
+            .unwrap(),
+        )
+        .unwrap();
+        assert_eq!(r.created, ["img1", "shot"]);
+        let text = crate::dsl::print(&d);
+        assert!(
+            text.contains("shot: Login [image: img1, w: 120, h: 80]\n"),
+            "{text}"
+        );
+        assert!(text.ends_with(&format!("\nasset img1: {PNG}\n")), "{text}");
+        assert_eq!(crate::dsl::parse(&text).unwrap(), d);
+        // what a model reads leaves the data out
+        let lean = crate::dsl::print_lean(&d);
+        assert!(
+            !lean.contains("base64")
+                && lean.contains("# images, not shown: img1 (image/png, 1 KB)"),
+            "{lean}"
+        );
+        assert!(!crate::prompt::brief(&d).contains("base64"));
+        // a reply rewritten without the asset keeps the board's
+        let mut reply = crate::dsl::parse("shot: Login screen [image: img1]\n").unwrap();
+        reply.adopt_assets(&d);
+        assert_eq!(reply.assets, d.assets);
+        // an unknown asset is refused; not an image either
+        assert!(apply(
+            &mut d,
+            &parse_ops(r#"{"op":"update_node","id":"note","image":"img9"}"#).unwrap()
+        )
+        .is_err());
+        assert!(apply(
+            &mut d,
+            &parse_ops(r#"{"op":"add_asset","data":"data:text/html;base64,PGI+"}"#).unwrap()
+        )
+        .is_err());
+        assert!(crate::dsl::parse("asset x: hello\n").is_err());
+        // the box drawn with its picture
+        let svg = crate::render::render(&d, &Default::default()).svg;
+        assert!(svg.contains("<image ") && svg.contains(PNG));
+        // removing the last box that shows it removes the image
+        apply(
+            &mut d,
+            &parse_ops(r#"{"op":"remove","id":"shot"}"#).unwrap(),
+        )
+        .unwrap();
+        assert!(d.assets.is_empty());
+        // patching a file keeps the asset line at the end
+        let src = format!("title: T\nshot: Login [image: img1]\n\nasset img1: {PNG}\n");
+        let old = crate::dsl::parse(&src).unwrap();
+        let mut new = old.clone();
+        apply(
+            &mut new,
+            &parse_ops(r#"{"op":"add_node","id":"b","label":"B"}"#).unwrap(),
+        )
+        .unwrap();
+        let out = crate::patch::patch(&src, &old, &new);
+        assert!(
+            out.ends_with(&format!("asset img1: {PNG}\n")) && out.contains("b: B"),
+            "{out}"
+        );
     }
 
     #[test]

@@ -249,6 +249,17 @@ impl Layout {
 
 /// Text lines and natural size of a node.
 pub fn measure(n: &Node) -> (Vec<String>, Vec<String>, f64, f64) {
+    // an image: its own size (set when it was pasted), its label only a caption
+    if n.image.is_some() {
+        let w = n.w.unwrap_or(240.0);
+        let lines = text::wrap(n.display(), 12.0, w - 16.0);
+        let lines = if n.label.is_empty() {
+            Vec::new()
+        } else {
+            lines
+        };
+        return (lines, Vec::new(), w.round(), n.h.unwrap_or(160.0).round());
+    }
     let max = match n.shape {
         Shape::Sticky => 150.0,
         Shape::Text => 260.0,

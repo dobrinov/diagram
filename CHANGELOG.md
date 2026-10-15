@@ -1,5 +1,11 @@
 # Changelog
 
+## 0.27.0 — 2026-10-15
+
+- **Images:** paste an image (a screenshot, a copied picture), drop image files on the board, or right-click the empty board → *Insert image…*. The box shows the picture with its label as a caption (`shot: Login [image: img1, w: 328, h: 228]`). The image is kept in the file as base64, on an `asset img1: data:image/png;base64,…` line at the end, so boxes stay readable and a diff touches one line. Big images are scaled to 1600px, and large photos are stored as JPEG.
+- Prompts, `brief` and `query` never include the base64: a model reads `[image: img1]` and a note of what images there are, and a whole-diagram reply keeps the board's images. Removing the last box that shows an image removes the image.
+- Ops: `add_asset`, and `image` on `add_node` / `update_node`. JSON: `assets`, `node.image`. PNG export draws the images (`resvg` with `raster-images`). `scripts/e2e/images.mjs` in `make e2e`.
+
 ## 0.26.0 — 2026-10-15
 
 - **ER diagrams:** foreign keys are drawn in crow's-foot notation, worked out from the column. At the referenced table: one, or zero or one when the column may be NULL. At the referencing table: many, or zero or one when the column is unique or the primary key. `[rel: member of]` names the relationship on its line. Leave out a column's type (`email [unique]`) for a conceptual model.

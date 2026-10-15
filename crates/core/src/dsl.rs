@@ -71,6 +71,7 @@ pub(crate) enum Elem {
     Group(String),
     Comment(String),
     Setting(String),
+    Asset(String),
 }
 
 /// What one line of the source is (see [`parse_lines`]).
@@ -305,6 +306,10 @@ impl Parser {
                     }
                 }
                 return Ok(());
+            }
+            "asset" if c.rest()[5..].starts_with(|ch: char| ch.is_whitespace()) => {
+                c.advance(5);
+                return self.asset(c);
             }
             "comment" if c.rest()[7..].starts_with(|ch: char| ch.is_whitespace() || ch == ':') => {
                 c.advance(7);
@@ -1306,6 +1311,33 @@ impl Parser {
         Ok(())
     }
 
+    /// `asset img1: data:image/png;base64,…`: an image the board keeps.
+    fn asset(&mut self, mut c: Cursor) -> Result<(), String> {
+        c.skip_ws();
+        let rest = c.rest();
+        let (id, data) = rest
+            .split_once(':')
+            .ok_or("write `asset img1: data:image/png;base64,…`")?;
+        let (id, data) = (id.trim(), data.trim());
+        if !is_ident(id) {
+            return Err(format!("`{id}` is not an id"));
+        }
+        if Asset::media_type(data).is_none() {
+            return Err(format!(
+                "asset `{id}` is not an image as a data URI (`data:image/png;base64,…`)"
+            ));
+        }
+        if self.doc.asset(id).is_some() {
+            return Err(format!("asset `{id}` is already defined"));
+        }
+        self.doc.assets.push(Asset {
+            id: id.to_string(),
+            data: data.to_string(),
+        });
+        self.touched.push(Elem::Asset(id.to_string()));
+        Ok(())
+    }
+
     /// `comment [ID] [on REF] [at X,Y] [by AUTHOR]: text [attrs]`
     fn comment(&mut self, mut c: Cursor) -> Result<(), String> {
         let mut cm = Comment::default();
@@ -1537,6 +1569,7 @@ fn is_flag(item: &str) -> bool {
 
 /// Every attribute key the language knows.
 const KEYS: &[&str] = &[
+    "image",
     "shape",
     "color",
     "colour",
@@ -1676,6 +1709,7 @@ pub fn apply_node_attrs(n: &mut Node, attrs: &Attrs) -> Result<(), String> {
             ("detail", Some(v)) => n.detail = Some(unescape_label(v)).filter(|s| !s.is_empty()),
             ("label", Some(v)) => n.label = unescape_label(v),
             ("link" | "url", Some(v)) => n.link = Some(v.clone()).filter(|s| !s.is_empty()),
+            ("image" | "img", Some(v)) => n.image = Some(v.clone()).filter(|s| !s.is_empty()),
             ("tags" | "tag", Some(v)) => n.tags = v.split_whitespace().map(String::from).collect(),
             ("x", Some(v)) => n.x = Some(num("x", v)?),
             ("y", Some(v)) => n.y = Some(num("y", v)?),
@@ -2576,6 +2610,9 @@ fn node_attrs(n: &Node) -> Vec<String> {
     if let Some(l) = &n.link {
         a.push(format!("link: {}", attr_value(l)));
     }
+    if let Some(i) = &n.image {
+        a.push(format!("image: {}", attr_value(i)));
+    }
     if !n.tags.is_empty() {
         a.push(format!("tags: {}", attr_value(&n.tags.join(" "))));
     }
@@ -2627,6 +2664,31 @@ pub(crate) fn edge_line(e: &Edge) -> String {
         s.push_str(&label_text(l));
     }
     s + &attrs_text(&a)
+}
+
+pub(crate) fn asset_line(a: &Asset) -> String {
+    format!("asset {}: {}", id_text(&a.id), a.data)
+}
+
+/// [`print`] without the images' data, for prompts: a model reads `[image:
+/// img1]` on the box and a note of what the image is, not its base64.
+pub fn print_lean(doc: &Document) -> String {
+    if doc.assets.is_empty() {
+        return print(doc);
+    }
+    let mut lean = doc.clone();
+    lean.assets.clear();
+    let mut out = print(&lean);
+    out.push_str("\n# images, not shown: ");
+    out.push_str(
+        &doc.assets
+            .iter()
+            .map(|a| format!("{} ({})", a.id, a.summary()))
+            .collect::<Vec<_>>()
+            .join(", "),
+    );
+    out.push('\n');
+    out
 }
 
 pub(crate) fn comment_lines(c: &Comment, out: &mut String) {
@@ -2871,7 +2933,8 @@ pub fn print(doc: &Document) -> String {
     for c in &doc.comments {
         comment_lines(c, &mut comments);
     }
-    for part in [nodes, maps, groups, edges, comments] {
+    let assets: String = doc.assets.iter().map(|a| asset_line(a) + "\n").collect();
+    for part in [nodes, maps, groups, edges, comments, assets] {
         if !part.is_empty() {
             sections.push(part);
         }

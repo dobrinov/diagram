@@ -13,6 +13,6 @@ path = "src/main.rs"
 
 [dependencies]
 diagram-core = { path = "../core" }
-resvg = { version = "0.48.1", default-features = false, features = ["text", "system-fonts", "memmap-fonts"] }
+resvg = { version = "0.48.1", default-features = false, features = ["text", "system-fonts", "memmap-fonts", "raster-images"] }
 serde_json.workspace = true
 tiny_http = "0.12"

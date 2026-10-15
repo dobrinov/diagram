@@ -270,6 +270,8 @@ pub fn subset(doc: &Document, ids: &[String]) -> Document {
         title: doc.title.clone(),
         description: None,
         themes: Vec::new(),
+        // images are kept out of what a model reads
+        assets: Vec::new(),
         settings: Settings {
             palette: None,
             ..doc.settings.clone()
@@ -304,7 +306,7 @@ pub fn subset(doc: &Document, ids: &[String]) -> Document {
 /// [`select`] then [`subset`], printed: what an agent asked to see.
 pub fn query(doc: &Document, selectors: &[&str]) -> Result<String, String> {
     let ids = select(doc, selectors)?;
-    Ok(crate::dsl::print(&subset(doc, &ids)))
+    Ok(crate::dsl::print_lean(&subset(doc, &ids)))
 }
 
 #[cfg(test)]

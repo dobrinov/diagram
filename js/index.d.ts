@@ -33,6 +33,15 @@ export interface Document {
   comments?: Comment[];
   /** Themes written on the board. */
   themes?: ThemeDef[];
+  /** Images kept in the board (`asset img1: data:…`); boxes show them with `image`. */
+  assets?: Asset[];
+}
+
+/** An image kept in the board. */
+export interface Asset {
+  id: string;
+  /** A `data:image/…;base64,…` URI. */
+  data: string;
 }
 
 /** A theme with a light and a dark mode (see `theme` in the language reference). */
@@ -70,6 +79,8 @@ export interface Node {
   group?: string;
   /** A URL, or `#id` to go to another element on the board. */
   link?: string;
+  /** The id of an asset the box shows (an image). */
+  image?: string;
   tags?: string[];
   /** Pinned position (top-left); unpinned nodes are placed by the layout. */
   x?: number;
@@ -228,6 +239,8 @@ export interface AddNodeOp {
   detail?: string;
   group?: string;
   link?: string;
+  /** The id of an asset the box shows (an image). */
+  image?: string;
   tags?: string[];
   x?: number;
   y?: number;
@@ -273,6 +286,8 @@ export interface UpdateNodeOp {
   detail?: string;
   group?: string;
   link?: string;
+  /** The id of an asset the box shows (an image). */
+  image?: string;
   tags?: string[];
   w?: number;
   h?: number;
@@ -321,6 +336,13 @@ export interface AddOutlineOp {
   y?: number;
   /** A new mindmap: the section it goes into. */
   group?: string;
+}
+
+/** Keep an image in the board (a `data:image/…;base64,…` URI); boxes show it with `image: id`. Removing the last box that shows it removes it too. */
+export interface AddAssetOp {
+  op: "add_asset";
+  id?: string;
+  data: string;
 }
 
 /** A decision record's status. */
@@ -533,7 +555,8 @@ export type ChartKind = "bar" | "line" | "area" | "pie" | "donut" | "scatter";
 export type Op =
   | AddNodeOp | UpdateNodeOp | AddOutlineOp | RenameOp | RemoveOp | MoveOp | NudgeOp | UnpinOp
   | AddEdgeOp | UpdateEdgeOp | AddGroupOp | UpdateGroupOp
-  | AddCommentOp | ReplyOp | EditCommentOp | ResolveCommentOp | ReopenCommentOp | SetOp | MergeOp | ThemeOp;
+  | AddCommentOp | ReplyOp | EditCommentOp | ResolveCommentOp | ReopenCommentOp | SetOp | MergeOp | ThemeOp
+  | AddAssetOp;
 
 /** What Board.apply() accepts: ops, `{ops}`, one op, or a model's reply text containing that JSON. */
 export type OpsInput = Op[] | { ops: Op[] } | Op | string;

@@ -21,6 +21,46 @@ pub struct Document {
     /// Themes written on the board (`theme brand [base: light] { … }`).
     #[serde(skip_serializing_if = "Vec::is_empty")]
     pub themes: Vec<ThemeDef>,
+    /// Images pasted onto the board, as data URIs; boxes show them by id
+    /// (`[image: img1]`). Written at the end of the file.
+    #[serde(skip_serializing_if = "Vec::is_empty")]
+    pub assets: Vec<Asset>,
+}
+
+/// An image kept in the board: `asset img1: data:image/png;base64,…`.
+#[derive(Debug, Clone, Default, PartialEq, Serialize, Deserialize)]
+#[serde(default)]
+pub struct Asset {
+    pub id: String,
+    /// A `data:image/…;base64,…` URI.
+    pub data: String,
+}
+
+impl Asset {
+    /// The media type (`image/png`) of a data URI, if it is one of an image.
+    pub fn media_type(data: &str) -> Option<&str> {
+        let rest = data.strip_prefix("data:")?;
+        let (head, body) = rest.split_once(',')?;
+        let ty = head.strip_suffix(";base64")?;
+        let ok = matches!(
+            ty,
+            "image/png" | "image/jpeg" | "image/gif" | "image/webp" | "image/svg+xml"
+        ) && !body.is_empty()
+            && body
+                .bytes()
+                .all(|b| b.is_ascii_alphanumeric() || matches!(b, b'+' | b'/' | b'='));
+        ok.then_some(ty)
+    }
+
+    /// Roughly how big the image is, for prompts: `image/png, 34 KB`.
+    pub fn summary(&self) -> String {
+        let ty = Asset::media_type(&self.data).unwrap_or("image");
+        let bytes = self
+            .data
+            .split_once(',')
+            .map_or(0, |(_, b)| b.len() * 3 / 4);
+        format!("{ty}, {} KB", bytes.div_ceil(1024))
+    }
 }
 
 /// A theme, in a light and a dark mode: what it changes in both (`values`)
@@ -172,6 +212,9 @@ pub struct Node {
     pub group: Option<String>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub link: Option<String>,
+    /// An image the box shows: the id of one of the board's assets.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub image: Option<String>,
     #[serde(skip_serializing_if = "Vec::is_empty")]
     pub tags: Vec<String>,
     /// Pinned position (top-left). Unpinned nodes are placed by the layout.
@@ -511,6 +554,36 @@ impl Document {
     }
     pub fn comment(&self, id: &str) -> Option<&Comment> {
         self.comments.iter().find(|c| c.id == id)
+    }
+    pub fn asset(&self, id: &str) -> Option<&Asset> {
+        self.assets.iter().find(|a| a.id == id)
+    }
+    /// A free asset id: `img1`, `img2`, …
+    pub fn fresh_asset_id(&self) -> String {
+        (1..)
+            .map(|k| format!("img{k}"))
+            .find(|id| self.asset(id).is_none())
+            .unwrap()
+    }
+    /// Assets no box shows any more are dropped.
+    pub fn prune_assets(&mut self) {
+        let used: Vec<String> = self.nodes.iter().filter_map(|n| n.image.clone()).collect();
+        self.assets.retain(|a| used.contains(&a.id));
+    }
+    /// The images `old` had that this board shows but lacks (a model's reply
+    /// written without them: prompts leave the image data out).
+    pub fn adopt_assets(&mut self, old: &Document) {
+        let wanted: Vec<String> = self
+            .nodes
+            .iter()
+            .filter_map(|n| n.image.clone())
+            .filter(|id| self.asset(id).is_none())
+            .collect();
+        for id in wanted {
+            if let Some(a) = old.asset(&id) {
+                self.assets.push(a.clone());
+            }
+        }
     }
     pub fn comment_mut(&mut self, id: &str) -> Option<&mut Comment> {
         self.comments.iter_mut().find(|c| c.id == id)
