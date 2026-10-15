@@ -130,6 +130,32 @@ fn boards(root: &Path) -> Vec<String> {
     out
 }
 
+/// Git's three versions of a file it could not merge (base, yours, theirs:
+/// index stages 1–3), when a merge left it unmerged.
+fn unmerged(file: &Path) -> Option<(String, String, String)> {
+    let dir = file
+        .parent()
+        .filter(|d| !d.as_os_str().is_empty())
+        .unwrap_or(Path::new("."));
+    let name = format!("./{}", file.file_name()?.to_string_lossy());
+    let git = |args: &[&str]| {
+        std::process::Command::new("git")
+            .arg("-C")
+            .arg(dir)
+            .args(args)
+            .output()
+            .ok()
+            .filter(|o| o.status.success())
+            .map(|o| String::from_utf8_lossy(&o.stdout).into_owned())
+    };
+    let listed = git(&["ls-files", "-u", "--", &name])?;
+    if listed.trim().is_empty() {
+        return None;
+    }
+    let stage = |n: u8| git(&["show", &format!(":{n}:{name}")]).unwrap_or_default();
+    Some((stage(1), stage(2), stage(3)))
+}
+
 fn respond_json(req: Request, status: u16, v: Value) {
     let h = Header::from_bytes("Content-Type", "application/json; charset=utf-8").unwrap();
     let _ = req.respond(
@@ -196,6 +222,58 @@ pub fn serve(
             }
         };
         match (req.method().clone(), path.as_str()) {
+            // a merge that clashed: the three versions, for the editor to settle
+            (Method::Get, "/api/conflict") => {
+                let v = match unmerged(&file) {
+                    Some((base, ours, theirs)) => {
+                        json!({ "conflict": true, "git": true, "base": base, "ours": ours, "theirs": theirs })
+                    }
+                    None => {
+                        let text = std::fs::read_to_string(&file).unwrap_or_default();
+                        match diagram_core::merge::split_markers(&text) {
+                            Some((base, ours, theirs)) => {
+                                json!({ "conflict": true, "git": false, "base": base.unwrap_or_default(), "ours": ours, "theirs": theirs })
+                            }
+                            None => json!({ "conflict": false }),
+                        }
+                    }
+                };
+                respond_json(req, 200, v)
+            }
+            // the settled board: written, and marked resolved in git
+            (Method::Post, "/api/resolve") => {
+                let mut body = String::new();
+                if req.as_reader().read_to_string(&mut body).is_err() {
+                    respond_json(
+                        req,
+                        400,
+                        json!({ "ok": false, "error": "body is not UTF-8" }),
+                    );
+                    continue;
+                }
+                let was = unmerged(&file).is_some();
+                if let Err(e) = std::fs::write(&file, &body) {
+                    respond_json(req, 500, json!({ "ok": false, "error": e.to_string() }));
+                    continue;
+                }
+                let staged = was
+                    && std::process::Command::new("git")
+                        .arg("-C")
+                        .arg(
+                            file.parent()
+                                .filter(|d| !d.as_os_str().is_empty())
+                                .unwrap_or(Path::new(".")),
+                        )
+                        .args(["add", "--"])
+                        .arg(file.file_name().unwrap_or_default())
+                        .status()
+                        .is_ok_and(|s| s.success());
+                respond_json(
+                    req,
+                    200,
+                    json!({ "ok": true, "staged": staged, "mtime": mtime(&file).to_string() }),
+                )
+            }
             (Method::Get, "/api/boards") => respond_json(
                 req,
                 200,

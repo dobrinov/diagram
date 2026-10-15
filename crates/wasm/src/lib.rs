@@ -284,6 +284,138 @@ impl Diagram {
     }
 }
 
+/// The three versions of a merge as boards ("" for an unknown base).
+fn merge_docs(base: &str, ours: &str, theirs: &str) -> Result<[diagram_core::Document; 3], String> {
+    let read = |what: &str, s: &str| -> Result<diagram_core::Document, String> {
+        let s = diagram_core::merge::strip_note(s);
+        if s.trim().is_empty() {
+            return Ok(Default::default());
+        }
+        diagram_core::parse(s).map_err(|e| {
+            format!(
+                "{what}: {}",
+                e.iter()
+                    .map(|d| d.to_string())
+                    .collect::<Vec<_>>()
+                    .join("; ")
+            )
+        })
+    };
+    Ok([
+        read("base", base)?,
+        read("yours", ours)?,
+        read("theirs", theirs)?,
+    ])
+}
+
+fn picks_of(picks: &str) -> std::collections::BTreeMap<String, String> {
+    serde_json::from_str(picks).unwrap_or_default()
+}
+
+/// Merge two versions of a board changed from `base`: `{ok, source,
+/// conflicts: [{key, kind, id, label, canvas, fields, text}]}` (source keeps
+/// yours where they clash), or `{ok: false, error}`.
+#[wasm_bindgen]
+pub fn merge3(base: &str, ours: &str, theirs: &str) -> String {
+    let [b, o, t] = match merge_docs(base, ours, theirs) {
+        Ok(d) => d,
+        Err(e) => return json!({"ok": false, "error": e}).to_string(),
+    };
+    let m = diagram_core::merge::merge3(&b, &o, &t);
+    let src = diagram_core::patch::patch(diagram_core::merge::strip_note(ours), &o, &m.doc);
+    let conflicts: Vec<Value> = m
+        .conflicts
+        .iter()
+        .map(|c| {
+            json!({"key": c.key(), "kind": c.kind, "id": c.id, "label": c.label, "canvas": c.canvas,
+                   "fields": c.fields, "text": diagram_core::merge::describe(c),
+                   "ours": c.ours.is_some(), "theirs": c.theirs.is_some()})
+        })
+        .collect();
+    json!({"ok": true, "source": src, "conflicts": conflicts}).to_string()
+}
+
+/// The board after picking sides (`picks`: `{"node:api": "theirs"}`) and
+/// then applying `ops` (a JSON array, may be empty): `{ok, source}` or
+/// `{ok: false, error}`.
+#[wasm_bindgen]
+pub fn merge_resolve(base: &str, ours: &str, theirs: &str, picks: &str, ops: &str) -> String {
+    let [b, o, t] = match merge_docs(base, ours, theirs) {
+        Ok(d) => d,
+        Err(e) => return json!({"ok": false, "error": e}).to_string(),
+    };
+    let m = diagram_core::merge::merge3(&b, &o, &t);
+    let mut doc = diagram_core::merge::resolve(&m, &picks_of(picks));
+    let ops: Vec<Value> = serde_json::from_str(ops).unwrap_or_default();
+    if !ops.is_empty() {
+        let parsed = match diagram_core::ops::parse_ops(&json!({ "ops": ops }).to_string()) {
+            Ok(p) => p,
+            Err(e) => return json!({"ok": false, "error": e}).to_string(),
+        };
+        if let Err(e) = diagram_core::ops::apply(&mut doc, &parsed) {
+            return json!({"ok": false, "error": e.to_string()}).to_string();
+        }
+    }
+    let src = diagram_core::patch::patch(diagram_core::merge::strip_note(ours), &o, &doc);
+    json!({"ok": true, "source": src}).to_string()
+}
+
+/// One version of a merge drawn: `side` is
+/// `ours`, `theirs` or `merged` (with `picks`). `{svg, view}` or `{error}`.
+#[wasm_bindgen]
+pub fn merge_svg(
+    base: &str,
+    ours: &str,
+    theirs: &str,
+    side: &str,
+    picks: &str,
+    options: &str,
+) -> String {
+    let [b, o, t] = match merge_docs(base, ours, theirs) {
+        Ok(d) => d,
+        Err(e) => return err(e),
+    };
+    let m = diagram_core::merge::merge3(&b, &o, &t);
+    let doc = match side {
+        "ours" => o,
+        "theirs" => t,
+        _ => diagram_core::merge::resolve(&m, &picks_of(picks)),
+    };
+    // drawn as they are: the editor outlines what clashed
+    let opts: RenderOptions = opts(options).unwrap_or_default();
+    to_json(&diagram_core::render::render(&doc, &opts))
+}
+
+/// A prompt asking a model to settle the conflicts as `instruction` says.
+#[wasm_bindgen]
+pub fn merge_prompt(base: &str, ours: &str, theirs: &str, instruction: &str) -> String {
+    match merge_docs(base, ours, theirs) {
+        Ok([b, o, t]) => {
+            diagram_core::merge::prompt(&diagram_core::merge::merge3(&b, &o, &t), instruction)
+        }
+        Err(e) => format!("error: {e}"),
+    }
+}
+
+/// A model's answer to `merge_prompt`: `{ok, picks, ops}` or `{ok: false, error}`.
+#[wasm_bindgen]
+pub fn merge_answer(reply: &str) -> String {
+    match diagram_core::merge::parse_answer(reply) {
+        Ok((picks, ops)) => json!({"ok": true, "picks": picks, "ops": ops}).to_string(),
+        Err(e) => json!({"ok": false, "error": e}).to_string(),
+    }
+}
+
+/// A file git merged line by line: `{base, ours, theirs}` (base null when
+/// git did not write it), or null without conflict markers.
+#[wasm_bindgen]
+pub fn split_markers(text: &str) -> String {
+    match diagram_core::merge::split_markers(text) {
+        Some((b, o, t)) => json!({"base": b, "ours": o, "theirs": t}).to_string(),
+        None => "null".into(),
+    }
+}
+
 /// The prompt again after a reply that could not be applied.
 #[wasm_bindgen]
 pub fn ask_again(prompt: &str, reply: &str, error: &str) -> String {

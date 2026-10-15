@@ -374,6 +374,15 @@ offsite-note ..> who-books-it
 - In JSON a topic is a node with `parent` (the topic it branches from); the centre has `mindmap` (its layout). Siblings keep document order.
 - `diagram outline FILE` prints a map as an outline and `--md` as Markdown (the centre is the title, topics are bullets; main branches are `##` sections when each has something under it): that is how a mindmap becomes a prompt. A topic with `link: #id` reads "label (see “target”)", and the block it points at (a flow, a plan, a section, another map) follows as a section of its own, so one prompt map can gather context from the whole board. `diagram expand FILE ID` grows a topic with your AI harness.
 
+## Merging
+
+Boards merge element by element, not line by line. `diagram merge --install` (once per clone; commit the `.gitattributes` it writes) makes git use `diagram merge` for `.diagram` files:
+
+- An element changed on one side takes that change; two people changing different things about the same box (one its colour, the other its detail) get both. Added on one side, it is added; removed on one side and left alone on the other, it goes. Canvases inside a board merge the same way.
+- Only the same field changed two ways, or an element changed on one side and removed on the other, is a conflict. The file then keeps yours, says so in a `# merge: …` line at the top, and git leaves it unmerged.
+- Opening the board in the editor (`diagram FILE`) shows the merge to settle: yours, the result and theirs side by side, what clashed outlined. Pick yours or theirs per conflict, or describe what to keep in words ("their colours, but my labels") and the AI picks, and edits where a pick alone will not do. *Save and mark resolved* writes the file and `git add`s it. A file git merged line by line (with `<<<<<<<` markers) opens the same way.
+- `diagram merge BASE OURS THEIRS [-o OUT]` merges three files and lists the conflicts.
+
 ## JSON
 
 The JSON form is the document model itself. Only `nodes` is required. Every other field has a default and can be left out.

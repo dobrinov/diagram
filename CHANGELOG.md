@@ -1,5 +1,11 @@
 # Changelog
 
+## 0.29.0 — 2026-10-15
+
+- **Merging boards:** `diagram merge --install` makes git merge `.diagram` files element by element. Different changes to the same box (one person's colour, another's detail) both land; additions and removals merge, canvases inside merge in turn. Only the same field changed two ways, or a change on one side and a removal on the other, is a conflict. The file keeps yours with a `# merge: …` note on top, and git leaves it unmerged.
+- **Settling a conflict in the editor:** opening the board shows yours, the result and theirs side by side, with what clashed outlined in its own colours. Pick yours or theirs per conflict, or say in words what to keep: the AI (your subscription CLI) picks sides and edits where a pick alone will not do, and the result pane shows exactly what will be saved. *Save and mark resolved* writes the file and `git add`s it. A file git merged line by line, with `<<<<<<<` markers, opens the same way.
+- `diagram merge BASE OURS THEIRS [-o OUT]`. Core `merge` module (`merge3`, `resolve`, `prompt`, `split_markers`). WASM `merge3`, `merge_resolve`, `merge_svg`, `merge_prompt`, `merge_answer`, `split_markers`. Server `GET /api/conflict`, `POST /api/resolve`. Editor `resolveConflict({base, ours, theirs, done})`. `scripts/e2e/merge.mjs` (real git merges) in `make e2e`.
+
 ## 0.28.0 — 2026-10-15
 
 - **Canvases inside a board:** `canvas payments: Payments flow { … }`, written indented at the end of the parent's file, is a board of its own: boxes, blocks, comments, images, and canvases of its own. A box with `canvas: payments` is the way in. Its shape is how the link looks: a button (`pill`, the default), a card (`box`), `text`, a sticky, …. The box has a badge; double-click it or click the badge to open the canvas. The trail at the top leads back up, and the URL keeps the open canvas (`?canvas=payments/fraud`).

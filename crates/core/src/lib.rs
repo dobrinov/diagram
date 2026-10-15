@@ -25,6 +25,7 @@ pub mod dsl;
 pub mod entities;
 pub mod gantt;
 pub mod layout;
+pub mod merge;
 pub mod mermaid;
 pub mod mindmap;
 pub mod model;

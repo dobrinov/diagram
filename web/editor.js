@@ -789,6 +789,101 @@
         obs.observe(modal, { attributes: true, attributeFilter: ["hidden"] });
       });
     }
+    // ------------------------------------------------------------ merge conflicts
+    /* Settle a merge that clashed: yours, the result and theirs side by side,
+       a side picked per conflict (or described in words for the AI to pick),
+       then `done(source)` with the merged board. */
+    function resolveConflict(m) {
+      var base = m.base || "", ours = m.ours || "", theirs = m.theirs || "";
+      var info = JSON.parse(wasm.merge3(base, ours, theirs));
+      if (!info.ok) { flash("Cannot read the versions: " + info.error, true); return false; }
+      var picks = {}, ops = [];
+      var pane = function (title, cls) {
+        var body = h("div", { class: "dge-merge-svg" });
+        return { el: h("section", { class: "dge-merge-pane " + cls }, [h("h3", {}, [title]), body]), body: body };
+      };
+      var mine = pane("Yours", "mine"), result = pane("Result", "result"), other = pane("Theirs", "theirs");
+      var look = JSON.stringify({ theme: st.dark ? "dark" : "light", comments: "none" });
+      var clash = info.conflicts.filter(function (c) { return !c.canvas.length; }).map(function (c) { return c.id; });
+      var show = function (p, r) {
+        p.body.innerHTML = r.svg || "<p class='dge-muted'>" + (r.error || "") + "</p>";
+        // what clashed, outlined (its own colours stay visible)
+        clash.forEach(function (id) {
+          p.body.querySelectorAll('[data-id="' + id.replace(/"/g, '\\"') + '"]').forEach(function (x) { x.classList.add("dge-clash"); });
+        });
+      };
+      var draw = function (p, side) {
+        if (side !== "merged") return show(p, JSON.parse(wasm.merge_svg(base, ours, theirs, side, "{}", look)));
+        // the result as it will be saved: picks and the AI's edits
+        var r = JSON.parse(wasm.merge_resolve(base, ours, theirs, JSON.stringify(picks), JSON.stringify(ops)));
+        if (!r.ok) return show(p, { error: r.error });
+        var d = new wasm.Diagram();
+        d.set_source(r.source);
+        show(p, JSON.parse(d.render(look)));
+        d.free();
+      };
+      var note = h("p", { class: "dge-muted dge-merge-note" });
+      var list = h("div", { class: "dge-merge-list" });
+      var row = function (c) {
+        var choose = function (side) { picks[c.key] = side; ops = []; refresh(); };
+        var btn = function (side, label) {
+          return h("button", { class: (picks[c.key] || "ours") === side ? "on" : "", onclick: function () { choose(side); } }, [label]);
+        };
+        return h("div", { class: "dge-merge-row" }, [
+          h("span", {}, [c.text]),
+          h("span", { class: "dge-merge-pick" }, [btn("ours", c.ours ? "Yours" : "Removed (yours)"), btn("theirs", c.theirs ? "Theirs" : "Removed (theirs)")])
+        ]);
+      };
+      var refresh = function () {
+        list.innerHTML = "";
+        info.conflicts.forEach(function (c) { list.appendChild(row(c)); });
+        note.textContent = info.conflicts.length
+          ? info.conflicts.length + (info.conflicts.length === 1 ? " thing was" : " things were") + " changed both ways; everything else is merged." + (ops.length ? " The AI also made " + ops.length + " edit" + (ops.length === 1 ? "" : "s") + "." : "")
+          : "Nothing clashed: everything is merged.";
+        draw(result, "merged");
+      };
+      var wish = h("textarea", { class: "dge-chart-data", rows: "2", placeholder: "Or say what to keep, e.g. “their colours, but my labels; keep both new boxes”" });
+      var askBtn = h("button", { onclick: function () {
+        var w = wish.value.trim();
+        if (!w) return wish.focus();
+        askBtn.disabled = true;
+        ask(wasm.merge_prompt(base, ours, theirs, w), "✦ Settle the merge").then(function (reply) {
+          var a = JSON.parse(wasm.merge_answer(reply));
+          if (!a.ok) throw new Error(a.error);
+          picks = a.picks || {};
+          ops = a.ops || [];
+          refresh();
+          flash("The AI picked sides" + (ops.length ? " and made " + ops.length + " edit" + (ops.length === 1 ? "" : "s") : "") + ": check the result");
+        }).catch(function (e) { if (e.message !== "cancelled") flash("The AI's answer did not work: " + e.message, true); })
+          .then(function () { askBtn.disabled = false; });
+      } }, ["✦ Ask AI"]);
+      var close = function () { panel.remove(); };
+      var save = function () {
+        var r = JSON.parse(wasm.merge_resolve(base, ours, theirs, JSON.stringify(picks), JSON.stringify(ops)));
+        if (!r.ok) return flash(r.error, true);
+        close();
+        if (m.done) m.done(r.source);
+        else api.setSource(r.source);
+      };
+      var panel = h("div", { class: "dge-merge", role: "dialog", "aria-label": "Settle the merge" }, [
+        h("header", {}, [
+          h("h2", {}, ["Settle the merge"]),
+          note,
+          h("span", { class: "dge-merge-actions" }, [
+            h("button", { onclick: close, title: "Leave the file as it is" }, ["Later"]),
+            h("button", { class: "primary", onclick: save }, [m.git ? "Save and mark resolved" : "Save"])
+          ])
+        ]),
+        h("div", { class: "dge-merge-panes" }, [mine.el, result.el, other.el]),
+        h("footer", {}, [list, h("div", { class: "dge-merge-ask" }, [wish, askBtn])])
+      ]);
+      el.appendChild(panel);
+      draw(mine, "ours");
+      draw(other, "theirs");
+      refresh();
+      return true;
+    }
+
     // ------------------------------------------------------------ ask AI
     /* Ask AI: a request about the selection (or the board) goes to the model
        (the host's `ai`, e.g. the subscription CLI behind the local server, or
@@ -3425,6 +3520,7 @@
       exportPNG: exportPNG,
       select: function (ids) { select(ids || []); },
       goTo: function (id) { followLink("#" + id); },
+      resolveConflict: resolveConflict,
       openCanvas: function (path) { return openCanvas(path || []); },
       canvasPath: function () { return (st.canvasPath || []).slice(); },
       fit: fit,

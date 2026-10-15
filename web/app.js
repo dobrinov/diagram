@@ -120,6 +120,23 @@
         }
       });
       status("Saved");
+      // a merge that clashed: settle it first
+      fetch(api("api/conflict")).then(function (r) { return r.json(); }).then(function (c) {
+        if (!c.conflict) return;
+        status("Merge conflict", "error");
+        editor.resolveConflict({
+          base: c.base, ours: c.ours, theirs: c.theirs, git: c.git,
+          done: function (text) {
+            fetch(api("api/resolve"), { method: "POST", body: text }).then(function (r) { return r.json(); }).then(function (res) {
+              if (!res.ok) throw new Error(res.error);
+              mtime = res.mtime;
+              lastSaved = text;
+              editor.setSource(text);
+              status(res.staged ? "Merged (marked resolved in git)" : "Merged");
+            }).catch(function (e) { status("Not saved: " + e.message, "error"); });
+          }
+        });
+      }).catch(function () { /* no conflict info: nothing to settle */ });
       // the canvas inside the board that was open (?canvas=payments/fraud) opens again
       if (PARAMS.get("canvas")) editor.openCanvas(PARAMS.get("canvas").split("/"));
       editor.on("canvas", function (path) {

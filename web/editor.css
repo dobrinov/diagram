@@ -259,6 +259,30 @@
 
 /* Find (⌘F) */
 .dge-find { position: absolute; top: 56px; right: 16px; z-index: 6; display: flex; align-items: center; gap: 6px; padding: 4px 4px 4px 10px; border: 1px solid var(--line-strong); border-radius: var(--r-2); background: var(--bg); box-shadow: var(--shadow); }
+/* Settling a merge */
+.dge-merge { position: absolute; inset: 0; z-index: 25; display: grid; grid-template-rows: auto 1fr auto; background: var(--bg); }
+.dge-merge header { display: flex; align-items: center; gap: 16px; padding: 12px 16px; border-bottom: 1px solid var(--line); }
+.dge-merge header h2 { margin: 0; font-size: 16px; }
+.dge-merge-note { margin: 0; flex: 1; font-size: 13px; }
+.dge-merge-actions { display: flex; gap: 8px; }
+.dge-merge-actions .primary { background: var(--accent); border-color: var(--accent); color: #fff; }
+.dge-merge-panes { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); min-height: 0; }
+.dge-merge-pane { display: flex; flex-direction: column; min-height: 0; border-right: 1px solid var(--line); }
+.dge-merge-pane:last-child { border-right: 0; }
+.dge-merge-pane.result { background: var(--accent-bg); }
+.dge-merge-pane h3 { margin: 0; padding: 8px 12px; font-size: 12px; font-weight: 700; text-transform: uppercase; letter-spacing: .04em; color: var(--muted); }
+.dge-merge-svg { flex: 1; min-height: 0; overflow: auto; padding: 8px; }
+.dge-merge-svg svg { width: 100%; height: auto; max-height: 100%; }
+.dge-merge footer { display: grid; grid-template-columns: 1fr minmax(260px, 34%); gap: 16px; padding: 12px 16px; border-top: 1px solid var(--line); max-height: 40vh; overflow: auto; }
+.dge-merge-list { display: flex; flex-direction: column; gap: 6px; font-size: 13px; }
+.dge-merge-row { display: flex; align-items: center; justify-content: space-between; gap: 12px; padding: 6px 8px; border: 1px solid var(--line); border-radius: var(--r-2); }
+.dge-merge-pick { display: inline-flex; flex: none; border: 1px solid var(--line-strong); border-radius: 8px; overflow: hidden; }
+.dge-merge-pick button { border: 0; border-radius: 0; padding: 4px 10px; background: transparent; color: var(--fg); font: inherit; cursor: pointer; }
+.dge-merge-pick button.on { background: var(--accent); color: #fff; }
+.dge-merge-svg .dge-clash .dg-shape, .dge-merge-svg .dge-clash .dg-line { stroke: #e5a50a; stroke-width: 3; stroke-dasharray: 7 4; }
+.dge-merge-ask { display: flex; flex-direction: column; gap: 6px; }
+.dge-merge-ask button { align-self: flex-end; }
+
 /* Canvases: where you are, and the way back up */
 .dge-trail { position: absolute; top: 56px; left: 16px; z-index: 6; display: flex; align-items: center; gap: 4px; max-width: calc(100% - 32px); padding: 4px 10px; border: 1px solid var(--line-strong); border-radius: 999px; background: var(--bg); box-shadow: var(--shadow); font-size: 13px; white-space: nowrap; overflow: hidden; }
 .dge-trail button { border: 0; background: transparent; color: var(--accent); font: inherit; padding: 2px 4px; border-radius: 6px; cursor: pointer; }

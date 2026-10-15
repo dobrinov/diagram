@@ -81,6 +81,9 @@ CHECK
   diagram check FILE...              validate (exit 1 on errors)
   diagram fmt   FILE... [--check]    rewrite in canonical form
   diagram diff  OLD NEW [--json]     what changed (NEW may be a git ref: diagram diff FILE HEAD~1)
+  diagram merge BASE OURS THEIRS [-o OUT]   merge two versions element by element; lists conflicts
+  diagram merge --install            in this repository: git merges .diagram files with `diagram merge`
+                                     (a clash keeps yours and is marked; open the board to choose)
 
 MORE
   diagram spec [--json-schema]       the language reference (for people and LLMs)
@@ -154,6 +157,7 @@ impl Args {
             "new", "open", "svg", "png", "html", "convert", "brief", "comments", "comment",
             "reply", "resolve", "prompt", "apply", "check", "fmt", "diff", "spec", "embed",
             "skills", "version", "help", "outline", "expand", "query", "add", "schedule", "ask",
+            "merge",
         ];
         let cmd = match pos.first() {
             Some(c) if COMMANDS.contains(&c.as_str()) => pos.remove(0),
@@ -318,6 +322,106 @@ fn parse_doc(src: &str, what: &str) -> Result<Document, String> {
                 .collect::<Vec<_>>()
                 .join("\n")
         )
+    })
+}
+
+/// `diagram merge`: a three-way merge of boards. As git's merge driver
+/// (`--driver`, `%O %A %B`) it writes the result over OURS and fails when
+/// something clashed, so git leaves the file unmerged for the editor.
+fn merge_cmd(args: &Args) -> Result<ExitCode, String> {
+    if args.flag("--install") {
+        let git = |a: &[&str]| {
+            Command::new("git")
+                .args(a)
+                .status()
+                .map_err(|e| format!("git: {e}"))
+                .and_then(|s| {
+                    s.success()
+                        .then_some(())
+                        .ok_or_else(|| format!("git {} failed", a.join(" ")))
+                })
+        };
+        git(&[
+            "config",
+            "merge.diagram.name",
+            "diagram boards, element by element",
+        ])?;
+        git(&[
+            "config",
+            "merge.diagram.driver",
+            "diagram merge %O %A %B --driver",
+        ])?;
+        let top = Command::new("git")
+            .args(["rev-parse", "--show-toplevel"])
+            .output()
+            .map_err(|e| format!("git: {e}"))?;
+        let top = String::from_utf8_lossy(&top.stdout).trim().to_string();
+        let attrs = Path::new(&top).join(".gitattributes");
+        let have = std::fs::read_to_string(&attrs).unwrap_or_default();
+        if !have.lines().any(|l| l.trim() == "*.diagram merge=diagram") {
+            let sep = if have.is_empty() || have.ends_with('\n') {
+                ""
+            } else {
+                "\n"
+            };
+            std::fs::write(&attrs, format!("{have}{sep}*.diagram merge=diagram\n"))
+                .map_err(|e| format!("{}: {e}", attrs.display()))?;
+        }
+        eprintln!("git now merges .diagram files with `diagram merge` (commit .gitattributes so others get it; each clone runs `diagram merge --install` once)");
+        return Ok(ExitCode::SUCCESS);
+    }
+    let [base, ours, theirs] = [0, 1, 2].map(|i| args.pos.get(i).cloned());
+    let (Some(base), Some(ours), Some(theirs)) = (base, ours, theirs) else {
+        return Err("usage: diagram merge BASE OURS THEIRS [-o OUT] (or --install)".into());
+    };
+    let texts = [&base, &ours, &theirs].map(|f| read_text(f).unwrap_or_default());
+    let docs: Vec<Option<Document>> = texts
+        .iter()
+        .map(|t| diagram_core::dsl::parse(t).ok())
+        .collect();
+    let driver = args.flag("--driver");
+    let (Some(b), Some(o), Some(t)) = (&docs[0], &docs[1], &docs[2]) else {
+        // not all three read as boards: git's own line-by-line merge
+        if driver {
+            let st = Command::new("git")
+                .args(["merge-file", &ours, &base, &theirs])
+                .status()
+                .map_err(|e| format!("git merge-file: {e}"))?;
+            return Ok(if st.success() {
+                ExitCode::SUCCESS
+            } else {
+                ExitCode::FAILURE
+            });
+        }
+        return Err("BASE, OURS and THEIRS have to be readable boards".into());
+    };
+    let m = diagram_core::merge::merge3(b, o, t);
+    let mut text = diagram_core::patch::patch(&texts[1], o, &m.doc);
+    if !m.conflicts.is_empty() {
+        let what: Vec<String> = m.conflicts.iter().map(|c| c.key()).collect();
+        text = format!(
+            "# merge: {} conflict{} kept as yours ({}); open the board in the editor (`diagram FILE`) to choose\n{text}",
+            m.conflicts.len(),
+            if m.conflicts.len() == 1 { "" } else { "s" },
+            what.join(", ")
+        );
+        for c in &m.conflicts {
+            eprintln!("conflict: {}", diagram_core::merge::describe(c));
+        }
+    }
+    let out = if driver {
+        Some(ours.as_str())
+    } else {
+        args.val("--out")
+    };
+    match out {
+        Some(p) if p != "-" => std::fs::write(p, &text).map_err(|e| format!("{p}: {e}"))?,
+        _ => print!("{text}"),
+    }
+    Ok(if m.conflicts.is_empty() {
+        ExitCode::SUCCESS
+    } else {
+        ExitCode::FAILURE
     })
 }
 
@@ -1167,6 +1271,7 @@ fn run(args: Args) -> Result<ExitCode, String> {
                 ExitCode::SUCCESS
             })
         }
+        "merge" => merge_cmd(&args),
         "diff" => {
             let a = args.file(0)?;
             let b = args
