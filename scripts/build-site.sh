@@ -67,6 +67,20 @@ html = html.replace(marker, static + "\n" + marker).replace("<title>diagram</tit
 open(dst, "w").write(html)
 PY
 
+# the logo and share images carry a version from their content, so browsers
+# (and favicon caches) fetch them again when they change
+python3 - "$OUT" <<'PY'
+import hashlib, pathlib, re, sys
+out = pathlib.Path(sys.argv[1])
+ver = {n: hashlib.sha1((out / n).read_bytes()).hexdigest()[:8] for n in ("favicon.svg", "og.png", "apple-touch-icon.png")}
+for page in out.rglob("*.html"):
+    html = page.read_text()
+    new = re.sub(r'((?:\.\./)*(?:favicon\.svg|og\.png|apple-touch-icon\.png))(?=")',
+                 lambda m: m.group(1) + "?v=" + ver[m.group(1).rsplit("/", 1)[-1]], html)
+    if new != html:
+        page.write_text(new)
+PY
+
 # analytics for the hosted site only (never in the CLI editor or user exports)
 if [ -z "${SITE_NO_ANALYTICS:-}" ]; then
   python3 - "$OUT" "$ROOT/site/analytics.html" <<'PY'
