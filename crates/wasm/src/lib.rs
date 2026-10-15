@@ -61,6 +61,40 @@ impl Diagram {
         text_result(self.inner.source(format))
     }
 
+    /// Open the canvas at `path` (a JSON array of canvas ids from the top
+    /// board; `[]`: the top). Ops, drawing and prompts are then about it;
+    /// `source` is still the whole board. Returns `{ok}` or `{ok: false, error}`.
+    pub fn open_canvas(&mut self, path: &str) -> String {
+        let path: Vec<String> = serde_json::from_str(path).unwrap_or_default();
+        match self.inner.open_canvas(&path) {
+            Ok(()) => json!({"ok": true}).to_string(),
+            Err(e) => json!({"ok": false, "error": e}).to_string(),
+        }
+    }
+
+    /// Where the open canvas is: `[{path, title}]`, the top board first.
+    pub fn canvas_trail(&self) -> String {
+        let t: Vec<Value> = self
+            .inner
+            .canvas_trail()
+            .into_iter()
+            .map(|(path, title)| json!({"path": path, "title": title}))
+            .collect();
+        Value::Array(t).to_string()
+    }
+
+    /// Replace the open canvas with a document (JSON); the rest of the board
+    /// stays as written. Returns `{ok}` or `{ok: false, error}`.
+    pub fn replace_here(&mut self, json: &str) -> String {
+        match serde_json::from_str::<diagram_core::Document>(json) {
+            Ok(d) => {
+                self.inner.replace_here(d);
+                json!({"ok": true}).to_string()
+            }
+            Err(e) => json!({"ok": false, "error": e.to_string()}).to_string(),
+        }
+    }
+
     /// The document model as JSON.
     pub fn document(&self) -> String {
         to_json(&self.inner.doc)

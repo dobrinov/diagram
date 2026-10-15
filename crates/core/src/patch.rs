@@ -77,6 +77,7 @@ fn block_elems(doc: &Document, head: &Elem) -> Vec<Elem> {
                     .map(|e| Elem::Edge(e.id.clone())),
             )
             .collect(),
+        Elem::Canvas(id) => vec![Elem::Canvas(id.clone())],
         _ => Vec::new(),
     }
 }
@@ -120,9 +121,22 @@ fn block_text(doc: &Document, head: &Elem, pad: &str) -> Option<String> {
             }
             dsl::gantt_block(doc, g, pad, &mut out);
         }
+        Elem::Canvas(id) => dsl::canvas_block(doc.canvas(id)?, &mut out),
         _ => return None,
     }
     Some(out)
+}
+
+fn id_of(e: &Elem) -> &str {
+    match e {
+        Elem::Node(x)
+        | Elem::Edge(x)
+        | Elem::Group(x)
+        | Elem::Comment(x)
+        | Elem::Setting(x)
+        | Elem::Asset(x)
+        | Elem::Canvas(x) => x,
+    }
 }
 
 /// Where a block sits: the group around a mindmap or gantt chart.
@@ -130,6 +144,8 @@ fn container(doc: &Document, head: &Elem) -> Option<Option<String>> {
     match head {
         Elem::Node(id) => doc.node(id).map(|n| n.group.clone()),
         Elem::Group(id) => doc.group(id).map(|g| g.parent.clone()),
+        // canvases are only at the top
+        Elem::Canvas(id) => doc.canvas(id).map(|_| None),
         _ => None,
     }
 }
@@ -170,6 +186,7 @@ fn exists(doc: &Document, e: &Elem) -> bool {
         Elem::Comment(id) => doc.comment(id).is_some(),
         Elem::Setting(k) => dsl::setting_line(doc, k).is_some(),
         Elem::Asset(id) => doc.asset(id).is_some(),
+        Elem::Canvas(id) => doc.canvas(id).is_some(),
     }
 }
 
@@ -181,6 +198,7 @@ fn same(old: &Document, new: &Document, e: &Elem) -> bool {
         Elem::Comment(id) => old.comment(id) == new.comment(id),
         Elem::Setting(k) => dsl::setting_line(old, k) == dsl::setting_line(new, k),
         Elem::Asset(id) => old.asset(id) == new.asset(id),
+        Elem::Canvas(id) => old.canvas(id) == new.canvas(id),
     }
 }
 
@@ -210,6 +228,13 @@ fn statement(doc: &Document, e: &Elem, pad: &str, out: &mut Vec<String>) {
                 out.push(format!("{pad}{}", dsl::asset_line(a)));
             }
         }
+        Elem::Canvas(id) => {
+            if let Some(c) = doc.canvas(id) {
+                let mut s = String::new();
+                dsl::canvas_block(c, &mut s);
+                out.extend(s.lines().map(str::to_string));
+            }
+        }
         Elem::Group(_) => {}
     }
 }
@@ -223,6 +248,7 @@ struct Anchors {
     edges: Option<usize>,
     comments: Option<usize>,
     assets: Option<usize>,
+    canvases: Option<usize>,
     /// The first comment line, so new arrows go before the comments.
     first_comment: Option<usize>,
 }
@@ -413,6 +439,43 @@ fn edit_lines(
                 .take_while(|&j| info[j].block == Some(i))
                 .last()
                 .unwrap_or(i);
+            // a canvas that changed: its own lines patched in turn
+            if let (Elem::Canvas(_), Some(oc), Some(nc)) =
+                (head, old.canvas(id_of(head)), new.canvas(id_of(head)))
+            {
+                if oc != nc && end > i {
+                    let body: Vec<&str> = lines[i + 1..end]
+                        .iter()
+                        .map(|l| l.strip_prefix("  ").unwrap_or(l.trim_start()))
+                        .collect();
+                    let strip = |c: &Canvas| {
+                        let mut d = c.doc.clone();
+                        d.title = None;
+                        d
+                    };
+                    let inner = patch(&(body.join("\n") + "\n"), &strip(oc), &strip(nc));
+                    let mut head_line = String::new();
+                    dsl::canvas_block(nc, &mut head_line);
+                    let first = head_line.lines().next().unwrap_or("").to_string();
+                    out.push(if oc.doc.title == nc.doc.title {
+                        line.to_string()
+                    } else {
+                        first
+                    });
+                    for l in inner.lines() {
+                        out.push(if l.is_empty() {
+                            String::new()
+                        } else {
+                            format!("  {l}")
+                        });
+                    }
+                    out.push(lines[end].to_string());
+                    done.extend(block_elems(new, head));
+                    at.canvases = Some(out.len());
+                    i = end + 1;
+                    continue;
+                }
+            }
             match (block_text(old, head, pad), block_text(new, head, pad)) {
                 (_, None) => {}
                 (Some(o), Some(n))
@@ -423,7 +486,9 @@ fn edit_lines(
                 (_, Some(n)) => push_text(&mut out, &n),
             }
             done.extend(block_elems(new, head));
-            if li.depth == 0 {
+            if matches!(head, Elem::Canvas(_)) {
+                at.canvases = Some(out.len());
+            } else if li.depth == 0 {
                 at.blocks = Some(out.len());
             }
             i = end + 1;
@@ -606,6 +671,16 @@ fn edit_lines(
         }
     }
     add(at.comments, end, std::mem::take(&mut chunk));
+    for c in &new.canvases {
+        let e = Elem::Canvas(c.id.clone());
+        if !done.contains(&e) {
+            if !chunk.is_empty() {
+                chunk.push(String::new());
+            }
+            statement(new, &e, "", &mut chunk);
+        }
+    }
+    add(at.canvases, end, std::mem::take(&mut chunk));
     // images last
     for a in &new.assets {
         let e = Elem::Asset(a.id.clone());

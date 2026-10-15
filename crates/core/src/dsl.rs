@@ -72,6 +72,7 @@ pub(crate) enum Elem {
     Comment(String),
     Setting(String),
     Asset(String),
+    Canvas(String),
 }
 
 /// What one line of the source is (see [`parse_lines`]).
@@ -87,8 +88,99 @@ pub(crate) struct LineInfo {
     pub depth: usize,
 }
 
+/// A `canvas id: Title {` … `}` at the top level of a board: its lines.
+struct CanvasRegion {
+    open: usize,
+    close: usize,
+    id: String,
+    label: Option<String>,
+}
+
+/// Opens or closes a block: `… {` adds one, `}` takes one away.
+fn brace_step(t: &str) -> i32 {
+    if t == "}" {
+        -1
+    } else if t.ends_with('{') {
+        1
+    } else {
+        0
+    }
+}
+
+fn canvas_regions(src: &str) -> Vec<CanvasRegion> {
+    let lines: Vec<&str> = src.lines().collect();
+    let mut out = Vec::new();
+    let mut depth = 0;
+    let mut i = 0;
+    while i < lines.len() {
+        let t = lines[i].trim();
+        let head = t
+            .strip_prefix("canvas")
+            .filter(|r| r.starts_with(char::is_whitespace))
+            .and_then(|r| {
+                let r = r.trim_end();
+                r.strip_suffix("{}").or_else(|| r.strip_suffix('{'))
+            });
+        if let (0, Some(head)) = (depth, head) {
+            let (id, label) = match head.split_once(':') {
+                Some((id, l)) => (
+                    id.trim(),
+                    Some(unescape_label(l.trim())).filter(|l| !l.is_empty()),
+                ),
+                None => (head.trim(), None),
+            };
+            // `canvas x: X {}` is an empty one on one line
+            let inline = t.ends_with("{}");
+            let id = id.trim().to_string();
+            let mut close = i;
+            if !inline {
+                let mut d = 1;
+                for (j, l) in lines.iter().enumerate().skip(i + 1) {
+                    d += brace_step(l.trim());
+                    close = j;
+                    if d == 0 {
+                        break;
+                    }
+                }
+            }
+            out.push(CanvasRegion {
+                open: i,
+                close,
+                id,
+                label,
+            });
+            i = close + 1;
+            continue;
+        }
+        depth = (depth + brace_step(t)).max(0);
+        i += 1;
+    }
+    out
+}
+
 /// [`parse_lenient`], and what each line of the source declares.
 pub(crate) fn parse_lines(src: &str) -> (Document, Vec<Diagnostic>, Vec<LineInfo>) {
+    // canvases are boards of their own: their lines are read on their own
+    let regions = canvas_regions(src);
+    let original: Vec<&str> = src.lines().collect();
+    let masked: String;
+    let src = if regions.is_empty() {
+        src
+    } else {
+        masked = src
+            .lines()
+            .enumerate()
+            .map(|(i, l)| {
+                if regions.iter().any(|r| (r.open..=r.close).contains(&i)) {
+                    ""
+                } else {
+                    l
+                }
+            })
+            .collect::<Vec<_>>()
+            .join("\n");
+        &masked
+    };
     let mut info = Vec::new();
     let mut p = Parser {
         doc: Document::default(),
@@ -169,8 +261,61 @@ pub(crate) fn parse_lines(src: &str) -> (Document, Vec<Diagnostic>, Vec<LineInfo
             format!("group `{g}` is never closed (missing `}}`)"),
         ));
     }
+    // blanked lines at the end are not lines of the masked text
+    while info.len() < original.len() {
+        info.push(LineInfo::default());
+    }
+    for r in &regions {
+        let body: String = original[(r.open + 1).min(r.close)..r.close]
+            .iter()
+            .map(|l| l.strip_prefix("  ").unwrap_or(l.trim_start()))
+            .collect::<Vec<_>>()
+            .join("\n");
+        let (mut child, errs, _) = parse_lines(&body);
+        for mut e in errs {
+            if e.line > 0 {
+                e.line += r.open + 1;
+            }
+            p.errors.push(e);
+        }
+        if let Some(l) = &r.label {
+            child.title = Some(l.clone());
+        }
+        if !is_ident(&r.id) {
+            p.errors.push(Diagnostic::new(
+                r.open + 1,
+                format!("`{}` is not an id", r.id),
+            ));
+        } else if p.doc.canvas(&r.id).is_some() {
+            p.errors.push(Diagnostic::new(
+                r.open + 1,
+                format!("canvas `{}` is already defined", r.id),
+            ));
+        } else {
+            p.doc.canvases.push(Canvas {
+                id: r.id.clone(),
+                doc: child,
+            });
+        }
+        for (k, li) in info.iter_mut().enumerate().take(r.close + 1).skip(r.open) {
+            li.block = Some(r.open);
+            if k == r.open {
+                li.elems = vec![Elem::Canvas(r.id.clone())];
+            }
+        }
+    }
     resolve_after(&mut p.doc);
     p.doc.normalize();
+    for n in &p.doc.nodes {
+        if let Some(c) = &n.canvas {
+            if p.doc.canvas(c).is_none() {
+                p.errors.push(Diagnostic::new(
+                    0,
+                    format!("`{}` opens canvas `{c}`, which does not exist", n.id),
+                ));
+            }
+        }
+    }
     for c in &p.doc.comments {
         if let Some(on) = &c.on {
             if p.doc.element(on).is_none() {
@@ -1570,6 +1715,7 @@ fn is_flag(item: &str) -> bool {
 /// Every attribute key the language knows.
 const KEYS: &[&str] = &[
     "image",
+    "canvas",
     "shape",
     "color",
     "colour",
@@ -1710,6 +1856,7 @@ pub fn apply_node_attrs(n: &mut Node, attrs: &Attrs) -> Result<(), String> {
             ("label", Some(v)) => n.label = unescape_label(v),
             ("link" | "url", Some(v)) => n.link = Some(v.clone()).filter(|s| !s.is_empty()),
             ("image" | "img", Some(v)) => n.image = Some(v.clone()).filter(|s| !s.is_empty()),
+            ("canvas", Some(v)) => n.canvas = Some(v.clone()).filter(|s| !s.is_empty()),
             ("tags" | "tag", Some(v)) => n.tags = v.split_whitespace().map(String::from).collect(),
             ("x", Some(v)) => n.x = Some(num("x", v)?),
             ("y", Some(v)) => n.y = Some(num("y", v)?),
@@ -2613,6 +2760,9 @@ fn node_attrs(n: &Node) -> Vec<String> {
     if let Some(i) = &n.image {
         a.push(format!("image: {}", attr_value(i)));
     }
+    if let Some(c) = &n.canvas {
+        a.push(format!("canvas: {}", attr_value(c)));
+    }
     if !n.tags.is_empty() {
         a.push(format!("tags: {}", attr_value(&n.tags.join(" "))));
     }
@@ -2666,28 +2816,69 @@ pub(crate) fn edge_line(e: &Edge) -> String {
     s + &attrs_text(&a)
 }
 
+/// A canvas: `canvas id: Title {`, its board indented, `}`.
+pub(crate) fn canvas_block(c: &Canvas, out: &mut String) {
+    let mut head = format!("canvas {}", id_text(&c.id));
+    if let Some(t) = c.doc.title.as_deref().filter(|t| *t != c.id) {
+        head.push_str(": ");
+        head.push_str(&label_text(t));
+    }
+    let mut inner = c.doc.clone();
+    inner.title = None;
+    let body = print(&inner);
+    if body.trim().is_empty() {
+        out.push_str(&format!("{head} {{}}\n"));
+        return;
+    }
+    out.push_str(&format!("{head} {{\n"));
+    for l in body.lines() {
+        if l.is_empty() {
+            out.push('\n');
+        } else {
+            out.push_str(&format!("  {l}\n"));
+        }
+    }
+    out.push_str("}\n");
+}
+
 pub(crate) fn asset_line(a: &Asset) -> String {
     format!("asset {}: {}", id_text(&a.id), a.data)
 }
 
 /// [`print`] without the images' data, for prompts: a model reads `[image:
 /// img1]` on the box and a note of what the image is, not its base64.
+/// Canvases inside the board are left out too, with a note of which there are.
 pub fn print_lean(doc: &Document) -> String {
-    if doc.assets.is_empty() {
+    if doc.assets.is_empty() && doc.canvases.is_empty() {
         return print(doc);
     }
     let mut lean = doc.clone();
     lean.assets.clear();
+    lean.canvases.clear();
     let mut out = print(&lean);
-    out.push_str("\n# images, not shown: ");
-    out.push_str(
-        &doc.assets
-            .iter()
-            .map(|a| format!("{} ({})", a.id, a.summary()))
-            .collect::<Vec<_>>()
-            .join(", "),
-    );
-    out.push('\n');
+    if !doc.canvases.is_empty() {
+        out.push_str("\n# canvases inside, not shown: ");
+        out.push_str(
+            &doc.canvases
+                .iter()
+                .map(|c| format!("{} (“{}”, {} elements)", c.id, c.display(), c.doc.size()))
+                .collect::<Vec<_>>()
+                .join(", "),
+        );
+        out.push('\n');
+    }
+    if !doc.assets.is_empty() {
+        out.push_str(if doc.canvases.is_empty() { "\n" } else { "" });
+        out.push_str("# images, not shown: ");
+        out.push_str(
+            &doc.assets
+                .iter()
+                .map(|a| format!("{} ({})", a.id, a.summary()))
+                .collect::<Vec<_>>()
+                .join(", "),
+        );
+        out.push('\n');
+    }
     out
 }
 
@@ -2933,8 +3124,15 @@ pub fn print(doc: &Document) -> String {
     for c in &doc.comments {
         comment_lines(c, &mut comments);
     }
+    let mut canvases = String::new();
+    for c in &doc.canvases {
+        if !canvases.is_empty() {
+            canvases.push('\n');
+        }
+        canvas_block(c, &mut canvases);
+    }
     let assets: String = doc.assets.iter().map(|a| asset_line(a) + "\n").collect();
-    for part in [nodes, maps, groups, edges, comments, assets] {
+    for part in [nodes, maps, groups, edges, comments, canvases, assets] {
         if !part.is_empty() {
             sections.push(part);
         }

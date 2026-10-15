@@ -94,6 +94,31 @@ Attributes go in square brackets at the end of the line as `key: value` pairs se
 
 Nodes without `x`/`y` are placed automatically. Dragging a node in the editor pins it there. `diagram apply FILE` with `{"op":"unpin"}` releases every pinned node.
 
+### Canvases inside a board
+
+```diagram
+title: Checkout
+pay: Payments [pill, canvas: payments]
+api: Orders API
+api -> pay
+
+canvas payments: Payments flow {
+  intent: Create intent
+  confirm: Confirm card
+  intent -> confirm
+
+  canvas fraud: Fraud checks {
+    rules: Rules engine
+  }
+}
+```
+
+- `canvas id: Title { … }` is a board inside this one, written at the end of the file, indented; it holds anything a board can (settings, blocks, comments, images, canvases of its own). It is not drawn on the board around it.
+- A box with `canvas: id` is the way in: double-click it, or click its badge, to open the canvas. How the link looks is the box's shape: `pill` (a button, the default), `box` (a card), `text`, `sticky`, …; any label and colour.
+- Removing the last box that opens a canvas removes the canvas (the editor asks first); removing a canvas removes the boxes that open it.
+- In the editor: right-click the empty board → *New canvas here…*; right-click a link → *Open canvas*, *Rename canvas…*, *Link style…*; the trail at the top leads back up. The URL keeps the open canvas (`?canvas=payments/fraud`).
+- From the CLI, `--canvas payments/fraud` makes any command work inside that canvas (`brief`, `apply`, `svg`, …). Prompts about a board name its canvases but leave their contents out. Ops: `{"op":"add_canvas","title":"Refunds"}`, `{"op":"update_canvas","id":"refunds","title":"…"}`, and `canvas` on `add_node` / `update_node`. In JSON, `canvases` holds them, each a document with an `id`.
+
 ### Images
 
 ```diagram

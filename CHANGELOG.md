@@ -1,5 +1,12 @@
 # Changelog
 
+## 0.28.0 — 2026-10-15
+
+- **Canvases inside a board:** `canvas payments: Payments flow { … }`, written indented at the end of the parent's file, is a board of its own: boxes, blocks, comments, images, and canvases of its own. A box with `canvas: payments` is the way in. Its shape is how the link looks: a button (`pill`, the default), a card (`box`), `text`, a sticky, …. The box has a badge; double-click it or click the badge to open the canvas. The trail at the top leads back up, and the URL keeps the open canvas (`?canvas=payments/fraud`).
+- Right-click the empty board → *New canvas here…*. Right-click a link → *Open canvas*, *Rename canvas…*, *Link style…*. Deleting a link deletes its canvas, after a confirmation that says how much is inside (⌘Z brings it back). Removing a canvas removes its links.
+- Edits inside a canvas keep the file as written, down to the canvas's own lines. Prompts about a board name its canvases but leave their contents out; a whole-diagram reply keeps them. `--canvas payments/fraud` makes any CLI command (`brief`, `apply`, `svg`, …) work inside a canvas.
+- Ops: `add_canvas`, `update_canvas`, `canvas` on `add_node` / `update_node`. WASM: `open_canvas`, `canvas_trail`, `replace_here`. Editor API: `openCanvas(path)`, `canvasPath()`, the `canvas` event. JSON: `canvases`, `node.canvas`. `scripts/e2e/canvases.mjs` in `make e2e`.
+
 ## 0.27.0 — 2026-10-15
 
 - **Images:** paste an image (a screenshot, a copied picture), drop image files on the board, or right-click the empty board → *Insert image…*. The box shows the picture with its label as a caption (`shot: Login [image: img1, w: 328, h: 228]`). The image is kept in the file as base64, on an `asset img1: data:image/png;base64,…` line at the end, so boxes stay readable and a diff touches one line. Big images are scaled to 1600px, and large photos are stored as JPEG.

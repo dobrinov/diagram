@@ -563,6 +563,33 @@ fn draw(doc: &Document, opts: &RenderOptions, def: Option<crate::model::ThemeDef
         }
         s.push_str("</g>");
     }
+    // a box that opens a canvas inside the board: a badge to open it
+    let opens: Vec<(&layout::NodeBox, &crate::model::Canvas)> = lay
+        .nodes
+        .iter()
+        .filter_map(|nb| Some((nb, doc.canvas(doc.node(&nb.id)?.canvas.as_deref()?)?)))
+        .collect();
+    if !opens.is_empty() {
+        s.push_str(r#"<g class="dg-opens">"#);
+        for (nb, c) in opens {
+            let (x, y) = (nb.rect.right() - 2.0, nb.rect.y + 2.0);
+            let _ = write!(
+                s,
+                r#"<g class="dg-open" data-node="{}" data-canvas="{}" transform="translate({},{})"><title>Open “{}” ({} inside)</title><circle r="10" fill="{}" stroke="{}" stroke-width="2"/><rect x="-5" y="-3" width="8" height="7" rx="1.2" fill="none" stroke="{}" stroke-width="1.6"/><path d="M-2,-3 V-5.5 H5.5 V1.5 H3" fill="none" stroke="{}" stroke-width="1.6" stroke-linejoin="round"/></g>"#,
+                esc(&nb.id),
+                esc(&c.id),
+                n(x),
+                n(y),
+                esc(c.display()),
+                c.doc.size(),
+                p.group_accent,
+                p.node_fill,
+                p.on_accent,
+                p.on_accent
+            );
+        }
+        s.push_str("</g>");
+    }
     // folded branches show how much is tucked away
     let folds: Vec<&&layout::NodeBox> = maps
         .iter()

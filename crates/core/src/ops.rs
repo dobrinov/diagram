@@ -36,6 +36,9 @@ pub enum Op {
         /// The asset the box shows (see `add_asset`).
         #[serde(default, skip_serializing_if = "Option::is_none")]
         image: Option<String>,
+        /// The canvas the box opens (see `add_canvas`).
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        canvas: Option<String>,
         #[serde(default, skip_serializing_if = "Vec::is_empty")]
         tags: Vec<String>,
         #[serde(default, skip_serializing_if = "Option::is_none")]
@@ -106,6 +109,9 @@ pub enum Op {
         /// The asset the box shows ("" for none).
         #[serde(default, skip_serializing_if = "Option::is_none")]
         image: Option<String>,
+        /// The canvas the box opens ("" for none).
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        canvas: Option<String>,
         #[serde(default, skip_serializing_if = "Option::is_none")]
         tags: Option<Vec<String>>,
         #[serde(default, skip_serializing_if = "Option::is_none")]
@@ -174,6 +180,19 @@ pub enum Op {
         /// A new mindmap: the section it goes into.
         #[serde(default, skip_serializing_if = "Option::is_none")]
         group: Option<String>,
+    },
+    /// A new, empty canvas inside this board; a box opens it with
+    /// `canvas: ID`.
+    AddCanvas {
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        id: Option<String>,
+        #[serde(default)]
+        title: String,
+    },
+    /// Retitle a canvas.
+    UpdateCanvas {
+        id: String,
+        title: String,
     },
     /// Keep an image in the board: `data` is a `data:image/…;base64,…` URI.
     /// Boxes show it with `image: ID`.
@@ -686,6 +705,15 @@ fn adr_status(s: &Option<String>) -> Result<Option<String>, String> {
     }
 }
 
+/// A `canvas` value: a canvas of this board ("" or none: no canvas).
+fn need_canvas(doc: &Document, canvas: &Option<String>) -> Result<Option<String>, String> {
+    match canvas.as_deref().filter(|c| !c.is_empty()) {
+        None => Ok(None),
+        Some(c) if doc.canvas(c).is_some() => Ok(Some(c.to_string())),
+        Some(c) => Err(format!("no canvas `{c}` (add it with add_canvas)")),
+    }
+}
+
 /// An `image` value: an asset the board has ("" or none: no image).
 fn need_asset(doc: &Document, image: &Option<String>) -> Result<Option<String>, String> {
     match image.as_deref().filter(|i| !i.is_empty()) {
@@ -736,17 +764,25 @@ fn apply_one(doc: &mut Document, op: &Op, created: &mut Vec<String>) -> Result<(
     let shown = |doc: &Document| -> Vec<String> {
         doc.nodes.iter().filter_map(|n| n.image.clone()).collect()
     };
-    let before = if matches!(op, Op::Remove { .. }) {
-        shown(doc)
+    let opened = |doc: &Document| -> Vec<String> {
+        doc.nodes.iter().filter_map(|n| n.canvas.clone()).collect()
+    };
+    let (before, links) = if matches!(op, Op::Remove { .. }) {
+        (shown(doc), opened(doc))
     } else {
-        Vec::new()
+        (Vec::new(), Vec::new())
     };
     apply_op(doc, op, created)?;
-    // an image no box shows any more after a removal goes with it
+    // an image no box shows, or a canvas no box opens, after a removal goes with it
     if !before.is_empty() {
         let now = shown(doc);
         doc.assets
             .retain(|a| !before.contains(&a.id) || now.contains(&a.id));
+    }
+    if !links.is_empty() {
+        let now = opened(doc);
+        doc.canvases
+            .retain(|c| !links.contains(&c.id) || now.contains(&c.id));
     }
     if let Op::Rename { id, to } = op {
         for r in rows {
@@ -770,6 +806,7 @@ fn apply_op(doc: &mut Document, op: &Op, created: &mut Vec<String>) -> Result<()
             group,
             link,
             image,
+            canvas,
             tags,
             x,
             y,
@@ -816,6 +853,7 @@ fn apply_op(doc: &mut Document, op: &Op, created: &mut Vec<String>) -> Result<()
             n.group = group.clone().filter(|g| !g.is_empty());
             n.link = link.clone().filter(|l| !l.is_empty());
             n.image = need_asset(doc, image)?;
+            n.canvas = need_canvas(doc, canvas)?;
             n.tags = tags.clone();
             (n.x, n.y, n.w, n.h) = (*x, *y, *w, *h);
             if let Some(m) = mindmap.as_deref().filter(|m| !m.is_empty()) {
@@ -850,6 +888,7 @@ fn apply_op(doc: &mut Document, op: &Op, created: &mut Vec<String>) -> Result<()
             group,
             link,
             image,
+            canvas,
             tags,
             w,
             h,
@@ -911,6 +950,10 @@ fn apply_op(doc: &mut Document, op: &Op, created: &mut Vec<String>) -> Result<()
             if image.is_some() {
                 let i = need_asset(doc, image)?;
                 doc.node_mut(id).unwrap().image = i;
+            }
+            if canvas.is_some() {
+                let c = need_canvas(doc, canvas)?;
+                doc.node_mut(id).unwrap().canvas = c;
             }
             let n = doc.node_mut(id).unwrap();
             if let Some(l) = opt(link) {
@@ -974,6 +1017,40 @@ fn apply_op(doc: &mut Document, op: &Op, created: &mut Vec<String>) -> Result<()
                 }
             }
             created.extend(ids);
+        }
+        Op::AddCanvas { id, title } => {
+            let base = id
+                .as_deref()
+                .filter(|i| !i.is_empty())
+                .map(str::to_string)
+                .unwrap_or_else(|| slug(if title.is_empty() { "canvas" } else { title }));
+            if id.as_deref().is_some_and(|i| !i.is_empty())
+                && (!crate::dsl::is_ident(&base)
+                    || doc.id_taken(&base)
+                    || doc.canvas(&base).is_some())
+            {
+                return Err(format!("id `{base}` is already used or not an id"));
+            }
+            let mut cid = base.clone();
+            let mut k = 2;
+            while doc.id_taken(&cid) || doc.canvas(&cid).is_some() {
+                cid = format!("{base}-{k}");
+                k += 1;
+            }
+            doc.canvases.push(crate::model::Canvas {
+                id: cid.clone(),
+                doc: Document {
+                    title: Some(title.clone()).filter(|t| !t.is_empty()),
+                    ..Default::default()
+                },
+            });
+            created.push(cid);
+        }
+        Op::UpdateCanvas { id, title } => {
+            let c = doc
+                .canvas_mut(id)
+                .ok_or_else(|| format!("no canvas `{id}`"))?;
+            c.doc.title = Some(title.clone()).filter(|t| !t.is_empty());
         }
         Op::AddAsset { id, data } => {
             let data = data.trim();
@@ -1216,6 +1293,25 @@ fn apply_op(doc: &mut Document, op: &Op, created: &mut Vec<String>) -> Result<()
                 detach_comments(doc, id, &[]);
             } else if doc.comment(id).is_some() {
                 doc.comments.retain(|c| c.id != *id);
+            } else if doc.canvas(id).is_some() {
+                // a canvas goes with the boxes that open it
+                doc.canvases.retain(|c| c.id != *id);
+                let links: Vec<String> = doc
+                    .nodes
+                    .iter()
+                    .filter(|n| n.canvas.as_deref() == Some(id.as_str()))
+                    .map(|n| n.id.clone())
+                    .collect();
+                for l in links {
+                    apply_op(
+                        doc,
+                        &Op::Remove {
+                            id: l,
+                            keep_members: None,
+                        },
+                        created,
+                    )?;
+                }
             } else if doc.asset(id).is_some() {
                 doc.assets.retain(|a| a.id != *id);
                 for n in &mut doc.nodes {
@@ -1998,7 +2094,7 @@ mod tests {
         assert!(!crate::prompt::brief(&d).contains("base64"));
         // a reply rewritten without the asset keeps the board's
         let mut reply = crate::dsl::parse("shot: Login screen [image: img1]\n").unwrap();
-        reply.adopt_assets(&d);
+        reply.adopt_hidden(&d);
         assert_eq!(reply.assets, d.assets);
         // an unknown asset is refused; not an image either
         assert!(apply(

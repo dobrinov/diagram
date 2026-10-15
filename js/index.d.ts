@@ -35,6 +35,13 @@ export interface Document {
   themes?: ThemeDef[];
   /** Images kept in the board (`asset img1: data:…`); boxes show them with `image`. */
   assets?: Asset[];
+  /** Boards inside this one (`canvas id: Title { … }`); a box opens one with `canvas`. */
+  canvases?: Canvas[];
+}
+
+/** A board inside a board: its id, and every field of a document (`title` is its name). */
+export interface Canvas extends Document {
+  id: string;
 }
 
 /** An image kept in the board. */
@@ -81,6 +88,8 @@ export interface Node {
   link?: string;
   /** The id of an asset the box shows (an image). */
   image?: string;
+  /** The id of a canvas inside the board that the box opens (the box is the link to it). */
+  canvas?: string;
   tags?: string[];
   /** Pinned position (top-left); unpinned nodes are placed by the layout. */
   x?: number;
@@ -241,6 +250,8 @@ export interface AddNodeOp {
   link?: string;
   /** The id of an asset the box shows (an image). */
   image?: string;
+  /** The id of a canvas inside the board that the box opens (the box is the link to it). */
+  canvas?: string;
   tags?: string[];
   x?: number;
   y?: number;
@@ -288,6 +299,8 @@ export interface UpdateNodeOp {
   link?: string;
   /** The id of an asset the box shows (an image). */
   image?: string;
+  /** The id of a canvas inside the board that the box opens (the box is the link to it). */
+  canvas?: string;
   tags?: string[];
   w?: number;
   h?: number;
@@ -336,6 +349,20 @@ export interface AddOutlineOp {
   y?: number;
   /** A new mindmap: the section it goes into. */
   group?: string;
+}
+
+/** A new, empty canvas inside the board; a box opens it with `canvas: id`. Removing the last box that opens it removes it. */
+export interface AddCanvasOp {
+  op: "add_canvas";
+  id?: string;
+  title?: string;
+}
+
+/** Retitle a canvas. */
+export interface UpdateCanvasOp {
+  op: "update_canvas";
+  id: string;
+  title: string;
 }
 
 /** Keep an image in the board (a `data:image/…;base64,…` URI); boxes show it with `image: id`. Removing the last box that shows it removes it too. */
@@ -556,7 +583,7 @@ export type Op =
   | AddNodeOp | UpdateNodeOp | AddOutlineOp | RenameOp | RemoveOp | MoveOp | NudgeOp | UnpinOp
   | AddEdgeOp | UpdateEdgeOp | AddGroupOp | UpdateGroupOp
   | AddCommentOp | ReplyOp | EditCommentOp | ResolveCommentOp | ReopenCommentOp | SetOp | MergeOp | ThemeOp
-  | AddAssetOp;
+  | AddAssetOp | AddCanvasOp | UpdateCanvasOp;
 
 /** What Board.apply() accepts: ops, `{ops}`, one op, or a model's reply text containing that JSON. */
 export type OpsInput = Op[] | { ops: Op[] } | Op | string;

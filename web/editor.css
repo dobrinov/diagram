@@ -259,6 +259,14 @@
 
 /* Find (⌘F) */
 .dge-find { position: absolute; top: 56px; right: 16px; z-index: 6; display: flex; align-items: center; gap: 6px; padding: 4px 4px 4px 10px; border: 1px solid var(--line-strong); border-radius: var(--r-2); background: var(--bg); box-shadow: var(--shadow); }
+/* Canvases: where you are, and the way back up */
+.dge-trail { position: absolute; top: 56px; left: 16px; z-index: 6; display: flex; align-items: center; gap: 4px; max-width: calc(100% - 32px); padding: 4px 10px; border: 1px solid var(--line-strong); border-radius: 999px; background: var(--bg); box-shadow: var(--shadow); font-size: 13px; white-space: nowrap; overflow: hidden; }
+.dge-trail button { border: 0; background: transparent; color: var(--accent); font: inherit; padding: 2px 4px; border-radius: 6px; cursor: pointer; }
+.dge-trail button:hover { background: var(--hover, rgba(127,127,127,.12)); }
+.dge-trail strong { padding: 2px 4px; color: var(--fg); overflow: hidden; text-overflow: ellipsis; }
+.dge-trail-sep { color: var(--muted); }
+.dge button.primary.danger { background: var(--danger); border-color: var(--danger); color: #fff; }
+.dg-open { cursor: pointer; }
 .dge-find-input { width: 220px; border: 0; outline: 0; background: transparent; color: var(--fg); font: inherit; font-size: 13px; }
 .dge-find-count { font-size: 12px; min-width: 64px; }
 

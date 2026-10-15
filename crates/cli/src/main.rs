@@ -22,6 +22,8 @@ USAGE
   diagram [FILE]                     open FILE in the editor (created if missing;
                                      no FILE starts a new untitled.diagram)
   diagram new FILE [--template flow|architecture|board]   start a diagram from a template
+  --canvas ID[/ID…]                  with any command: work on that canvas inside the board
+                                     (`canvas id: Title { … }`), e.g. brief, apply, svg
 
 EXPORT
   diagram svg  FILE [-o out.svg]     static SVG
@@ -120,6 +122,7 @@ const VALUE_FLAGS: &[&str] = &[
     "--focus",
     "--as-of",
     "--in",
+    "--canvas",
 ];
 
 struct Args {
@@ -212,6 +215,9 @@ fn main() -> ExitCode {
     if args.flag("-h") || args.flag("--help") {
         print!("{HELP}");
         return ExitCode::SUCCESS;
+    }
+    if let Some(c) = args.val("--canvas").filter(|c| !c.is_empty()) {
+        let _ = CANVAS.set(c.split('/').map(str::to_string).collect());
     }
     match run(args) {
         Ok(code) => code,
@@ -315,8 +321,22 @@ fn parse_doc(src: &str, what: &str) -> Result<Document, String> {
     })
 }
 
+/// `--canvas a/b`: commands read and change that canvas inside the board.
+static CANVAS: std::sync::OnceLock<Vec<String>> = std::sync::OnceLock::new();
+
+fn canvas_scope() -> &'static [String] {
+    CANVAS.get().map(|v| v.as_slice()).unwrap_or(&[])
+}
+
 fn load(path: &str) -> Result<Document, String> {
-    parse_doc(&read_text(path)?, path)
+    let doc = parse_doc(&read_text(path)?, path)?;
+    let scope = canvas_scope();
+    if scope.is_empty() {
+        return Ok(doc);
+    }
+    doc.at(scope)
+        .cloned()
+        .ok_or_else(|| format!("{path} has no canvas `{}`", scope.join("/")))
 }
 
 /// A base version: another file, or the same file at a git ref.
@@ -339,6 +359,19 @@ pub fn format_for(path: &str) -> &'static str {
 }
 
 fn save(path: &str, doc: &Document) -> Result<(), String> {
+    // a canvas goes back into its board
+    let whole;
+    let doc = if canvas_scope().is_empty() || path == "-" {
+        doc
+    } else {
+        let mut root = parse_doc(&read_text(path)?, path)?;
+        *root
+            .at_mut(canvas_scope())
+            .ok_or_else(|| format!("{path} has no canvas `{}`", canvas_scope().join("/")))? =
+            doc.clone();
+        whole = root;
+        &whole
+    };
     let format = format_for(path);
     let mut text = diagram_core::export(doc, format)?;
     if format == "dsl" && path != "-" {
@@ -988,7 +1021,7 @@ fn run(args: Args) -> Result<ExitCode, String> {
                         let body = &body[..body.find("```").unwrap_or(body.len())];
                         let mut new = parse_doc(body, "the ```diagram block")?;
                         // prompts leave the images' data out: keep the board's
-                        new.adopt_assets(&doc);
+                        new.adopt_hidden(&doc);
                         if args.flag("--dry-run") {
                             print!(
                                 "{}",

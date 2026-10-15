@@ -270,8 +270,9 @@ pub fn subset(doc: &Document, ids: &[String]) -> Document {
         title: doc.title.clone(),
         description: None,
         themes: Vec::new(),
-        // images are kept out of what a model reads
+        // images and canvases are kept out of what a model reads
         assets: Vec::new(),
+        canvases: Vec::new(),
         settings: Settings {
             palette: None,
             ..doc.settings.clone()

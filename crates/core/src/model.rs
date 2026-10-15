@@ -25,6 +25,26 @@ pub struct Document {
     /// (`[image: img1]`). Written at the end of the file.
     #[serde(skip_serializing_if = "Vec::is_empty")]
     pub assets: Vec<Asset>,
+    /// Canvases inside this one, each a board of its own, opened from a box
+    /// that links to it (`[canvas: payments]`).
+    #[serde(skip_serializing_if = "Vec::is_empty")]
+    pub canvases: Vec<Canvas>,
+}
+
+/// A board inside a board: `canvas payments: Payments { … }`. Its title is
+/// its `doc.title`.
+#[derive(Debug, Clone, Default, PartialEq, Serialize, Deserialize)]
+#[serde(default)]
+pub struct Canvas {
+    pub id: String,
+    #[serde(flatten)]
+    pub doc: Document,
+}
+
+impl Canvas {
+    pub fn display(&self) -> &str {
+        self.doc.title.as_deref().unwrap_or(&self.id)
+    }
 }
 
 /// An image kept in the board: `asset img1: data:image/png;base64,…`.
@@ -215,6 +235,9 @@ pub struct Node {
     /// An image the box shows: the id of one of the board's assets.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub image: Option<String>,
+    /// A canvas inside this board that the box opens (it is the link to it).
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub canvas: Option<String>,
     #[serde(skip_serializing_if = "Vec::is_empty")]
     pub tags: Vec<String>,
     /// Pinned position (top-left). Unpinned nodes are placed by the layout.
@@ -555,6 +578,37 @@ impl Document {
     pub fn comment(&self, id: &str) -> Option<&Comment> {
         self.comments.iter().find(|c| c.id == id)
     }
+    pub fn canvas(&self, id: &str) -> Option<&Canvas> {
+        self.canvases.iter().find(|c| c.id == id)
+    }
+    pub fn canvas_mut(&mut self, id: &str) -> Option<&mut Canvas> {
+        self.canvases.iter_mut().find(|c| c.id == id)
+    }
+    /// The canvas at `path` (ids from this board down), or this board for an
+    /// empty path.
+    pub fn at(&self, path: &[String]) -> Option<&Document> {
+        match path.split_first() {
+            None => Some(self),
+            Some((first, rest)) => self.canvas(first)?.doc.at(rest),
+        }
+    }
+    pub fn at_mut(&mut self, path: &[String]) -> Option<&mut Document> {
+        match path.split_first() {
+            None => Some(self),
+            Some((first, rest)) => self.canvas_mut(first)?.doc.at_mut(rest),
+        }
+    }
+    /// How many elements a board holds, its canvases included.
+    pub fn size(&self) -> usize {
+        self.nodes.len()
+            + self.edges.len()
+            + self.groups.len()
+            + self
+                .canvases
+                .iter()
+                .map(|c| 1 + c.doc.size())
+                .sum::<usize>()
+    }
     pub fn asset(&self, id: &str) -> Option<&Asset> {
         self.assets.iter().find(|a| a.id == id)
     }
@@ -570,9 +624,20 @@ impl Document {
         let used: Vec<String> = self.nodes.iter().filter_map(|n| n.image.clone()).collect();
         self.assets.retain(|a| used.contains(&a.id));
     }
-    /// The images `old` had that this board shows but lacks (a model's reply
-    /// written without them: prompts leave the image data out).
-    pub fn adopt_assets(&mut self, old: &Document) {
+    /// The images and canvases `old` had that this board uses but lacks (a
+    /// model's reply written without them: prompts leave them out).
+    pub fn adopt_hidden(&mut self, old: &Document) {
+        let wanted: Vec<String> = self
+            .nodes
+            .iter()
+            .filter_map(|n| n.canvas.clone())
+            .filter(|id| self.canvas(id).is_none())
+            .collect();
+        for id in wanted {
+            if let Some(c) = old.canvas(&id) {
+                self.canvases.push(c.clone());
+            }
+        }
         let wanted: Vec<String> = self
             .nodes
             .iter()

@@ -120,6 +120,15 @@
         }
       });
       status("Saved");
+      // the canvas inside the board that was open (?canvas=payments/fraud) opens again
+      if (PARAMS.get("canvas")) editor.openCanvas(PARAMS.get("canvas").split("/"));
+      editor.on("canvas", function (path) {
+        var q = new URLSearchParams(location.search);
+        if (path.length) q.set("canvas", path.join("/")); else q.delete("canvas");
+        q.delete("focus");
+        var s = q.toString();
+        history.replaceState(null, "", location.pathname + (s ? "?" + s : ""));
+      });
       if (PARAMS.get("focus")) setTimeout(function () { editor.goTo(PARAMS.get("focus")); }, 50);
       // pick up changes made outside the editor
       setInterval(function () {

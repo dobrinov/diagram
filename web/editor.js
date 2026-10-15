@@ -294,6 +294,80 @@
     // --------------------------------------------------------- doc state
     function refreshDoc() {
       st.doc = JSON.parse(st.session.document());
+      updateTrail();
+    }
+
+    /* Canvases inside the board: the one open, and the way back up. */
+    var trail = null;
+    function updateTrail() {
+      var t = JSON.parse(st.session.canvas_trail());
+      st.canvasPath = t[t.length - 1].path;
+      if (t.length < 2) { if (trail) { trail.remove(); trail = null; } return; }
+      if (!trail) { trail = h("nav", { class: "dge-trail", "aria-label": "Canvases" }); el.appendChild(trail); }
+      trail.innerHTML = "";
+      t.forEach(function (c, i) {
+        if (i) trail.appendChild(h("span", { class: "dge-trail-sep" }, ["›"]));
+        var last = i === t.length - 1;
+        trail.appendChild(last ? h("strong", {}, [c.title]) : h("button", { title: "Back to “" + c.title + "”", onclick: function () { openCanvas(c.path); } }, [c.title]));
+      });
+    }
+    /* Open the canvas at `path` (ids from the top board; [] for the top). */
+    function openCanvas(path) {
+      var res = JSON.parse(st.session.open_canvas(JSON.stringify(path || [])));
+      if (!res.ok) { flash(res.error, true); return false; }
+      select([]);
+      refreshDoc();
+      render();
+      fit();
+      emit("canvas", st.canvasPath.slice());
+      return true;
+    }
+    function openLinked(id) {
+      var n = node(id);
+      if (n && n.canvas) openCanvas(st.canvasPath.concat([n.canvas]));
+    }
+    /* A new canvas inside this one, with a button on this one that opens it. */
+    function newCanvas(at) {
+      askAt(st.menuAt, "", "Name of the new canvas", function (title) {
+        if (!title) return;
+        var id = freshId(slug(title) + "-link"), cid = canvasIdFor(title);
+        var res = applyOps([
+          { op: "add_canvas", id: cid, title: title },
+          { op: "add_node", id: id, label: title, shape: "pill", canvas: cid, x: Math.round(at.x - 70), y: Math.round(at.y - 22) }
+        ]);
+        if (res.ok) { select([id]); flash("Double-click “" + title + "” (or its badge) to open it"); }
+      });
+    }
+    /* The id add_canvas will give a canvas with this title. */
+    function canvasIdFor(title) {
+      var base = slug(title) || "canvas", id = base, k = 2;
+      var taken = function (x) { return idTaken(x) || (st.doc.canvases || []).some(function (c) { return c.id === x; }); };
+      while (taken(id)) id = base + "-" + k++;
+      return id;
+    }
+    function canvasOf(id) { var n = node(id); return n && n.canvas && (st.doc.canvases || []).find(function (c) { return c.id === n.canvas; }); }
+    function countIn(doc) {
+      return (doc.nodes || []).length + (doc.edges || []).length + (doc.groups || []).length + (doc.canvases || []).reduce(function (k, c) { return k + 1 + countIn(c); }, 0);
+    }
+    /* Removing a box that opens a canvas removes the canvas: ask first. */
+    function confirmCanvases(ids, go) {
+      var cs = ids.map(canvasOf).filter(Boolean);
+      if (!cs.length) return go();
+      var names = cs.map(function (c) { return "“" + (c.title || c.id) + "” (" + countIn(c) + " inside)"; }).join(", ");
+      showModal(cs.length > 1 ? "Delete these canvases?" : "Delete this canvas?", h("p", {}, [
+        "Deleting the link also deletes the canvas " + names + ". " + MOD + "Z brings it back."
+      ]), [
+        h("button", { onclick: closeModal }, ["Cancel"]),
+        h("button", { class: "primary danger", onclick: function () { closeModal(); go(); } }, ["Delete"])
+      ]);
+    }
+    function linkStyleMenu(id) {
+      var cur = node(id).shape || "box";
+      setTimeout(function () {
+        openMenu(st.menuAt, [["pill", "Button"], ["box", "Card"], ["text", "Text"], ["sticky", "Sticky note"], ["circle", "Circle"]].map(function (k) {
+          return [(k[0] === cur ? "✓ " : "\u2003") + k[1], function () { applyOps([{ op: "update_node", id: id, shape: k[0] }]); }];
+        }));
+      }, 0);
     }
     function node(id) { return st.doc && st.doc.nodes.find(function (n) { return n.id === id; }); }
     function edge(id) { return st.doc && (st.doc.edges || []).find(function (e) { return e.id === id; }); }
@@ -1003,6 +1077,8 @@
       if (ctl) return { type: ctl.classList.contains("dge-plus") ? "plus" : "fold", id: ctl.getAttribute("data-node") };
       var fold = target.closest(".dg-fold");
       if (fold) return { type: "fold", id: fold.getAttribute("data-fold") };
+      var op = target.closest(".dg-open");
+      if (op) return { type: "open", id: op.getAttribute("data-node"), canvas: op.getAttribute("data-canvas") };
       var lk = target.closest(".dg-link");
       if (lk) return { type: "link", id: lk.getAttribute("data-node"), link: lk.getAttribute("data-link") };
       // a risk's row in its matrix's list stands for the risk
@@ -1268,6 +1344,20 @@
         ["Remove chart", function () { applyOps([{ op: "remove", id: t.id, keep_members: true }]); select([]); }, "Its tasks stay, as boxes"],
         ["Delete", function () { applyOps([{ op: "remove", id: t.id, keep_members: false }]); select([]); }, "The chart and its tasks"]
       ];
+      if (t.type === "node" && !mapInfo(t.id) && !view && canvasOf(t.id)) {
+        var cv = canvasOf(t.id);
+        return [
+          ["Open canvas", function () { openLinked(t.id); }, "Or double-click it"],
+          ["Rename", function () { editLabel(t.id); }, "The link's text"],
+          ["Rename canvas…", function () {
+            askAt(st.menuAt, cv.title || cv.id, "Canvas name", function (v) { if (v) applyOps([{ op: "update_canvas", id: cv.id, title: v }]); });
+          }, cv.title || cv.id],
+          ["Link style…", function () { linkStyleMenu(t.id); }, "Button, card, text…"],
+          ["Colour…", function () { colourMenu(t.id, "update_node", node(t.id).color); }],
+          "-",
+          ["Delete", function () { confirmCanvases([t.id], function () { applyOps([{ op: "remove", id: t.id }]); select([]); }); }, "The link and its canvas"]
+        ];
+      }
       if (t.type === "node" && !mapInfo(t.id) && !view) return [
         ["Rename", function () { editLabel(t.id); }],
         ["Shape…", function () { shapeMenu(t.id); }],
@@ -1380,6 +1470,7 @@
       var t = st.r && hit(e.target);
       var at = toDiagram(e.clientX, e.clientY);
       var items = t ? contextItems(t) : view ? [] : [
+        ["New canvas here…", function () { newCanvas(at); }, "A board inside this one, opened from a button here"],
         ["Insert image…", function () { pickImages(at); }, "Or paste an image, or drop image files on the board"]
       ];
       if (!items.length) return;
@@ -1396,6 +1487,7 @@
       var p = toDiagram(e.clientX, e.clientY);
       var t = hit(e.target);
       if (e.button === 0 && t && t.type === "link" && !st.linking) { e.preventDefault(); followLink(t.link); return; }
+      if (e.button === 0 && t && t.type === "open") { e.preventDefault(); openCanvas(st.canvasPath.concat([t.canvas])); return; }
       if (st.linking && e.button === 0) {
         // Link to…: the next click picks the target
         var from = st.linking, to = t && (t.type === "node" || t.type === "group") ? t.id : null;
@@ -1638,6 +1730,7 @@
       // the first click may have re-rendered what is under the pointer
       var under = document.elementFromPoint(e.clientX, e.clientY) || e.target;
       var t = hit(under);
+      if (t && t.type === "node" && canvasOf(t.id)) { openLinked(t.id); return; }
       if (t && (t.type === "node" || t.type === "edge" || t.type === "group")) {
         editLabel(t.id);
         return;
@@ -1867,8 +1960,10 @@
         for (; g; g = group(g) && group(g).parent) if (ids.indexOf(g) >= 0) return false;
         return true;
       });
-      applyOps(ids.map(function (id) { return group(id) ? { op: "remove", id: id, keep_members: false } : { op: "remove", id: id }; }));
-      select(up && node(up) ? [up] : []);
+      confirmCanvases(ids, function () {
+        applyOps(ids.map(function (id) { return group(id) ? { op: "remove", id: id, keep_members: false } : { op: "remove", id: id }; }));
+        select(up && node(up) ? [up] : []);
+      });
     }
 
     /* A titled section (a group) around the selected blocks. */
@@ -2622,11 +2717,12 @@
     }
     /* Groups in the given order, by rewriting the DSL: the core keeps groups in document order. */
     function reorderGroups(ids) {
-      var doc = JSON.parse(st.session.source("json"));
+      // the open canvas only (the whole board when none is open)
+      var doc = JSON.parse(st.session.document());
       doc.groups.sort(function (a, b) { return ids.indexOf(a.id) - ids.indexOf(b.id); });
       var before = st.text;
-      var res = JSON.parse(st.session.set_source(JSON.stringify(doc)));
-      if (res.errors && res.errors.length) { st.session.set_source(before); return; }
+      var res = JSON.parse(st.session.replace_here(JSON.stringify(doc)));
+      if (!res.ok) { st.session.set_source(before); return; }
       // part of the change that made the lane: no undo step of its own
       st.text = st.session.source("dsl");
       refreshDoc();
@@ -3329,6 +3425,8 @@
       exportPNG: exportPNG,
       select: function (ids) { select(ids || []); },
       goTo: function (id) { followLink("#" + id); },
+      openCanvas: function (path) { return openCanvas(path || []); },
+      canvasPath: function () { return (st.canvasPath || []).slice(); },
       fit: fit,
       setTheme: function (t) { st.dark = t === "dark"; applyChrome(); render(); },
       setMode: function (m) { view = m === "view"; el.classList.toggle("dge-view", view); buildToolbar(); applyChrome(); render(); },

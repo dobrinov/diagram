@@ -17,6 +17,15 @@ function rustOps(src) {
   let cur = null, dflt = false;
   for (const l of lines) {
     let m;
+    // `Name { a: String, b: Option<String> },` on one line
+    if ((m = /^    ([A-Z]\w*)\s*\{(.*)\},$/.exec(l))) {
+      cur = ops[snake(m[1])] = {};
+      for (const f of m[2].split(/,(?![^<]*>)/).map((x) => x.trim()).filter(Boolean)) {
+        const [k, ty] = f.split(/:\s*/);
+        cur[k] = !(/^(Option|Vec)</.test(ty) || ty === "bool");
+      }
+      continue;
+    }
     if ((m = /^    ([A-Z]\w*)\s*[{,]/.exec(l))) { cur = ops[snake(m[1])] = {}; dflt = false; continue; }
     if (/^\s*#\[serde\(.*default/.test(l)) { dflt = true; continue; }
     if ((m = /^        (\w+): (.+),$/.exec(l)) && cur) {
