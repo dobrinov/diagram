@@ -7,7 +7,7 @@ entity teams: Teams {
 }
 entity users: Users {
   id:         uuid [pk]
-  team_id:    uuid [fk: teams]
+  team_id:    uuid [fk: teams, rel: member of]
   email:      citext [unique]
   bio:        text [null]
   tags:       text[]
@@ -15,7 +15,7 @@ entity users: Users {
 entity boards: Boards {
   id:         uuid [pk]
   team_id:    uuid [fk: teams.id]
-  owner_id:   uuid [fk: users, null]
+  owner_id:   uuid [fk: users, null, rel: owned by]
   path:       text
 }
 entity runs: Agent runs {

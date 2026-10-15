@@ -1,6 +1,6 @@
 {
   "name": "diagram",
-  "version": "0.25.1",
+  "version": "0.26.0",
   "private": true,
   "description": "FigJam-style boards as text (mindmaps, flowcharts, swimlanes, gantt charts, review comments) with ops and prompts for LLMs. WASM, for Node and browsers.",
   "type": "module",

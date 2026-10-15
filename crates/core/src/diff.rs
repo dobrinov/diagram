@@ -87,6 +87,11 @@ fn fields_node(a: &Node, b: &Node) -> Vec<(String, String, String)> {
         ca.default.clone().unwrap_or_default(),
         cb.default.clone().unwrap_or_default(),
     );
+    cmp(
+        "relationship",
+        ca.rel.clone().unwrap_or_default(),
+        cb.rel.clone().unwrap_or_default(),
+    );
     // risks
     let level = |v: Option<u8>| v.map(|v| v.to_string()).unwrap_or_default();
     cmp("probability", level(a.probability), level(b.probability));

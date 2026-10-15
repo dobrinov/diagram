@@ -1120,7 +1120,7 @@
           ["Edit column…", function () {
             askAt(st.menuAt, columnText(col), "email: text [unique]", function (v) {
               var c = parseColumn(v);
-              if (!c) return flash("Write `name: type [pk, unique, null, fk: table.column]`", true);
+              if (!c) return flash("Write `name: type [pk, unique, null, fk: table.column, rel: …]`", true);
               var cols = st.doc.nodes.filter(function (n) { return n.group === eg.id; }).map(function (n) { return n.id === col.id ? c : parseColumn(columnText(n)); });
               applyOps(entityOps(eg.id, cols));
             });
@@ -1137,7 +1137,7 @@
         ["Add column", function () {
           askAt(st.menuAt, "", "name: type [null]", function (v) {
             var c = parseColumn(v);
-            if (!c) return flash("Write `name: type [pk, unique, null, fk: table.column]`", true);
+            if (!c) return flash("Write `name: type [pk, unique, null, fk: table.column, rel: …]`", true);
             applyOps([{ op: "add_node", id: t.id + "." + c.name, label: c.name, group: t.id, column: c.column }]);
           });
         }],
@@ -1874,6 +1874,7 @@
       if (c.null) a.push("null");
       if (c.fk) a.push("fk: " + c.fk);
       if (c.default) a.push("default: " + c.default);
+      if (c.rel) a.push("rel: " + c.rel);
       return (n.label || n.id.split(".").pop()) + ": " + (c.type || "") + (a.length ? " [" + a.join(", ") + "]" : "");
     }
     function parseColumn(line) {
@@ -1887,6 +1888,7 @@
         else if (k === "null" || k === "nullable") c.null = true;
         else if (k === "fk" || k === "references") c.fk = v;
         else if (k === "default") c.default = v;
+        else if (k === "rel" || k === "relationship") c.rel = v;
       });
       return { name: m[1].trim(), column: c };
     }
@@ -1913,7 +1915,7 @@
         if (applyOps(entityOps(gid, cols)).ok) closeModal();
       };
       showModal("Columns: " + (group(gid).label || gid), h("div", {}, [
-        h("p", { class: "dge-muted" }, ["One column per line: `name: type [pk, unique, null, fk: table.column, default: now()]`."]),
+        h("p", { class: "dge-muted" }, ["One column per line: `name: type [pk, unique, null, fk: table.column, rel: member of, default: now()]`. The type can be left out for a conceptual model."]),
         ta
       ]), [
         h("button", { onclick: closeModal }, ["Cancel"]),

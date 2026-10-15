@@ -53,6 +53,34 @@ pub fn target(doc: &Document, fk: &str) -> Option<String> {
         .map(|c| c.id.clone())
 }
 
+/// How many of one side go with the other, in crow's-foot notation.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum Cardinality {
+    /// Exactly one (`||`).
+    One,
+    /// Zero or one (`o|`).
+    ZeroOne,
+    /// Zero or more (`o<`).
+    Many,
+}
+
+/// The two ends of foreign key `col`: how many rows it references (one, or
+/// zero or one when it may be NULL), and how many rows reference each of
+/// those (zero or one when it is unique, otherwise many).
+pub fn cardinality(col: &crate::model::Column) -> (Cardinality, Cardinality) {
+    let parent = if col.null {
+        Cardinality::ZeroOne
+    } else {
+        Cardinality::One
+    };
+    let child = if col.unique || col.pk {
+        Cardinality::ZeroOne
+    } else {
+        Cardinality::Many
+    };
+    (child, parent)
+}
+
 /// The id of the line a foreign key is drawn as.
 pub fn relation_id(column: &str) -> String {
     format!("fk:{column}")
@@ -70,6 +98,7 @@ pub fn with_relations(doc: &Document) -> Option<Document> {
                 id: relation_id(&n.id),
                 from: n.id.clone(),
                 to,
+                label: n.column.as_ref()?.rel.clone(),
                 arrow: Arrow::End,
                 line: Line::Solid,
                 ..Default::default()
@@ -204,6 +233,25 @@ mod tests {
     use super::*;
 
     const SRC: &str = "entity teams: Teams {\n  id:   uuid [pk]\n  name: text [unique]\n}\nentity users: Users {\n  id:      uuid [pk]\n  team_id: uuid [fk: teams]\n  bio:     text [null, detail: Shown on the profile]\n  tags:    text[]\n}\n";
+
+    #[test]
+    fn er_notation_from_the_keys() {
+        let src = "entity users: Users {\n  id: uuid [pk]\n}\nentity orders: Orders {\n  buyer_id: uuid [null, fk: users, rel: placed by]\n}\nentity profiles: Profiles {\n  user_id [pk, fk: users]\n}\n";
+        let d = crate::dsl::parse(src).unwrap();
+        assert_eq!(crate::dsl::print(&d), src);
+        let col = |id: &str| d.node(id).unwrap().column.clone().unwrap();
+        use Cardinality::*;
+        // many orders per user, each with zero or one buyer
+        assert_eq!(cardinality(&col("orders.buyer_id")), (Many, ZeroOne));
+        // one-to-one: a profile per user at most, each for exactly one user
+        assert_eq!(cardinality(&col("profiles.user_id")), (ZeroOne, One));
+        let out = crate::render::render(&d, &Default::default());
+        assert!(
+            out.svg.contains("dg-card") && out.svg.contains(">placed by<"),
+            "{}",
+            out.svg
+        );
+    }
 
     #[test]
     fn tables_round_trip_and_keys_become_lines() {

@@ -247,6 +247,9 @@ pub struct Column {
     pub fk: Option<String>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub default: Option<String>,
+    /// The relationship's name, written on its line (`member of`).
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub rel: Option<String>,
 }
 
 impl Node {

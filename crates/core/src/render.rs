@@ -461,7 +461,15 @@ fn draw(doc: &Document, opts: &RenderOptions, def: Option<crate::model::ThemeDef
             path.d, color, width, dash
         );
         let head = 6.0 + width * 1.5;
-        if matches!(e.arrow, Arrow::End | Arrow::Both) {
+        let fk =
+            e.id.strip_prefix("fk:")
+                .and_then(|c| doc.node(c)?.column.clone());
+        if let Some(col) = fk {
+            // ER notation: crow's feet instead of an arrowhead
+            let (child, parent) = crate::entities::cardinality(&col);
+            crow_foot(&mut s, path.start, child, &color, p.bg);
+            crow_foot(&mut s, path.end, parent, &color, p.bg);
+        } else if matches!(e.arrow, Arrow::End | Arrow::Both) {
             arrowhead(&mut s, path.end, head, &color);
         }
         if matches!(e.arrow, Arrow::Start | Arrow::Both) {
@@ -1541,6 +1549,60 @@ fn change_colors(c: Change, p: &Palette) -> (String, String, &'static str) {
             r#" stroke-width="2""#,
         ),
     }
+}
+
+/// One end of a relationship in crow's-foot notation: bars for one, a circle
+/// for optional, three prongs for many. `dir` points into the table.
+fn crow_foot(
+    s: &mut String,
+    (tip, dir): ((f64, f64), (f64, f64)),
+    kind: crate::entities::Cardinality,
+    color: &str,
+    bg: &str,
+) {
+    use crate::entities::Cardinality::*;
+    let at = |d: f64, side: f64| {
+        (
+            tip.0 - dir.0 * d - dir.1 * side,
+            tip.1 - dir.1 * d + dir.0 * side,
+        )
+    };
+    let line = |s: &mut String, a: (f64, f64), b: (f64, f64)| {
+        let _ = write!(
+            s,
+            r#"<line x1="{}" y1="{}" x2="{}" y2="{}" stroke="{color}" stroke-width="1.6"/>"#,
+            n(a.0),
+            n(a.1),
+            n(b.0),
+            n(b.1)
+        );
+    };
+    let circle = |s: &mut String, c: (f64, f64)| {
+        let _ = write!(
+            s,
+            r#"<circle cx="{}" cy="{}" r="4" fill="{bg}" stroke="{color}" stroke-width="1.6"/>"#,
+            n(c.0),
+            n(c.1)
+        );
+    };
+    s.push_str(r#"<g class="dg-card">"#);
+    match kind {
+        One => {
+            line(s, at(5.0, 6.0), at(5.0, -6.0));
+            line(s, at(10.0, 6.0), at(10.0, -6.0));
+        }
+        ZeroOne => {
+            line(s, at(5.0, 6.0), at(5.0, -6.0));
+            circle(s, at(14.0, 0.0));
+        }
+        Many => {
+            line(s, at(12.0, 0.0), at(0.0, 7.0));
+            line(s, at(12.0, 0.0), at(0.0, -7.0));
+            line(s, at(12.0, 0.0), at(0.0, 0.0));
+            circle(s, at(17.0, 0.0));
+        }
+    }
+    s.push_str("</g>");
 }
 
 fn arrowhead(s: &mut String, (tip, dir): ((f64, f64), (f64, f64)), size: f64, color: &str) {

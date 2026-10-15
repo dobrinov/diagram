@@ -191,7 +191,7 @@ pub fn json_schema() -> Value {
                 "cells": {"type": "array", "items": {"type": "string"}, "description": "table row: its cells after the first (the label)"},
                 "column": {"type": "object", "description": "database table column", "additionalProperties": false, "properties": {
                     "type": {"type": "string"}, "pk": {"type": "boolean"}, "unique": {"type": "boolean"}, "null": {"type": "boolean"},
-                    "fk": {"type": "string", "description": "the referenced column's id (teams.id) or a table (its primary key)"}, "default": {"type": "string"}
+                    "fk": {"type": "string", "description": "the referenced column's id (teams.id) or a table (its primary key)"}, "default": {"type": "string"}, "rel": {"type": "string", "description": "the relationship's name, written on the foreign key's line"}
                 }}
             }}},
             "edges": {"type": "array", "items": {"type": "object", "required": ["from", "to"], "additionalProperties": false, "properties": {

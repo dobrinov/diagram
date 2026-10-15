@@ -800,6 +800,7 @@ impl Parser {
                 ("null" | "nullable", None) => col.null = true,
                 ("fk" | "references" | "ref", Some(v)) => col.fk = Some(v),
                 ("default", Some(v)) => col.default = Some(v),
+                ("rel" | "relationship", Some(v)) => col.rel = Some(v),
                 (k, v) => rest.push((k.to_string(), v)),
             }
         }
@@ -2101,6 +2102,9 @@ pub(crate) fn entity_block(doc: &Document, g: &Group, pad: &str, out: &mut Strin
         }
         if let Some(d) = &c.default {
             a.push(format!("default: {}", attr_value(d)));
+        }
+        if let Some(r) = &c.rel {
+            a.push(format!("rel: {}", attr_value(r)));
         }
         let mut m = n.clone();
         m.column = None;

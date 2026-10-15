@@ -1,5 +1,10 @@
 # Changelog
 
+## 0.26.0 — 2026-10-15
+
+- **ER diagrams:** foreign keys are drawn in crow's-foot notation, worked out from the column. At the referenced table: one, or zero or one when the column may be NULL. At the referencing table: many, or zero or one when the column is unique or the primary key. `[rel: member of]` names the relationship on its line. Leave out a column's type (`email [unique]`) for a conceptual model.
+- `diff` lists a changed relationship name. The editor's column text takes `rel:`. In JSON: `column.rel`.
+
 ## 0.25.1 — 2026-10-13
 
 - README: a new screenshot of today's editor (a mindmap, a kanban board, a sequence diagram and a decision record on one board), and the block keywords and cross-board links in the language summary.

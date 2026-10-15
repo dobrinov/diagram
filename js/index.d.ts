@@ -116,6 +116,8 @@ export interface Column {
   /** The referenced column's id (`teams.id`), or a table (its primary key). */
   fk?: string;
   default?: string;
+  /** The relationship's name, written on the foreign key's line (`member of`). */
+  rel?: string;
 }
 
 export interface Edge {
