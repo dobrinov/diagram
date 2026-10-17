@@ -1,0 +1,17 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1024 1024" width="1024" height="1024">
+  <defs>
+    <filter id="shadow" x="-15%" y="-10%" width="130%" height="125%">
+      <feDropShadow dx="0" dy="10" stdDeviation="14" flood-color="#0b1f4d" flood-opacity="0.22"/>
+    </filter>
+  </defs>
+  <path d="M252 72H632L840 280V904a48 48 0 0 1-48 48H252a48 48 0 0 1-48-48V120a48 48 0 0 1 48-48Z" fill="#ffffff" stroke="#d3d9e1" stroke-width="8" filter="url(#shadow)"/>
+  <path d="M632 72V232a48 48 0 0 0 48 48H840Z" fill="#e8edf4" stroke="#d3d9e1" stroke-width="8" stroke-linejoin="round"/>
+  <g transform="translate(347 300) scale(5.15)">
+    <rect width="64" height="64" rx="14" fill="#2f6fed"/>
+    <path d="M18 18C14 44 22 50 46 46" fill="none" stroke="#fff" stroke-width="4.5" stroke-linecap="round"/>
+    <circle cx="18" cy="18" r="8.5" fill="#fff"/>
+    <circle cx="46" cy="18" r="8.5" fill="#ffd43b"/>
+    <circle cx="46" cy="46" r="8.5" fill="#fff"/>
+  </g>
+  <text x="522" y="840" text-anchor="middle" font-family="Helvetica Neue, Helvetica, Arial, sans-serif" font-size="88" font-weight="700" letter-spacing="6" fill="#2f6fed">DIAGRAM</text>
+</svg>

@@ -115,6 +115,16 @@ make install        # builds web/pkg (WASM), then `cargo install --path crates/c
 
 A plain `cargo install --path crates/cli` also works. Its `build.rs` runs wasm-pack whenever the WASM bundle is missing or out of date.
 
+**Open boards from Finder (or Files, or Explorer):**
+
+```bash
+diagram install-app      # once; `diagram install-app --remove` undoes it
+```
+
+After this, `.diagram` files get their own document icon, and double-clicking one opens it in the editor. A board opened that way has no terminal behind it, so its server stops by itself a few minutes after you close the tab. On macOS this is a small Diagram.app in `~/Applications` (or `~/Library/Application Support/diagram`). On Linux it is a MIME type, an icon and a `.desktop` entry in `~/.local/share`. On Windows it is a file association for your user. Run it again after moving or reinstalling diagram.
+
+**New versions:** once a day, the editor asks GitHub whether a newer release exists. If one does, the terminal says so (with `brew upgrade diagram` when Homebrew installed it), and a *New* badge in the top bar links to the release notes. Set `DIAGRAM_NO_UPDATE_CHECK=1` to turn this off; it is also off when `CI` is set.
+
 ## Usage
 
 ```

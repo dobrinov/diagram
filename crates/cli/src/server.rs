@@ -185,6 +185,7 @@ pub fn serve(
     port: Option<u16>,
     open: bool,
     ai: Option<String>,
+    idle_exit: bool,
 ) -> Result<(), String> {
     let (server, port) = bind(port)?;
     let url = format!("http://127.0.0.1:{port}/");
@@ -200,6 +201,23 @@ pub fn serve(
         open_browser(&url);
     }
     crate::update::start();
+    // started from a double-click (`diagram install-app`): no terminal to stop
+    // it, so it stops once the editor tabs are gone (they check in every 30s)
+    let heard = std::sync::Arc::new(std::sync::Mutex::new(std::time::Instant::now()));
+    if idle_exit {
+        let heard = heard.clone();
+        std::thread::spawn(move || loop {
+            std::thread::sleep(std::time::Duration::from_secs(15));
+            if heard
+                .lock()
+                .map(|t| t.elapsed().as_secs() > 180)
+                .unwrap_or(false)
+            {
+                eprintln!("diagram: no editor open for 3 minutes; stopping");
+                std::process::exit(0);
+            }
+        });
+    }
     let author = std::process::Command::new("git")
         .args(["config", "user.name"])
         .output()
@@ -211,6 +229,9 @@ pub fn serve(
     let root = board_root(&file);
     let start = (file.clone(), display.clone());
     for mut req in server.incoming_requests() {
+        if let Ok(mut t) = heard.lock() {
+            *t = std::time::Instant::now();
+        }
         let url = req.url().to_string();
         let path = url.split('?').next().unwrap_or("/").to_string();
         // `?file=` picks another board (links between boards); default: the one we started with

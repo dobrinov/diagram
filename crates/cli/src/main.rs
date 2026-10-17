@@ -1,4 +1,5 @@
 mod ai;
+mod app;
 mod assets;
 mod export;
 mod png;
@@ -90,10 +91,13 @@ MORE
   diagram spec [--json-schema]       the language reference (for people and LLMs)
   diagram embed [-o diagram.embed.js]   browser library bundle (JS + inlined WASM)
   diagram skills list | show NAME | install [--global] [--dir PATH]   agent skills
+  diagram install-app [--remove]     give .diagram files their own icon and open them in the
+                                     editor on a double-click (macOS, Linux, Windows)
   diagram version
 
 SERVER OPTIONS
   --port N  --no-open  --ai CMD
+  --idle-exit                        stop once no editor tab has been heard from for 3 minutes
 
 FILE may be `-` for stdin. Formats are chosen by extension: .diagram (DSL),
 .json, .mmd (Mermaid). See https://github.com/dobrinov/diagram
@@ -161,7 +165,7 @@ impl Args {
             "merge",
         ];
         let cmd = match pos.first() {
-            Some(c) if COMMANDS.contains(&c.as_str()) => pos.remove(0),
+            Some(c) if COMMANDS.contains(&c.as_str()) || c == "install-app" => pos.remove(0),
             _ => "open".into(),
         };
         if vals.contains_key("--out") {
@@ -702,7 +706,17 @@ fn run(args: Args) -> Result<ExitCode, String> {
                 .map(|p| p.parse::<u16>().map_err(|_| "--port must be a number"))
                 .transpose()?;
             let ai = ai::command(args.val("--ai"));
-            server::serve(PathBuf::from(file), port, !args.flag("--no-open"), ai)?;
+            server::serve(
+                PathBuf::from(file),
+                port,
+                !args.flag("--no-open"),
+                ai,
+                args.flag("--idle-exit"),
+            )?;
+            ok
+        }
+        "install-app" => {
+            app::install(args.flag("--remove"))?;
             ok
         }
         "new" => {

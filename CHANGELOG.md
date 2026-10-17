@@ -1,5 +1,14 @@
 # Changelog
 
+## 0.34.0 — 2026-10-17
+
+- **Your own file icons:** `diagram install-app` (once; `--remove` undoes it) gives `.diagram` files a document icon (the logo on a page) and makes a double-click open the board in the editor.
+  - macOS: a small Diagram.app that declares the `.diagram` type (`io.github.dobrinov.diagram.board`, plain text underneath, so Quick Look still shows it). It goes in `~/Applications`, or in `~/Library/Application Support/diagram` when that folder is not yours. It keeps your `PATH`, so ✦ AI finds your CLI.
+  - Linux: a MIME type `application/x-diagram`, its icon and a `.desktop` entry under `~/.local/share`.
+  - Windows: a file association and icon for your user.
+- `--idle-exit`: an editor server started from a double-click stops once no editor tab has been heard from for 3 minutes. Tabs check in every 30 seconds, also in the background.
+- **New versions:** once a day (cached), the editor asks GitHub for the latest release. When there is a newer one, the terminal says so with how to upgrade (`brew upgrade diagram` for a Homebrew install), and a *New: x.y.z* badge in the top bar links to its notes. A failed check is silent. `DIAGRAM_NO_UPDATE_CHECK=1` turns it off; it is off under `CI` too. Server `GET /api/update`.
+
 ## 0.33.0 — 2026-10-17
 
 - **Comments look like comments:** a comment is now a speech bubble on the corner of what it is about, with its author's initials (lines of text when there is no author) and a small count of replies. The number is gone from the board, the thread and the comment list; it was only the comment's place in the file. Hovering a bubble shows who wrote it, how it starts and how many replies it has. Clicking it opens the thread, headed "Comment on …".

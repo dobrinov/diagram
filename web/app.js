@@ -166,6 +166,9 @@
         history.replaceState(null, "", location.pathname + (s ? "?" + s : ""));
       });
       if (PARAMS.get("focus")) setTimeout(function () { editor.goTo(PARAMS.get("focus")); }, 50);
+      // the server hears from this tab even while it is in the background
+      // (one started with --idle-exit stops when no tab is left)
+      setInterval(function () { if (document.hidden) fetch(api("api/version")).catch(function () {}); }, 30000);
       // pick up changes made outside the editor
       setInterval(function () {
         if (saving || document.hidden) return;
