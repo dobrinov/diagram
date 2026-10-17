@@ -285,10 +285,11 @@ impl Diagram {
         to_json(&self.inner.answer_refs(answer))
     }
 
-    /// A prompt to rethink the open canvas: organise what was collected on
-    /// it. `since` is an earlier version of the whole board (null: none; "":
-    /// the board did not exist), whose changes are the new information;
-    /// `label` says what it is. Returns `{prompt}` or `{error}`.
+    /// A prompt to rethink the whole board from the open canvas: act on the
+    /// open comments, organise what was collected. `since` is an earlier
+    /// version of the whole board (null: none; "": the board did not exist),
+    /// whose changes are new information; `label` says what it is. Its ops
+    /// apply to the top board. Returns `{prompt}` or `{error}`.
     pub fn rethink_prompt(&self, since: Option<String>, label: &str) -> String {
         match self.inner.rethink_prompt(since.as_deref(), label) {
             Ok(p) => json!({ "prompt": p }).to_string(),

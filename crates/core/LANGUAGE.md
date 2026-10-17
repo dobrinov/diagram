@@ -117,7 +117,7 @@ canvas payments: Payments flow {
 - A box with `canvas: id` is the way in: double-click it, or click its badge, to open the canvas. How the link looks is the box's shape: `pill` (a button, the default), `box` (a card), `text`, `sticky`, …; any label and colour.
 - Removing the last box that opens a canvas removes the canvas (the editor asks first); removing a canvas removes the boxes that open it.
 - In the editor: right-click the empty board → *New canvas here…*; right-click a link → *Open canvas*, *Rename canvas…*, *Link style…*; the trail at the top leads back up. The URL keeps the open canvas (`?canvas=payments/fraud`).
-- From the CLI, `--canvas payments/fraud` makes any command work inside that canvas (`brief`, `apply`, `svg`, …). Prompts about a board name its canvases but leave their contents out. Ops: `{"op":"add_canvas","title":"Refunds"}`, `{"op":"update_canvas","id":"refunds","title":"…"}`, and `canvas` on `add_node` / `update_node`. In JSON, `canvases` holds them, each a document with an `id`.
+- From the CLI, `--canvas payments/fraud` makes any command work inside that canvas (`brief`, `apply`, `svg`, …). Most prompts about a board name its canvases but leave their contents out; Ask and Rethink read them all. Ops: `{"op":"add_canvas","title":"Refunds"}`, `{"op":"update_canvas","id":"refunds","title":"…"}`, `canvas` on `add_node` / `update_node`, and `{"op":"in","canvas":"payments/fraud","ops":[…]}` to change things inside a canvas from the board around it. In JSON, `canvases` holds them, each a document with an `id`.
 
 ### Images
 

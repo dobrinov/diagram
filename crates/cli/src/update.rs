@@ -103,15 +103,28 @@ fn fetch() -> Option<String> {
             "Accept: application/vnd.github+json",
         ])
         .arg(format!(
-            "https://api.github.com/repos/{REPO}/releases/latest"
+            "https://api.github.com/repos/{REPO}/releases?per_page=30"
         ))
         .output()
         .ok()?;
     if !out.status.success() {
         return None;
     }
-    let v: serde_json::Value = serde_json::from_slice(&out.stdout).ok()?;
-    Some(v["tag_name"].as_str()?.trim_start_matches('v').to_string())
+    highest(&serde_json::from_slice(&out.stdout).ok()?)
+}
+
+/// The highest released version. Not GitHub's "latest", which is the release
+/// created last: not the newest when two tags are built at once.
+fn highest(releases: &serde_json::Value) -> Option<String> {
+    releases
+        .as_array()?
+        .iter()
+        .filter(|r| {
+            !r["draft"].as_bool().unwrap_or(false) && !r["prerelease"].as_bool().unwrap_or(false)
+        })
+        .filter_map(|r| r["tag_name"].as_str())
+        .map(|t| t.trim_start_matches('v').to_string())
+        .reduce(|a, b| if newer(&b, &a) { b } else { a })
 }
 
 fn cache_file() -> Option<PathBuf> {
@@ -167,6 +180,21 @@ mod tests {
         assert!(newer("1.0.0", "0.99.0"));
         assert!(!newer("0.33.0", "0.33.0"));
         assert!(!newer("0.32.1", "0.33.0"));
+    }
+
+    #[test]
+    fn the_highest_release_wins() {
+        let r = serde_json::json!([
+            {"tag_name": "v0.34.1", "draft": false, "prerelease": false},
+            {"tag_name": "v0.35.0", "draft": false, "prerelease": false},
+            {"tag_name": "v0.36.0", "draft": true, "prerelease": false},
+            {"tag_name": "v0.9.0", "draft": false, "prerelease": false}
+        ]);
+        assert_eq!(highest(&r).as_deref(), Some("0.35.0"));
+        assert_eq!(
+            highest(&serde_json::json!({"message": "rate limited"})),
+            None
+        );
     }
 
     #[test]

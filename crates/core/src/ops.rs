@@ -194,6 +194,13 @@ pub enum Op {
         id: String,
         title: String,
     },
+    /// Ops for a canvas inside this board: `canvas` is its path of ids
+    /// (`plan`, or `plan/details` for one inside it).
+    In {
+        canvas: String,
+        #[serde(default)]
+        ops: Vec<Op>,
+    },
     /// Keep an image in the board: `data` is a `data:image/…;base64,…` URI.
     /// Boxes show it with `image: ID`.
     AddAsset {
@@ -1046,6 +1053,23 @@ fn apply_op(doc: &mut Document, op: &Op, created: &mut Vec<String>) -> Result<()
             });
             created.push(cid);
         }
+        Op::In { canvas, ops } => {
+            let path: Vec<String> = canvas
+                .split('/')
+                .map(str::trim)
+                .filter(|p| !p.is_empty())
+                .map(String::from)
+                .collect();
+            let inner = doc
+                .at_mut(&path)
+                .filter(|_| !path.is_empty())
+                .ok_or_else(|| format!("no canvas `{canvas}`"))?;
+            for (i, op) in ops.iter().enumerate() {
+                apply_one(inner, op, created).map_err(|m| {
+                    format!("in canvas `{canvas}`, op #{}: {}", i + 1, suggest(inner, m))
+                })?;
+            }
+        }
         Op::UpdateCanvas { id, title } => {
             let c = doc
                 .canvas_mut(id)
@@ -1821,10 +1845,13 @@ pub fn parse_ops(text: &str) -> Result<Vec<Op>, String> {
         serde_json::from_str(body).map_err(|e| format!("invalid JSON: {e}"))?;
     let list = match v {
         serde_json::Value::Array(a) => a,
-        serde_json::Value::Object(mut o) if o.contains_key("ops") => match o.remove("ops") {
-            Some(serde_json::Value::Array(a)) => a,
-            _ => return Err("`ops` must be an array".into()),
-        },
+        // a batch (`{"ops": [...]}`), not an op with ops of its own (`in`)
+        serde_json::Value::Object(mut o) if o.contains_key("ops") && !o.contains_key("op") => {
+            match o.remove("ops") {
+                Some(serde_json::Value::Array(a)) => a,
+                _ => return Err("`ops` must be an array".into()),
+            }
+        }
         o @ serde_json::Value::Object(_) => vec![o],
         _ => return Err("expected an object or an array of ops".into()),
     };

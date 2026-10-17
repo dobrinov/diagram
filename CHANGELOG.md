@@ -1,5 +1,16 @@
 # Changelog
 
+## 0.36.0 — 2026-10-17
+
+- **Rethink acts on your comments, across the whole board.** Before, Rethink saw only the open canvas and treated comments as discussion to tidy up, so a comment like "we are shipping two card products now" changed nothing. Now:
+  - it reads the whole board, every canvas included, wherever you start it;
+  - open comments come first, listed with where they are. The AI changes the board everywhere a comment affects it, then resolves the comment with a resolution saying what changed (or replies when it cannot act);
+  - in git, what changed on the branch is shown per canvas.
+- **Fix:** *Add what you know* and Rethink applied the AI's reply to the top board even when you were inside a canvas, so a reply about that canvas failed ("no node …") and ended in an error. Replies now apply where they belong.
+- When the AI changes nothing, its note stays on screen (with OK) instead of a toast that disappears.
+- New op `{"op":"in","canvas":"plan/details","ops":[…]}`: change things inside a canvas from the board around it. A single op that carries `ops` is no longer mistaken for a batch.
+- **New versions:** the editor's check and the Homebrew tap take the highest released version, not GitHub's "latest". That label goes to the release created last, which was v0.34.1 rather than v0.35.0 when both were built at once. The release workflow now marks only the highest tag as latest.
+
 ## 0.35.0 — 2026-10-17
 
 - **✦ Ask:** a third choice in the AI button: ask a question about the board, such as what blocks the launch, who owns what, or what is still open. The model reads the whole board, every canvas included, with gantt forecasts as of today. It answers in a few sentences, and every place it mentions is a link: click it and the board goes there and selects it, opening the canvas it is in. Follow-ups continue the conversation until you close the panel (Esc). Nothing is saved, and nothing on the board changes. Without an AI CLI, the prompt is shown to copy, as for the other AI actions.

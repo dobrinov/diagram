@@ -137,7 +137,7 @@ pub const OPS_REFERENCE: &str = r#"Operations (fields in [] are optional; ids ar
 - {"op":"theme","source":"theme brand {\n  blue: #3b6fd8\n  light {\n    background: #faf9f6\n  }\n  dark {\n    background: #101418\n  }\n}"}   (adds or replaces a theme; top lines apply in both modes, light { } and dark { } what differs; keys: background, dots, text, muted, surface, border, line, section, header, title, title-text, pin, font, radius and the named colours)
 - {"op":"merge","dsl":"cache: Redis [cylinder]\napi -> cache: reads\napi [red]"}   (statements in the diagram language, as if written at the end of the file: adds new elements; one written again by its id gets the attributes given. Cheapest for many changes)
 - Database table: {"op":"add_group","id":"users","label":"Users","entity":true}; its columns are add_node / update_node with "id":"users.email","label":"email","group":"users","column":{"type":"text",["pk":true,"unique":true,"null":true,"fk":"teams.id","default":"now()"]}. Or merge: "entity users: Users {\n  id: uuid [pk]\n  team_id: uuid [fk: teams]\n}"
-- Canvases: a box with "canvas":"payments" opens a board inside this one (not shown to you; keep the attribute when you rewrite a box). {"op":"add_canvas","title":"Payments"} adds one; removing the box that opens it removes it.
+- Canvases: a box with "canvas":"payments" opens a board inside this one (not shown to you; keep the attribute when you rewrite a box). {"op":"add_canvas","title":"Payments"} adds one; removing the box that opens it removes it. {"op":"in","canvas":"payments","ops":[…]} applies ops inside canvas `payments` (`payments/fraud` for one inside it).
 - Images: a box with "image":"img1" shows asset img1 (its data is not shown to you); keep the image attribute when you rewrite a box.
 - Sequence diagram: {"op":"add_group","id":"login","label":"Sign in","sequence":true}; participants are nodes in it, messages are add_edge between them (in order; {"op":"update_edge","id":"web->api","index":0} moves one). Or merge: "sequence login: Sign in {\n  user: User\n  web: Web app\n  user -> web: opens /login\n  web ..> user: page\n}" (..> is a reply)
 - Decision record: {"op":"add_group","id":"db","label":"Use Postgres","adr":"proposed"} (status: proposed, accepted, rejected, superseded, deprecated); its fields are add_node / update_node with "id":"db.context","label":"context","group":"db","detail":"the text". Or merge: "adr db: Use Postgres [accepted] {\n  context: …\n  decision: …\n}"
@@ -239,31 +239,127 @@ pub fn ask(doc: &Document, ids: &[String], request: &str) -> String {
     s
 }
 
-/// A prompt asking a model to rethink a board (or the canvas `doc` is): to
-/// organise what has been collected on it so it reads well now. With
-/// `since` (an earlier version of it and what that version is, e.g. "where
-/// this branch left main"), what changed since is shown as the new
-/// information to revise the rest around. The model replies with a note and
-/// ops (see [`reply_note`]).
-pub fn rethink(doc: &Document, title: &str, since: Option<(&Document, &str)>) -> String {
-    let mut s = format!("# Rethink the board \"{title}\"\n\n");
-    s.push_str("People have been collecting information on this board: findings, ideas, notes, decisions, plans and comments, added one by one as they came. Organise it so it reads well now, taking everything on it into account.\n\n");
-    s.push_str("The board is written in the `diagram` language: one statement per line (`id: Label [attrs]` declares a box, `a -> b: label` connects two, `group id: Label { … }` is a section; `mindmap`, `gantt`, `chart`, `table` and `risks` blocks hold their items one per line; `comment` lines are discussion).\n\n");
-    if let Some(d) = &doc.description {
-        s.push_str(&format!("About the board: {d}\n\n"));
-    }
-    s.push_str(&format!(
-        "## The board\n\n```diagram\n{}```\n\n",
-        dsl::print_lean(doc)
-    ));
-    if let Some((old, label)) = since {
-        let d = crate::diff::diff(old, doc);
-        if !d.is_empty() {
-            s.push_str(&format!("## What is new since {label}\n\nThis is the new information. Revise the older parts of the board around it: what it confirms, changes, contradicts or makes obsolete.\n\n{}\n", crate::diff::markdown(&d, old, doc)));
+/// The whole board for a prompt: the top board, then every canvas inside
+/// it (`## Canvas `path` (“Title”)`), each as a brief with every id.
+fn board_by_canvas(root: &Document, today: Option<i64>) -> String {
+    fn walk(s: &mut String, doc: &Document, path: &[String], title: &str, today: Option<i64>) {
+        let at = if path.is_empty() {
+            "## The top board".to_string()
+        } else {
+            format!("## Canvas `{}` (“{title}”)", path.join("/"))
+        };
+        let body = with_today(today, || brief(doc));
+        // brief's own title line would repeat the heading
+        let body = body.split_once('\n').map(|(_, b)| b).unwrap_or(&body);
+        s.push_str(&format!("{at}\n{}\n\n", body.trim_end()));
+        for c in &doc.canvases {
+            let mut p = path.to_vec();
+            p.push(c.id.clone());
+            walk(s, &c.doc, &p, c.display(), today);
         }
     }
-    s.push_str("## What to do\n\n- Put related items together in sections (`add_group` with `members`, or `update_node` with `group`), with short clear titles; move items whose place has changed; remove sections that end up empty.\n- Merge duplicates and near-duplicates into one item that keeps everything they said.\n- Fold loose stickies and settled discussion into the items they are about; resolve comments the board now answers (`resolve_comment` with a resolution).\n- Where newer information changes or contradicts an older item, update that item; mark what is superseded (in its label or a comment) rather than deleting it.\n- Make labels consistent; fix or remove arrows that no longer make sense, and add the ones that are missing.\n\nRules:\n- Keep every piece of information: reorganise and merge, never drop content.\n- Keep ids; to merge, keep one item and remove the others only after moving what they said into it.\n- Do not set `x`/`y` or move things: the layout follows the structure.\n- Leave the data inside blocks (gantt dates, table cells, chart values, columns) as it is unless the new information says otherwise.\n- If the board already reads well, change nothing and say so.\n\n");
-    s.push_str("## How to respond\n\nReply with a single ```json code block: a short note for the people on the board (one to three sentences: what you changed and why) and the operations, for example:\n\n```json\n{\"note\": \"Grouped the interview findings by theme and merged two duplicate pricing notes.\", \"ops\": [\n  {\"op\": \"add_group\", \"id\": \"pricing\", \"label\": \"Pricing\", \"members\": [\"n3\", \"n7\"]},\n  {\"op\": \"update_node\", \"id\": \"n3\", \"label\": \"Price is the main reason to churn (5 of 8 interviews)\"},\n  {\"op\": \"remove\", \"id\": \"n7\"}\n]}\n```\n\n");
+    let mut s = String::new();
+    let title = root.title.as_deref().unwrap_or("Untitled diagram");
+    walk(&mut s, root, &[], title, today);
+    s
+}
+
+/// Every canvas of `root` with its path, the top board first.
+fn canvases_of(root: &Document) -> Vec<(Vec<String>, &Document)> {
+    fn walk<'a>(doc: &'a Document, path: Vec<String>, out: &mut Vec<(Vec<String>, &'a Document)>) {
+        out.push((path.clone(), doc));
+        for c in &doc.canvases {
+            let mut p = path.clone();
+            p.push(c.id.clone());
+            walk(&c.doc, p, out);
+        }
+    }
+    let mut out = Vec::new();
+    walk(root, Vec::new(), &mut out);
+    out
+}
+
+/// A prompt asking a model to rethink the whole board (`root`, every canvas
+/// included): act on the open comments, then organise what has been
+/// collected so it reads well now. `focus` is the canvas the person is
+/// looking at. With `since` (an earlier version of the board and what that
+/// version is, e.g. "where this branch left main"), what changed since is
+/// the new information to revise the rest around. The model replies with a
+/// note and ops (see [`reply_note`]); ops for a canvas go in an `in` op.
+pub fn rethink(root: &Document, focus: &[String], since: Option<(&Document, &str)>) -> String {
+    let title = root.title.as_deref().unwrap_or("Untitled diagram");
+    let mut s = format!("# Rethink the board \"{title}\"\n\n");
+    s.push_str("People have been collecting information on this board: findings, ideas, notes, decisions, plans and comments, added one by one as they came. Bring it up to date with everything on it, then organise it so it reads well now.\n\n");
+    s.push_str("The board is written in the `diagram` language: one statement per line (`id: Label [attrs]` declares a box, `a -> b: label` connects two, `group id: Label { … }` is a section; `mindmap`, `gantt`, `chart`, `table` and `risks` blocks hold their items one per line; `comment` lines are what people said). Below are the top board and every canvas inside it (a board inside the board, opened from a box with `canvas: ID`).\n\n");
+    if let Some(d) = &root.description {
+        s.push_str(&format!("About the board: {d}\n\n"));
+    }
+    if !focus.is_empty() {
+        s.push_str(&format!("The person asking is looking at canvas `{}`; change whatever the information affects, there and anywhere else.\n\n", focus.join("/")));
+    }
+    s.push_str(&board_by_canvas(root, None));
+    // open comments: what people asked for or told the board
+    let open: Vec<String> = canvases_of(root)
+        .into_iter()
+        .flat_map(|(path, doc)| {
+            doc.comments
+                .iter()
+                .filter(|c| c.status == Status::Open)
+                .map(move |c| {
+                    let at = if path.is_empty() {
+                        "on the top board".to_string()
+                    } else {
+                        format!("in canvas `{}`", path.join("/"))
+                    };
+                    let on =
+                        c.on.as_deref()
+                            .map(|o| format!(", on {}", doc.describe(o)))
+                            .unwrap_or_default();
+                    let by = c
+                        .author
+                        .as_deref()
+                        .map(|a| format!(" by {a}"))
+                        .unwrap_or_default();
+                    let mut line =
+                        format!("- `{}` {at}{on}{by}: {}\n", c.id, c.text.replace('\n', " "));
+                    for r in &c.replies {
+                        let by = r
+                            .author
+                            .as_deref()
+                            .map(|a| format!("{a}: "))
+                            .unwrap_or_default();
+                        line.push_str(&format!("  - reply, {by}{}\n", r.text.replace('\n', " ")));
+                    }
+                    line
+                })
+                .collect::<Vec<_>>()
+        })
+        .collect();
+    if !open.is_empty() {
+        s.push_str(&format!("## Open comments\n\nThese are new information and requests from the people on the board. They come first.\n\n{}\n", open.concat()));
+    }
+    if let Some((old, label)) = since {
+        let mut changes = String::new();
+        for (path, now) in canvases_of(root) {
+            let before = old.at(&path).cloned().unwrap_or_default();
+            let d = crate::diff::diff(&before, now);
+            if d.is_empty() {
+                continue;
+            }
+            if path.is_empty() {
+                changes.push_str("### The top board\n\n");
+            } else {
+                changes.push_str(&format!("### Canvas `{}`\n\n", path.join("/")));
+            }
+            changes.push_str(&crate::diff::markdown(&d, &before, now));
+            changes.push('\n');
+        }
+        if !changes.is_empty() {
+            s.push_str(&format!("## What is new since {label}\n\nThis is new information too. Revise the older parts of the board around it: what it confirms, changes, contradicts or makes obsolete.\n\n{changes}\n"));
+        }
+    }
+    s.push_str("## What to do\n\n1. Act on every open comment: change the board as it says, everywhere it matters (one new fact can change items in several canvases: plans, prices, risks, how the product looks). Then resolve it with `resolve_comment` and a `resolution` saying what you changed. Leave a comment open only when you cannot act on it, and `reply` saying what is missing.\n2. Do the same with what is new (above), when there is a section for it.\n3. Then organise:\n   - Put related items together in sections (`add_group` with `members`, or `update_node` with `group`), with short clear titles; move items whose place has changed; remove sections that end up empty.\n   - Merge duplicates and near-duplicates into one item that keeps everything they said.\n   - Fold loose stickies and settled discussion into the items they are about.\n   - Where newer information changes or contradicts an older item, update that item; mark what is superseded (in its label or detail) rather than deleting it.\n   - Make labels consistent; fix or remove arrows that no longer make sense, and add the ones that are missing.\n\nRules:\n- Keep every piece of information: reorganise and merge, never drop content.\n- Keep ids; to merge, keep one item and remove the others only after moving what they said into it.\n- Ops apply to the top board. For anything inside a canvas, wrap them in an `in` op with the canvas path: `{\"op\": \"in\", \"canvas\": \"plan\", \"ops\": [...]}` (`plan/details` for a canvas inside `plan`). A comment's own ops (`resolve_comment`, `reply`) go in the `in` of the canvas it is in.\n- Do not set `x`/`y` or move things: the layout follows the structure.\n- Leave the data inside blocks (gantt dates, table cells, chart values, columns) as it is unless the information says otherwise.\n- If there are no open comments and the board already reads well, change nothing and say so in the note.\n\n");
+    s.push_str("## How to respond\n\nReply with a single ```json code block: a short note for the people on the board (one to three sentences: what you changed and why) and the operations, for example:\n\n```json\n{\"note\": \"Split the cards into virtual and personalised spend cards as the comment says, priced per card, and grouped the interview findings by theme.\", \"ops\": [\n  {\"op\": \"add_group\", \"id\": \"pricing\", \"label\": \"Pricing\", \"members\": [\"n3\", \"n7\"]},\n  {\"op\": \"remove\", \"id\": \"n7\"},\n  {\"op\": \"in\", \"canvas\": \"status\", \"ops\": [\n    {\"op\": \"update_node\", \"id\": \"scope\", \"label\": \"Two card products: virtual cards and personalised spend cards\"},\n    {\"op\": \"resolve_comment\", \"id\": \"c1\", \"resolution\": \"Scope now lists both card products\"}\n  ]}\n]}\n```\n\n");
     s.push_str(OPS_REFERENCE);
     s.push_str("\n\nThe batch is applied all at once or not at all, so it must be valid as a whole. No explanation is needed outside the code block.\n");
     s
@@ -281,23 +377,7 @@ pub fn question(
 ) -> String {
     let title = root.title.as_deref().unwrap_or("Untitled diagram");
     let mut s = format!("# A question about the board \"{title}\"\n\nAnswer the question at the end from what is on this board. The board is below: the top board, then each canvas inside it (a board inside the board, opened from a box), each in the `diagram` language with every id.\n\n");
-    fn walk(s: &mut String, doc: &Document, path: &[String], title: &str, today: Option<i64>) {
-        let at = if path.is_empty() {
-            "## The top board".to_string()
-        } else {
-            format!("## Canvas `{}` (“{title}”)", path.join("/"))
-        };
-        let body = with_today(today, || brief(doc));
-        // brief's own title line would repeat the heading
-        let body = body.split_once('\n').map(|(_, b)| b).unwrap_or(&body);
-        s.push_str(&format!("{at}\n{}\n\n", body.trim_end()));
-        for c in &doc.canvases {
-            let mut p = path.to_vec();
-            p.push(c.id.clone());
-            walk(s, &c.doc, &p, c.display(), today);
-        }
-    }
-    walk(&mut s, root, &[], title, today);
+    s.push_str(&board_by_canvas(root, today));
     if !history.is_empty() {
         s.push_str("## Earlier in this conversation\n\n");
         for (q, a) in history {

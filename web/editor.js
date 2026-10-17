@@ -191,8 +191,8 @@
       aiItem("ask", "Ask", "Questions about this board, answered with links",
         "Ask: a question about this board (all of it, canvases included), such as who owns what, what was decided, or what is still open. You get a short answer whose references take you to the places on the board. Nothing on the board changes.",
         "", function () { openAsk(); }),
-      aiItem("rethink", "Rethink", "Organise what has been collected here",
-        "Rethink: the AI reorganises this canvas: related items in sections, duplicates merged, stickies and settled comments folded in, stale items updated. In git, what changed on this branch is the new information it revises the rest around. Nothing is lost, and you see the changes before keeping them.",
+      aiItem("rethink", "Rethink", "Act on the comments and bring the board up to date",
+        "Rethink: the AI reads the whole board, every canvas included. It acts on the open comments first (changing the board everywhere a comment affects it, then resolving the comment), then organises: related items in sections, duplicates merged, stale items updated. In git, what changed on this branch counts as new information too. Nothing is lost, and you see the changes before keeping them.",
         "", function () { rethink(); }),
       aiItem("add", "Add what you know", "Details, facts or notes: the AI puts them in place",
         "Add what you know (" + MOD + "K): write down details or information you have, about the selection or the whole canvas; the AI adds them where they belong, or makes the change you ask for. You see the changes before keeping them.",
@@ -944,7 +944,7 @@
         if (!req) return;
         closeModal();
         var prompt = st.session.ask_prompt(JSON.stringify(ids), req);
-        askRound(prompt, 0, req);
+        askRound(prompt, 0, req, null, st.canvasPath.slice());
       };
       input.addEventListener("keydown", function (e) { if ((e.metaKey || e.ctrlKey) && e.key === "Enter") go(); });
       showModal("✦ Add what you know", h("div", {}, [
@@ -1046,30 +1046,42 @@
       since.then(function (v) {
         var r = JSON.parse(st.session.rethink_prompt(v ? v.source : undefined, v ? v.label : ""));
         if (r.error) return flash(r.error, true);
-        askRound(r.prompt, 0, "Rethink " + (st.canvasPath.length ? "this canvas" : "the board"),
-          v ? "✦ Rethinking, with what is new since " + v.label + "…" : "✦ Rethinking…");
+        askRound(r.prompt, 0, "Rethink the board",
+          v ? "✦ Rethinking the board, with what is new since " + v.label + "…" : "✦ Rethinking the board…", []);
       });
     }
-    function askRound(prompt, round, req, busy) {
+    /* `where`: the canvas the reply's ops are about ([]: the top board,
+       where `in` ops reach into canvases). */
+    function askRound(prompt, round, req, busy, where) {
       if (opts.ai) flash(round ? "✦ The reply did not fit; asking again…" : busy || "✦ Thinking…", false, 180000);
       ask(prompt, "✦ " + req).then(function (text) {
         text = String(text || "");
         var test = new wasm.Diagram();
         test.set_source(st.text);
+        if (where.length) test.open_canvas(JSON.stringify(where));
         var res = JSON.parse(test.apply(text));
         if (!res.ok) {
           test.free();
-          if (opts.ai && round < 2) return askRound(wasm.ask_again(prompt, text, res.error || "invalid reply"), round + 1, req, busy);
+          if (opts.ai && round < 2) return askRound(wasm.ask_again(prompt, text, res.error || "invalid reply"), round + 1, req, busy, where);
           return flash("The AI's reply did not apply: " + (res.error || "no ops in it"), true);
         }
         var next = test.source("dsl");
         test.free();
         var note = wasm.reply_note(text);
-        if (!res.count) return flash("✦ " + (note || "The AI changed nothing"), false, 8000);
+        if (!res.count) return showNote(note || "The AI changed nothing.");
         startPreview(next, res.count, note);
       }, function (e) {
         if (String(e && e.message) !== "cancelled") flash("AI: " + (e && e.message || e), true);
       });
+    }
+    /* What the AI said when it changed nothing: stays until read. */
+    function showNote(text) {
+      flash("");
+      var bar = h("div", { class: "dge-preview-bar", role: "status" }, [
+        h("span", {}, ["✦ " + text]),
+        h("button", { class: "primary", onclick: function () { bar.remove(); } }, ["OK"])
+      ]);
+      el.appendChild(bar);
     }
     /* The AI's changes on the board, highlighted, until kept or discarded. */
     function startPreview(next, count, note) {
@@ -1705,7 +1717,7 @@
       var t = st.r && hit(e.target);
       var at = toDiagram(e.clientX, e.clientY);
       var items = t ? contextItems(t) : view ? [] : [
-        ["✦ Rethink " + (st.canvasPath.length ? "this canvas" : "the board"), function () { rethink(); }, "The AI organises what has been collected here; you see the changes first"],
+        ["✦ Rethink the board", function () { rethink(); }, "The AI acts on the open comments and brings the whole board up to date; you see the changes first"],
         ["New canvas here…", function () { newCanvas(at); }, "A board inside this one, opened from a button here"],
         ["Insert image…", function () { pickImages(at); }, "Or paste an image, or drop image files on the board"]
       ];

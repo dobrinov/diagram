@@ -76,6 +76,20 @@ try {
   await sleep(700);
   assert.match(saved(), /group storage: Storage \{\n\s+db: Postgres/);
 
+  // Rethink acts on an open comment inside a canvas, from the top board (`in` ops)
+  await p.evaluate(() => window.diagramEditor.apply([
+    { op: "add_canvas", title: "Notes" },
+    { op: "add_node", id: "notes-link", label: "Notes", canvas: "notes" },
+    { op: "in", canvas: "notes", ops: [{ op: "add_node", id: "n1", label: "Old scope" }, { op: "add_comment", on: "n1", text: "Two card products now" }] }
+  ])); await sleep(700);
+  await p.locator(".dge-ai-fab").click();
+  await p.locator(".dge-ai-item", { hasText: "Rethink" }).click();
+  await p.waitForSelector(".dge-preview-bar");
+  assert.match(await p.locator(".dge-preview-bar").textContent(), /Scope now has both card products\. \(1 op\)/);
+  await p.locator(".dge-preview-bar button.primary").click(); await sleep(700);
+  assert.match(saved(), /n1: Two products: virtual cards and spend cards/);
+  assert.match(saved(), /comment c1 on n1: Two card products now \[resolved, resolution: Scope updated\]/);
+
   // Ask: an answer with links; a link selects what it points at; nothing changes
   const before = saved();
   await p.locator(".dge-ai-fab").click();

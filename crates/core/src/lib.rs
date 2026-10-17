@@ -447,31 +447,23 @@ impl Session {
         prompt::answer_refs(&self.whole(), answer)
     }
 
-    /// A prompt to rethink the open canvas (see [`prompt::rethink`]). With
-    /// `since` (an earlier version of the whole board, any format; "": none
-    /// of it existed), what changed in this canvas since is the new
-    /// information; `label` says what that version is.
+    /// A prompt to rethink the whole board, from the open canvas (see
+    /// [`prompt::rethink`]). With `since` (an earlier version of the whole
+    /// board, any format; "": none of it existed), what changed since is new
+    /// information; `label` says what that version is. Its ops apply to the
+    /// top board (`in` ops reach into canvases).
     pub fn rethink_prompt(&self, since: Option<&str>, label: &str) -> Result<String, String> {
-        let title = self
-            .canvas_trail()
-            .pop()
-            .map(|t| t.1)
-            .unwrap_or_else(|| "Board".into());
         let old = match since {
             None => None,
             Some(s) if s.trim().is_empty() => Some(Document::default()),
-            Some(s) => {
-                let root = parse(s).map_err(|e| {
-                    let e: Vec<String> = e.iter().map(|d| d.to_string()).collect();
-                    format!("the earlier version: {}", e.join("; "))
-                })?;
-                // a canvas that was not there yet is new as a whole
-                Some(root.at(&self.canvas_path()).cloned().unwrap_or_default())
-            }
+            Some(s) => Some(parse(s).map_err(|e| {
+                let e: Vec<String> = e.iter().map(|d| d.to_string()).collect();
+                format!("the earlier version: {}", e.join("; "))
+            })?),
         };
         Ok(prompt::rethink(
-            &self.doc,
-            &title,
+            &self.whole(),
+            &self.canvas_path(),
             old.as_ref().map(|o| (o, label)),
         ))
     }
@@ -537,40 +529,48 @@ mod tests {
     }
 
     #[test]
-    fn rethink_shows_the_canvas_and_what_is_new_in_it() {
+    fn rethink_reads_every_canvas_with_open_comments_first() {
         let old = "title: Checkout\npay: Payments [canvas: payments]\n\ncanvas payments: Payments flow {\n  intent: Create intent\n}\n";
-        let now = "title: Checkout\npay: Payments [canvas: payments]\nlate: Top-level note\n\ncanvas payments: Payments flow {\n  intent: Create intent\n  sca: Banks ask for 3DS on every card [sticky]\n}\n";
+        let now = "title: Checkout\npay: Payments [canvas: payments]\nlate: Top-level note\n\ncanvas payments: Payments flow {\n  intent: Create intent\n  sca: Banks ask for 3DS [sticky]\n  comment on intent by ana: We ship two card products now\n  reply c1 by bo: and price per card\n}\n";
         let mut s = Session::new();
         s.set_source(now);
         s.open_canvas(&["payments".into()]).unwrap();
         let p = s
             .rethink_prompt(Some(old), "where this branch left main")
             .unwrap();
+        assert!(p.starts_with("# Rethink the board \"Checkout\""), "{p}");
         assert!(
-            p.starts_with("# Rethink the board \"Payments flow\""),
+            p.contains("looking at canvas `payments`")
+                && p.contains("## The top board")
+                && p.contains("## Canvas `payments` (“Payments flow”)"),
             "{p}"
         );
-        assert!(
-            p.contains("## What is new since where this branch left main"),
-            "{p}"
-        );
+        // the comment, where it is and its reply
+        assert!(p.contains("- `c1` in canvas `payments`, on node `intent` (\"Create intent\") by ana: We ship two card products now\n  - reply, bo: and price per card"), "{p}");
+        // what is new, per canvas
         let new = &p[p.find("## What is new").unwrap()..p.find("## What to do").unwrap()];
         assert!(
-            new.contains("Banks ask for 3DS")
-                && !new.contains("Top-level note")
+            new.contains("### The top board")
+                && new.contains("Top-level note")
+                && new.contains("### Canvas `payments`")
+                && new.contains("Banks ask for 3DS")
                 && !new.contains("Create intent"),
             "{new}"
         );
-        // without an earlier version, or with nothing changed: no such section
+        assert!(p.contains(r#"{"op": "in", "canvas": "plan""#));
         assert!(!s.rethink_prompt(None, "").unwrap().contains("What is new"));
         assert!(!s
             .rethink_prompt(Some(now), "the last commit")
             .unwrap()
             .contains("What is new"));
-        // a canvas that did not exist then is new as a whole
-        let p = s.rethink_prompt(Some(""), "the last commit").unwrap();
-        assert!(p.contains("**2 added"), "{p}");
         assert!(s.rethink_prompt(Some("a -> -> ["), "x").is_err());
+        // a resolved comment is not asked about
+        let mut done = Session::new();
+        done.set_source("a: A\ncomment on a: fine [resolved]\n");
+        assert!(!done
+            .rethink_prompt(None, "")
+            .unwrap()
+            .contains("## Open comments"));
         assert_eq!(
             prompt::reply_note("Sure.\n```json\n{\"note\": \" Grouped it. \", \"ops\": []}\n```")
                 .as_deref(),
@@ -581,6 +581,35 @@ mod tests {
             s.apply("{\"note\": \"Fine as it is.\", \"ops\": []}")["ok"],
             true
         );
+    }
+
+    #[test]
+    fn in_ops_change_a_canvas_from_the_top() {
+        let mut s = Session::new();
+        s.set_source("pay: Payments [canvas: payments]\n\ncanvas payments: Payments {\n  intent: Create intent\n  comment on intent: split it\n  canvas fraud: Fraud {\n    rules\n  }\n}\n");
+        let r = s.apply(r#"{"ops":[{"op":"update_node","id":"pay","color":"red"},{"op":"in","canvas":"payments","ops":[{"op":"update_node","id":"intent","label":"Create a payment intent"},{"op":"resolve_comment","id":"c1","resolution":"renamed"}]},{"op":"in","canvas":"payments/fraud","ops":[{"op":"add_node","id":"velocity","label":"Velocity check"}]}]}"#);
+        assert_eq!(r["ok"], true, "{r}");
+        let out = s.source("dsl").unwrap();
+        assert!(
+            out.contains("intent: Create a payment intent")
+                && out.contains("velocity: Velocity check")
+                && out.contains("pay: Payments [red, canvas: payments]"),
+            "{out}"
+        );
+        // errors say where
+        let e = s.apply(r#"{"op":"in","canvas":"payments","ops":[{"op":"update_node","id":"intnt","label":"x"}]}"#);
+        assert!(
+            e["error"]
+                .as_str()
+                .unwrap()
+                .contains("in canvas `payments`, op #1: no node `intnt` (did you mean `intent`?)"),
+            "{e}"
+        );
+        assert!(s.apply(r#"{"op":"in","canvas":"nope","ops":[]}"#)["error"]
+            .as_str()
+            .unwrap()
+            .contains("no canvas `nope`"));
+        assert!(s.apply(r#"{"op":"in","canvas":"","ops":[]}"#)["ok"] == false);
     }
 
     #[test]

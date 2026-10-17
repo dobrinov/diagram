@@ -365,6 +365,13 @@ export interface UpdateCanvasOp {
   title: string;
 }
 
+/** Ops for a canvas inside the board: `canvas` is its path of ids (`plan`, `plan/details`). */
+export interface InOp {
+  op: "in";
+  canvas: string;
+  ops?: Op[];
+}
+
 /** Keep an image in the board (a `data:image/…;base64,…` URI); boxes show it with `image: id`. Removing the last box that shows it removes it too. */
 export interface AddAssetOp {
   op: "add_asset";
@@ -583,7 +590,7 @@ export type Op =
   | AddNodeOp | UpdateNodeOp | AddOutlineOp | RenameOp | RemoveOp | MoveOp | NudgeOp | UnpinOp
   | AddEdgeOp | UpdateEdgeOp | AddGroupOp | UpdateGroupOp
   | AddCommentOp | ReplyOp | EditCommentOp | ResolveCommentOp | ReopenCommentOp | SetOp | MergeOp | ThemeOp
-  | AddAssetOp | AddCanvasOp | UpdateCanvasOp;
+  | AddAssetOp | AddCanvasOp | UpdateCanvasOp | InOp;
 
 /** What Board.apply() accepts: ops, `{ops}`, one op, or a model's reply text containing that JSON. */
 export type OpsInput = Op[] | { ops: Op[] } | Op | string;
