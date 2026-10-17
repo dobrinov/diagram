@@ -1,5 +1,13 @@
 # Changelog
 
+## 0.32.0 — 2026-10-17
+
+- **The AI button:** the AI now lives in a round button in the bottom-right corner of the board, with a magic-wand icon; hovering it says what is there. It opens two choices:
+  - **Rethink:** organise what has been collected on this canvas (as in 0.31.0; its tooltip says what it does).
+  - **Add what you know** (⌘K), which replaces *Ask AI*: write down details or information you have (interview findings, numbers, who said what), about the selection or the whole canvas. The AI puts each where it belongs, into the item it is about or as a new box or sticky next to it. You can still ask for a change.
+- The *Ask AI* and *Rethink* buttons leave the top toolbar. The zoom controls sit above the AI button. Where the board is narrow (a phone, an embedded board), both rise above the tool bar.
+- The ask prompt tells the model that a request may be information to place, not only a change to make.
+
 ## 0.31.0 — 2026-10-17
 
 - **✦ Rethink:** one click (the toolbar, or right-click on the empty board) has the AI organise what has been collected on the open canvas. It puts related items in sections, merges duplicates while keeping what each said, and folds loose stickies and settled discussion into the items they are about. It updates what newer information changed or contradicts, and fixes arrows. It keeps every piece of information and ids, and never moves things by hand. You see the changes highlighted, with the AI's note on what it did and why, before you keep or discard them.

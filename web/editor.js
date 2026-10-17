@@ -59,7 +59,10 @@
     lanes: '<rect x="3" y="4" width="18" height="16" rx="2"/><path d="M3 9.5h18M3 14.5h18M8 4v16"/>',
     kanban: '<rect x="3" y="4" width="18" height="16" rx="2"/><path d="M9 4v16M15 4v16"/><rect x="4.8" y="7" width="2.4" height="2.4" rx=".6" fill="currentColor" stroke="none"/><rect x="4.8" y="11" width="2.4" height="2.4" rx=".6" fill="currentColor" stroke="none"/><rect x="10.8" y="7" width="2.4" height="2.4" rx=".6" fill="currentColor" stroke="none"/><rect x="16.8" y="7" width="2.4" height="2.4" rx=".6" fill="currentColor" stroke="none"/>',
     section: '<rect x="3" y="8" width="18" height="12" rx="2"/><rect x="3" y="3" width="9" height="3.5" rx="1.2" fill="currentColor" stroke="none"/>',
-    fit: '<path d="M4 9V4h5M20 9V4h-5M4 15v5h5M20 15v5h-5"/>'
+    fit: '<path d="M4 9V4h5M20 9V4h-5M4 15v5h5M20 15v5h-5"/>',
+    magic: '<path d="M4 20L15.5 8.5"/><path d="M13.5 6.5l4 4"/><path d="M18 2.5v3M16.5 4h3M20.5 9v2.4M19.3 10.2h2.4M8.5 3v2.4M7.3 4.2h2.4" stroke-width="1.5"/>',
+    rethink: '<rect x="3" y="4" width="7" height="6" rx="1.5"/><rect x="14" y="14" width="7" height="6" rx="1.5"/><path d="M14 7h3.5a2 2 0 012 2v2M10 17H6.5a2 2 0 01-2-2v-2"/><path d="M17.5 9.5l2 2 2-2M6.5 14.5l-2-2-2 2"/>',
+    add: '<path d="M5 4h14v11l-5 5H5z"/><path d="M12 8v7M8.5 11.5h7"/>'
   };
   function icon(name) {
     return '<svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round">' + ICON[name] + "</svg>";
@@ -175,12 +178,32 @@
       h("button", { title: "Fit (F)", html: icon("fit"), onclick: function () { fit(); } })
     ]);
     var hint = h("div", { class: "dge-hint" });
+    /* The AI: a round button in the corner opens what it can do. */
+    var aiItem = function (ico, name, more, tip, key, fn) {
+      return h("button", { class: "dge-ai-item", title: tip, onclick: function () { closeAiMenu(); fn(); } }, [
+        h("span", { class: "dge-ai-ico", html: icon(ico) }),
+        h("span", { class: "dge-ai-text" }, [h("b", {}, [name]), h("span", {}, [more])]),
+        key ? h("kbd", {}, [key]) : null
+      ].filter(Boolean));
+    };
+    var aiMenu = h("div", { class: "dge-ai-menu", role: "menu", hidden: true }, [
+      aiItem("rethink", "Rethink", "Organise what has been collected here",
+        "Rethink: the AI reorganises this canvas: related items in sections, duplicates merged, stickies and settled comments folded in, stale items updated. In git, what changed on this branch is the new information it revises the rest around. Nothing is lost, and you see the changes before keeping them.",
+        "", function () { rethink(); }),
+      aiItem("add", "Add what you know", "Details, facts or notes: the AI puts them in place",
+        "Add what you know (" + MOD + "K): write down details or information you have, about the selection or the whole canvas; the AI adds them where they belong, or makes the change you ask for. You see the changes before keeping them.",
+        MOD + "K", function () { askAI(); })
+    ]);
+    var aiFab = h("button", { class: "dge-ai-fab", "aria-haspopup": "menu", "aria-label": "AI", title: "AI features: Rethink this canvas, or Add what you know. They run on your own AI subscription, and you see every change before keeping it.", html: icon("magic"), onclick: function () {
+      if (aiMenu.hidden) { aiMenu.hidden = false; aiFab.classList.add("on"); } else closeAiMenu();
+    } });
+    function closeAiMenu() { aiMenu.hidden = true; aiFab.classList.remove("on"); }
     // floating tool bar, bottom centre (as in schema): pointer and hand, then the blocks
     var tools = h("div", { class: "dge-tools", role: "toolbar", "aria-label": "Tools" });
-    [tools, zoomBar].forEach(function (bar) {
+    [tools, zoomBar, aiFab, aiMenu].forEach(function (bar) {
       ["pointerdown", "dblclick", "contextmenu"].forEach(function (ev) { bar.addEventListener(ev, function (e) { e.stopPropagation(); }); });
     });
-    var canvas = h("div", { class: "dge-canvas", tabindex: "0" }, [stage, tools, zoomBar, hint]);
+    var canvas = h("div", { class: "dge-canvas", tabindex: "0" }, [stage, tools, zoomBar, hint].concat(view ? [] : [aiMenu, aiFab]));
     var inspector = h("div", { class: "dge-inspector" });
     var commentsEl = h("div", { class: "dge-comments" });
     var panel = h("aside", { class: "dge-panel" }, [inspector, commentsEl]);
@@ -275,8 +298,6 @@
       toolbar.appendChild(toolbar.baseChip);
       var right = h("div", { class: "dge-group" });
       right.appendChild(btn({ title: "Present: the board's sections and blocks one at a time (← →, Esc)", onclick: function () { present(); } }, icon("present")));
-      if (!view) right.appendChild(h("button", { class: "dge-ask-ai", title: "Ask AI (" + MOD + "K): describe a change; it uses your AI subscription's CLI, and you see the changes before keeping them", onclick: function () { askAI(); } }, ["✦ Ask AI"]));
-      if (!view) right.appendChild(h("button", { class: "dge-rethink", "data-act": "rethink", title: "Rethink: the AI organises what has been collected on this canvas (sections, duplicates, stale items). In git, what changed on this branch is the new information it revises the rest around. You see the changes before keeping them.", onclick: function () { rethink(); } }, ["✦ Rethink"]));
       right.appendChild(h("button", { title: "Export and share", onclick: function (e) { openExport(e.currentTarget); } }, ["Export ▾"]));
       if (!view && hasCode) right.appendChild(btn({ "data-act": "code", title: "Code (" + MOD + "/)", onclick: function () { showCode = !showCode; applyChrome(); } }, icon("code")));
       if (hasPanel) right.appendChild(btn({ "data-act": "panel", title: "Inspector & comments", onclick: function () { showPanel = !showPanel; applyChrome(); renderPanel(); } }, icon("panel")));
@@ -886,7 +907,8 @@
     }
 
     // ------------------------------------------------------------ ask AI
-    /* Ask AI: a request about the selection (or the board) goes to the model
+    /* Add what you know: information to place, or a change to make, about the
+       selection (or the board) goes to the model
        (the host's `ai`, e.g. the subscription CLI behind the local server, or
        copy/paste); its ops are tried on a copy, a reply that does not apply
        goes back with its error (twice at most), and the changes are shown
@@ -894,7 +916,8 @@
     function askAI() {
       if (st.preview) return flash("Keep or discard the AI's changes first", true);
       var ids = st.sel.filter(kindOf);
-      var input = h("textarea", { class: "dge-chart-data", rows: "4", placeholder: ids.length ? "e.g. split this into a service and a worker" : "e.g. put the storage in a section and add a cache" });
+      closeAiMenu();
+      var input = h("textarea", { class: "dge-chart-data", rows: "5", placeholder: ids.length ? "e.g. Ana says this runs nightly and takes about 40 minutes; it must finish before 6am" : "e.g. In the interviews, 5 of 8 teams left over price; two asked for SSO; legal needs an audit log by March" });
       var go = function () {
         var req = input.value.trim();
         if (!req) return;
@@ -903,13 +926,13 @@
         askRound(prompt, 0, req);
       };
       input.addEventListener("keydown", function (e) { if ((e.metaKey || e.ctrlKey) && e.key === "Enter") go(); });
-      showModal("✦ Ask AI", h("div", {}, [
-        h("p", { class: "dge-muted" }, [ids.length ? "About the " + ids.length + " selected item" + (ids.length > 1 ? "s" : "") + " (and what is around them)." : "About the whole board (select something to narrow it)."]),
+      showModal("✦ Add what you know", h("div", {}, [
+        h("p", { class: "dge-muted" }, ["Write down details or information you have; the AI puts each where it belongs" + (ids.length ? ", around the " + ids.length + " selected item" + (ids.length > 1 ? "s" : "") + "." : " on this canvas (select something to narrow it).") + " You can also ask for a change."]),
         input,
         h("p", { class: "dge-muted" }, [opts.ai ? "Your AI subscription's CLI answers; you see the changes before keeping them." : "No AI is connected here: you'll get the prompt to paste into any chat, then paste its reply back."])
       ]), [
         h("button", { onclick: closeModal }, ["Cancel"]),
-        h("button", { class: "primary", onclick: go }, ["Ask (" + MOD + "↵)"])
+        h("button", { class: "primary", onclick: go }, ["Add (" + MOD + "↵)"])
       ]);
       setTimeout(function () { input.focus(); }, 0);
     }
@@ -2942,6 +2965,7 @@
         }
         return;
       }
+      if (!aiMenu.hidden && e.key === "Escape") { e.preventDefault(); closeAiMenu(); return; }
       if (mod && e.key.toLowerCase() === "k" && !view) { e.preventDefault(); askAI(); return; }
       if (mod && e.key.toLowerCase() === "f") { e.preventDefault(); openFind(); return; }
       if (st.presenting) {
@@ -3343,6 +3367,7 @@
       menu.style.left = Math.max(8, Math.min(r.left - host.left, host.width - menu.offsetWidth - 8)) + "px";
     }
     document.addEventListener("pointerdown", function (e) { if (!menu.hidden && !menu.contains(e.target) && !e.target.closest(".dge-toolbar")) closeMenu(); });
+    document.addEventListener("pointerdown", function (e) { if (!aiMenu.hidden && !aiMenu.contains(e.target) && !aiFab.contains(e.target)) closeAiMenu(); });
 
     function baseName() {
       return slug((st.doc && st.doc.title) || opts.name || "diagram");

@@ -89,6 +89,7 @@
 .dge button.dge-error { display: block; width: 100%; height: auto; padding: 5px 10px; border-radius: 0; text-align: left; white-space: normal; color: var(--danger); font-size: 12px; }
 
 .dge-canvas {
+  container: board / inline-size;
   position: relative; flex: 1; min-width: 0; overflow: hidden; outline: none; cursor: default; touch-action: none;
   background-color: var(--canvas); background-image: radial-gradient(var(--dot) 1px, transparent 1px); background-size: 20px 20px;
 }
@@ -128,6 +129,7 @@
 .dge-canvas[data-tool="hand"], .dge-canvas[data-tool="hand"] * { cursor: grab !important; }
 .dge-canvas[data-tool="hand"].panning, .dge-canvas[data-tool="hand"].panning * { cursor: grabbing !important; }
 .dge-zoombar { position: absolute; right: 12px; bottom: 12px; z-index: 5; display: flex; height: 28px; overflow: hidden; border: 1px solid var(--line-strong); border-radius: var(--r-3); background: var(--bg); box-shadow: var(--shadow-1); }
+.dge:not(.dge-view) .dge-zoombar { right: 16px; bottom: 80px; } /* above the AI button */
 .dge .dge-zoombar button { width: 28px; min-height: 0; height: 100%; padding: 0; border: 0; border-radius: 0; color: var(--muted); font-size: 14px; }
 .dge .dge-zoombar button:hover { color: var(--fg); }
 .dge .dge-zoombar button + button { border-left: 1px solid var(--line); }
@@ -261,7 +263,26 @@
 .dge-preview-bar { position: absolute; left: 50%; top: 64px; transform: translateX(-50%); z-index: 6; display: flex; align-items: center; gap: 8px; padding: 6px 6px 6px 14px; border: 1px solid var(--line-strong); border-radius: 20px; background: var(--bg); box-shadow: var(--shadow); font-size: 13px; white-space: nowrap; }
 .dge-preview-bar > span { white-space: normal; max-width: min(56vw, 560px); line-height: 1.35; }
 .dge-preview-bar button.primary { background: var(--accent); color: #fff; border-color: var(--accent); }
-.dge-ask-ai, .dge-rethink { font-weight: 600; }
+/* the AI: a round button in the corner, and what it can do */
+.dge .dge-ai-fab { position: absolute; right: 16px; bottom: 16px; z-index: 6; width: 52px; height: 52px; min-height: 0; padding: 0; border: 0; border-radius: 50%; background: var(--accent-solid); color: var(--accent-fg, #fff); box-shadow: 0 6px 18px rgba(10, 40, 90, .28), 0 1px 3px rgba(0, 0, 0, .2); transition: transform .12s ease, box-shadow .12s ease; }
+.dge .dge-ai-fab:hover { background: var(--accent-solid); transform: translateY(-1px) scale(1.04); box-shadow: 0 8px 22px rgba(10, 40, 90, .34), 0 1px 3px rgba(0, 0, 0, .2); }
+.dge .dge-ai-fab.on { background: var(--accent-solid); color: var(--accent-fg, #fff); transform: rotate(-12deg); }
+.dge .dge-ai-fab svg { width: 24px; height: 24px; }
+.dge-ai-menu { position: absolute; right: 16px; bottom: 80px; z-index: 7; width: 300px; padding: 6px; border: 1px solid var(--line-strong); border-radius: var(--r-3); background: var(--bg); box-shadow: var(--shadow); }
+.dge-ai-menu[hidden] { display: none; }
+.dge .dge-ai-menu .dge-ai-item { display: flex; width: 100%; height: auto; min-height: 0; padding: 10px; gap: 12px; align-items: center; justify-content: flex-start; border: 0; border-radius: var(--r-2, 6px); text-align: left; }
+.dge-ai-ico { display: grid; place-items: center; flex: none; width: 32px; height: 32px; border-radius: 50%; background: var(--accent-bg); color: var(--accent); }
+.dge-ai-ico svg { width: 18px; height: 18px; }
+.dge-ai-text { display: flex; flex: 1; flex-direction: column; gap: 2px; min-width: 0; }
+.dge-ai-text b { font-weight: 600; color: var(--fg); }
+.dge-ai-text span { color: var(--muted); font-size: 12px; white-space: normal; }
+.dge-ai-item kbd { flex: none; padding: 1px 6px; border: 1px solid var(--line-strong); border-radius: 4px; color: var(--muted); font: 500 11px var(--mono); }
+/* where the tool bar reaches the corner, the AI button and the zoom go above it */
+@container board (max-width: 900px) {
+  .dge .dge-ai-fab { bottom: 68px; }
+  .dge:not(.dge-view) .dge-zoombar { bottom: 132px; }
+  .dge-ai-menu { bottom: 132px; }
+}
 
 /* Find (⌘F) */
 .dge-find { position: absolute; top: 56px; right: 16px; z-index: 6; display: flex; align-items: center; gap: 6px; padding: 4px 4px 4px 10px; border: 1px solid var(--line-strong); border-radius: var(--r-2); background: var(--bg); box-shadow: var(--shadow); }
@@ -301,7 +322,7 @@
 .dge-find-count { font-size: 12px; min-width: 64px; }
 
 /* Present */
-.dge-presenting .dge-toolbar, .dge-presenting .dge-tools, .dge-presenting .dge-zoombar { display: none !important; }
+.dge-presenting .dge-toolbar, .dge-presenting .dge-tools, .dge-presenting .dge-zoombar, .dge-presenting .dge-ai-fab, .dge-presenting .dge-ai-menu { display: none !important; }
 .dge-present-bar { position: absolute; left: 50%; bottom: 20px; transform: translateX(-50%); z-index: 6; display: flex; align-items: center; gap: 8px; padding: 4px; border: 1px solid var(--line-strong); border-radius: 999px; background: var(--bg); box-shadow: var(--shadow); font-size: 13px; white-space: nowrap; }
 .dge-present-bar span { padding: 0 6px; }
 

@@ -195,7 +195,7 @@ fn comment_md(doc: &Document, c: &Comment, n: usize) -> String {
 pub fn ask(doc: &Document, ids: &[String], request: &str) -> String {
     let title = doc.title.as_deref().unwrap_or("Untitled diagram");
     let mut s = format!("# Change the diagram \"{title}\"\n\n");
-    s.push_str("The diagram is written in the `diagram` language: one statement per line (`id: Label [attrs]` declares a box, `a -> b: label` connects two, `group id: Label { … }` is a section; `mindmap`, `gantt`, `chart`, `table` and `risks` blocks hold their items one per line). Change it as the request below says.\n\n");
+    s.push_str("The diagram is written in the `diagram` language: one statement per line (`id: Label [attrs]` declares a box, `a -> b: label` connects two, `group id: Label { … }` is a section; `mindmap`, `gantt`, `chart`, `table` and `risks` blocks hold their items one per line). The request below either gives information to add (facts, details, notes: put each where it belongs, in or next to what it is about, or as a detail of it) or asks for a change; do what it says.\n\n");
     if let Some(d) = &doc.description {
         s.push_str(&format!("About the diagram: {d}\n\n"));
     }
@@ -235,7 +235,7 @@ pub fn ask(doc: &Document, ids: &[String], request: &str) -> String {
     s.push_str(&format!("## The request\n\n{}\n\n", request.trim()));
     s.push_str("## How to respond\n\nReply with a single ```json code block holding the operations, for example:\n\n```json\n{\"ops\": [\n  {\"op\": \"update_node\", \"id\": \"api\", \"color\": \"red\"},\n  {\"op\": \"merge\", \"dsl\": \"cache: Redis [cylinder]\\napi -> cache: reads\"}\n]}\n```\n\n");
     s.push_str(OPS_REFERENCE);
-    s.push_str("\n\nRules:\n- Change only what the request asks for; keep existing ids.\n- To add several things, prefer one `merge` with statements in the diagram language.\n- The batch is applied all at once or not at all, so it must be valid as a whole.\n- No explanation is needed outside the code block.\n");
+    s.push_str("\n\nRules:\n- Change only what the request asks for; keep existing ids.\n- Information that fits an existing item goes into it (its label or `detail`); new topics become new boxes or stickies near what they relate to, in the right section.\n- To add several things, prefer one `merge` with statements in the diagram language.\n- The batch is applied all at once or not at all, so it must be valid as a whole.\n- No explanation is needed outside the code block.\n");
     s
 }
 

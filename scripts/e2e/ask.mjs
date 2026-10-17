@@ -1,4 +1,4 @@
-// End-to-end test of Ask AI in a real browser, with a stand-in harness
+// End-to-end test of the AI button (Add what you know, Rethink) in a real browser, with a stand-in harness
 // (fake-ops.sh): the changes are shown, then kept; a reply that does not
 // apply is sent back and the corrected one shown, then discarded; Rethink
 // shows the model's note with its changes.
@@ -55,7 +55,10 @@ try {
 
   // a reply that does not apply goes back with its error; the fixed one is shown; Discard
   const kept = saved();
-  await p.locator(".dge-ask-ai").click();
+  // the AI button in the corner opens its menu; Add what you know
+  await p.locator(".dge-ai-fab").click();
+  assert.equal(await p.locator(".dge-ai-menu .dge-ai-item").count(), 2);
+  await p.locator(".dge-ai-item", { hasText: "Add what you know" }).click();
   await p.locator(".dge-dialog textarea").fill("Make the database red, twice");
   await p.locator(".dge-dialog button.primary").click();
   await p.waitForSelector(".dge-preview-bar");
