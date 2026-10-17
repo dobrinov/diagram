@@ -57,7 +57,7 @@ try {
   const kept = saved();
   // the AI button in the corner opens its menu; Add what you know
   await p.locator(".dge-ai-fab").click();
-  assert.equal(await p.locator(".dge-ai-menu .dge-ai-item").count(), 2);
+  assert.equal(await p.locator(".dge-ai-menu .dge-ai-item").count(), 3);
   await p.locator(".dge-ai-item", { hasText: "Add what you know" }).click();
   await p.locator(".dge-dialog textarea").fill("Make the database red, twice");
   await p.locator(".dge-dialog button.primary").click();
@@ -75,6 +75,22 @@ try {
   await p.locator(".dge-preview-bar button.primary").click();
   await sleep(700);
   assert.match(saved(), /group storage: Storage \{\n\s+db: Postgres/);
+
+  // Ask: an answer with links; a link selects what it points at; nothing changes
+  const before = saved();
+  await p.locator(".dge-ai-fab").click();
+  await p.locator(".dge-ai-item", { hasText: "Ask" }).first().click();
+  await p.locator(".dge-ask-panel textarea").fill("Where does the API write?");
+  await p.keyboard.press("Enter");
+  await p.waitForSelector(".dge-ask-a button.dge-ref");
+  assert.equal(await p.locator(".dge-ask-a button.dge-ref").textContent(), "Postgres");
+  assert.equal(await p.locator(".dge-ask-a .dge-ref.missing").textContent(), "ghost");
+  await p.locator(".dge-ask-a button.dge-ref").click(); await sleep(300);
+  assert.equal(await p.locator('.dg-node.sel[data-id="db"]').count(), 1);
+  await p.keyboard.press("Escape");
+  assert.equal(await p.locator(".dge-ask-panel").isHidden(), true);
+  await sleep(500);
+  assert.equal(saved(), before, "asking changes nothing");
   assert.deepEqual(errors, []);
   await browser.close();
   console.log("ok — ask e2e passed");

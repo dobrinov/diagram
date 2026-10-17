@@ -1,5 +1,10 @@
 # Changelog
 
+## 0.35.0 — 2026-10-17
+
+- **✦ Ask:** a third choice in the AI button: ask a question about the board, such as what blocks the launch, who owns what, or what is still open. The model reads the whole board, every canvas included, with gantt forecasts as of today. It answers in a few sentences, and every place it mentions is a link: click it and the board goes there and selects it, opening the canvas it is in. Follow-ups continue the conversation until you close the panel (Esc). Nothing is saved, and nothing on the board changes. Without an AI CLI, the prompt is shown to copy, as for the other AI actions.
+- Core `prompt::question`, `prompt::answer_refs`, `Session::question_prompt`, `Session::answer_refs`. WASM `question_prompt`, `answer_refs`.
+
 ## 0.34.1 — 2026-10-17
 
 - The AI button's icon is sparkles (one large, three small, in the logo's yellow) instead of a wand.

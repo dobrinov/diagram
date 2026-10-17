@@ -269,6 +269,113 @@ pub fn rethink(doc: &Document, title: &str, since: Option<(&Document, &str)>) ->
     s
 }
 
+/// A prompt asking a model a question about the whole board (`root`, its
+/// canvases included), with the conversation so far. The model answers in
+/// a few sentences of plain text, pointing at elements as `[[id]]` (top
+/// board) or `[[canvas/…/id]]` (inside a canvas); see [`answer_refs`].
+pub fn question(
+    root: &Document,
+    history: &[(String, String)],
+    question: &str,
+    today: Option<i64>,
+) -> String {
+    let title = root.title.as_deref().unwrap_or("Untitled diagram");
+    let mut s = format!("# A question about the board \"{title}\"\n\nAnswer the question at the end from what is on this board. The board is below: the top board, then each canvas inside it (a board inside the board, opened from a box), each in the `diagram` language with every id.\n\n");
+    fn walk(s: &mut String, doc: &Document, path: &[String], title: &str, today: Option<i64>) {
+        let at = if path.is_empty() {
+            "## The top board".to_string()
+        } else {
+            format!("## Canvas `{}` (“{title}”)", path.join("/"))
+        };
+        let body = with_today(today, || brief(doc));
+        // brief's own title line would repeat the heading
+        let body = body.split_once('\n').map(|(_, b)| b).unwrap_or(&body);
+        s.push_str(&format!("{at}\n{}\n\n", body.trim_end()));
+        for c in &doc.canvases {
+            let mut p = path.to_vec();
+            p.push(c.id.clone());
+            walk(s, &c.doc, &p, c.display(), today);
+        }
+    }
+    walk(&mut s, root, &[], title, today);
+    if !history.is_empty() {
+        s.push_str("## Earlier in this conversation\n\n");
+        for (q, a) in history {
+            s.push_str(&format!("Q: {}\nA: {}\n\n", q.trim(), a.trim()));
+        }
+    }
+    s.push_str(&format!("## The question\n\n{}\n\n", question.trim()));
+    s.push_str("## How to answer\n\n- Answer in a few sentences or a short list, plainly, without a preamble.\n- Point at the board where you mention something: `[[id]]` for an element of the top board, `[[canvas/id]]` for one inside a canvas (the canvas path, then the id; e.g. `[[plan/sso]]`), `[[canvas]]` for a whole canvas. Use only ids that are on the board; the reader clicks them to go there.\n- When the board does not answer the question, say so, and say what is missing; do not make things up.\n- Plain text: **bold** and `- ` bullets at most; no headings, tables or code blocks.\n");
+    s
+}
+
+/// A place on the board an answer points at (`[[canvas/…/id]]`).
+#[derive(Debug, Clone, PartialEq, Serialize)]
+pub struct AnswerRef {
+    /// As written in the answer.
+    pub r#ref: String,
+    /// The canvas to open (ids from the top board; empty: the top board).
+    pub path: Vec<String>,
+    /// The element on that canvas; none when the reference is a canvas.
+    pub id: Option<String>,
+    /// What to call it; none when nothing on the board has that id.
+    pub label: Option<String>,
+}
+
+/// The places an answer to [`question`] points at, in order (each once).
+pub fn answer_refs(root: &Document, answer: &str) -> Vec<AnswerRef> {
+    let mut out: Vec<AnswerRef> = Vec::new();
+    let mut rest = answer;
+    while let Some(start) = rest.find("[[") {
+        let after = &rest[start + 2..];
+        let Some(end) = after.find("]]") else { break };
+        let r = after[..end].trim().trim_matches('`').to_string();
+        rest = &after[end + 2..];
+        if r.is_empty() || out.iter().any(|x| x.r#ref == r) {
+            continue;
+        }
+        let parts: Vec<String> = r.split('/').map(|p| p.trim().to_string()).collect();
+        let (canvas, id) = parts.split_at(parts.len() - 1);
+        let id = &id[0];
+        let found = root.at(canvas).and_then(|doc| {
+            if let Some(e) = doc.element(id) {
+                let label = match e {
+                    Element::Node(n) if !n.label.is_empty() => n.label.replace('\n', " "),
+                    Element::Node(_) => id.clone(),
+                    Element::Group(g) => g.display().to_string(),
+                    Element::Edge(e) => e
+                        .label
+                        .clone()
+                        .unwrap_or_else(|| format!("{} → {}", e.from, e.to)),
+                };
+                Some((canvas.to_vec(), Some(id.clone()), label))
+            } else {
+                // a whole canvas
+                doc.canvas(id).map(|c| {
+                    let mut p = canvas.to_vec();
+                    p.push(id.clone());
+                    (p, None, c.display().to_string())
+                })
+            }
+        });
+        out.push(match found {
+            Some((path, id, label)) => AnswerRef {
+                r#ref: r,
+                path,
+                id,
+                label: Some(label),
+            },
+            None => AnswerRef {
+                r#ref: r,
+                path: canvas.to_vec(),
+                id: Some(id.clone()),
+                label: None,
+            },
+        });
+    }
+    out
+}
+
 /// The `note` in a model's reply to [`rethink`], if it has one.
 pub fn reply_note(reply: &str) -> Option<String> {
     let body = crate::ops::extract_json(reply)?;

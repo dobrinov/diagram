@@ -277,12 +277,31 @@
 .dge-ai-text { display: flex; flex: 1; flex-direction: column; gap: 2px; min-width: 0; }
 .dge-ai-text b { font-weight: 600; color: var(--fg); }
 .dge-ai-text span { color: var(--muted); font-size: 12px; white-space: normal; }
+/* Ask: the conversation above the AI button */
+.dge-ask-panel { position: absolute; right: 16px; bottom: 80px; z-index: 7; display: flex; flex-direction: column; width: min(400px, calc(100% - 32px)); max-height: calc(100% - 110px); border: 1px solid var(--line-strong); border-radius: var(--r-3); background: var(--bg); box-shadow: var(--shadow); color: var(--fg); }
+.dge-ask-panel[hidden] { display: none; }
+.dge-ask-panel header { display: flex; align-items: center; gap: 10px; padding: 10px 10px 8px 12px; border-bottom: 1px solid var(--line); }
+.dge-ask-panel header b { flex: 1; font-weight: 600; }
+.dge .dge-ask-panel .dge-ask-close { width: 28px; height: 28px; min-height: 0; padding: 0; border: 0; font-size: 18px; color: var(--muted); }
+.dge-ask-thread { flex: 1; min-height: 0; overflow: auto; padding: 4px 12px; }
+.dge-ask-thread:empty { display: none; }
+.dge-ask-q { margin: 10px 0 6px auto; width: fit-content; max-width: 85%; padding: 6px 10px; border-radius: 12px 12px 3px 12px; background: var(--accent-bg); color: var(--fg); white-space: pre-wrap; }
+.dge-ask-a { margin: 0 0 8px; line-height: 1.5; }
+.dge-ask-a p { margin: 0 0 6px; }
+.dge-ask-a ul { margin: 0 0 6px; padding-left: 18px; }
+.dge-ask-err { color: var(--danger, #c62a31); }
+.dge .dge-ref { display: inline; height: auto; min-height: 0; margin: 0 1px; padding: 0 6px; border: 0; border-radius: 6px; background: var(--accent-bg); color: var(--accent); font: inherit; font-weight: 600; line-height: 1.5; cursor: pointer; }
+.dge .dge-ref:hover { text-decoration: underline; }
+.dge-ref.missing { padding: 0 4px; color: var(--muted); text-decoration: line-through; }
+.dge-ask-box { display: flex; align-items: flex-end; gap: 6px; padding: 8px 10px 10px; border-top: 1px solid var(--line); }
+.dge .dge-ask-box button.primary { background: var(--accent-solid); color: var(--accent-fg, #fff); border-color: var(--accent-solid); }
+.dge .dge-ask-box textarea { flex: 1; min-height: 36px; max-height: 120px; resize: vertical; }
 .dge-ai-item kbd { flex: none; padding: 1px 6px; border: 1px solid var(--line-strong); border-radius: 4px; color: var(--muted); font: 500 11px var(--mono); }
 /* where the tool bar reaches the corner, the AI button and the zoom go above it */
 @container board (max-width: 900px) {
   .dge .dge-ai-fab { bottom: 68px; }
   .dge:not(.dge-view) .dge-zoombar { bottom: 132px; }
-  .dge-ai-menu { bottom: 132px; }
+  .dge-ai-menu, .dge-ask-panel { bottom: 132px; }
 }
 
 /* Find (⌘F) */

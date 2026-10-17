@@ -270,6 +270,21 @@ impl Diagram {
         diagram_core::prompt::ask(&self.inner.doc, &ids, request)
     }
 
+    /// A prompt asking `question` about the whole board (canvases included).
+    /// `history`: the conversation so far, `[[question, answer], …]` (JSON);
+    /// `today`: `YYYY-MM-DD` for gantt forecasts ("" for none).
+    pub fn question_prompt(&self, history: &str, question: &str, today: &str) -> String {
+        let history: Vec<(String, String)> = serde_json::from_str(history).unwrap_or_default();
+        self.inner
+            .question_prompt(&history, question, diagram_core::gantt::parse_date(today))
+    }
+
+    /// The places an answer points at: `[{ref, path, id, label}]` (label
+    /// null when nothing on the board has that id).
+    pub fn answer_refs(&self, answer: &str) -> String {
+        to_json(&self.inner.answer_refs(answer))
+    }
+
     /// A prompt to rethink the open canvas: organise what was collected on
     /// it. `since` is an earlier version of the whole board (null: none; "":
     /// the board did not exist), whose changes are the new information;

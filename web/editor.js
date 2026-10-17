@@ -61,6 +61,7 @@
     section: '<rect x="3" y="8" width="18" height="12" rx="2"/><rect x="3" y="3" width="9" height="3.5" rx="1.2" fill="currentColor" stroke="none"/>',
     fit: '<path d="M4 9V4h5M20 9V4h-5M4 15v5h5M20 15v5h-5"/>',
     magic: '<path d="M11.6 6.8Q13.76 12.54 18.8 15Q13.76 17.46 11.6 23.2Q9.44 17.46 4.4 15Q9.44 12.54 11.6 6.8Z M4.6 3.8Q5.5 6.32 7.6 7.4Q5.5 8.48 4.6 11Q3.7 8.48 1.6 7.4Q3.7 6.32 4.6 3.8Z M12.3 0.5Q12.9 2.18 14.3 2.9Q12.9 3.62 12.3 5.3Q11.7 3.62 10.3 2.9Q11.7 2.18 12.3 0.5Z M19.6 5.5Q20.29 7.46 21.9 8.3Q20.29 9.14 19.6 11.1Q18.91 9.14 17.3 8.3Q18.91 7.46 19.6 5.5Z" fill="currentColor" stroke="none"/>',
+    ask: '<path d="M4 5.5A2.5 2.5 0 016.5 3h11A2.5 2.5 0 0120 5.5v8a2.5 2.5 0 01-2.5 2.5H10l-4.5 4v-4h0A1.5 1.5 0 014 14.5z"/><path d="M10 7.8a2 2 0 113 1.7c-.7.4-1 .8-1 1.5"/><circle cx="12" cy="13.2" r=".6" fill="currentColor"/>',
     rethink: '<rect x="3" y="4" width="7" height="6" rx="1.5"/><rect x="14" y="14" width="7" height="6" rx="1.5"/><path d="M14 7h3.5a2 2 0 012 2v2M10 17H6.5a2 2 0 01-2-2v-2"/><path d="M17.5 9.5l2 2 2-2M6.5 14.5l-2-2-2 2"/>',
     add: '<path d="M5 4h14v11l-5 5H5z"/><path d="M12 8v7M8.5 11.5h7"/>'
   };
@@ -187,6 +188,9 @@
       ].filter(Boolean));
     };
     var aiMenu = h("div", { class: "dge-ai-menu", role: "menu", hidden: true }, [
+      aiItem("ask", "Ask", "Questions about this board, answered with links",
+        "Ask: a question about this board (all of it, canvases included), such as who owns what, what was decided, or what is still open. You get a short answer whose references take you to the places on the board. Nothing on the board changes.",
+        "", function () { openAsk(); }),
       aiItem("rethink", "Rethink", "Organise what has been collected here",
         "Rethink: the AI reorganises this canvas: related items in sections, duplicates merged, stickies and settled comments folded in, stale items updated. In git, what changed on this branch is the new information it revises the rest around. Nothing is lost, and you see the changes before keeping them.",
         "", function () { rethink(); }),
@@ -198,12 +202,29 @@
       if (aiMenu.hidden) { aiMenu.hidden = false; aiFab.classList.add("on"); } else closeAiMenu();
     } });
     function closeAiMenu() { aiMenu.hidden = true; aiFab.classList.remove("on"); }
+    /* Ask: questions about the board; answers point at places on it. */
+    var askThread = h("div", { class: "dge-ask-thread" });
+    var askInput = h("textarea", { rows: "2", placeholder: "Ask about this board, e.g. what is still open?" });
+    var askPanel = h("div", { class: "dge-ask-panel", role: "dialog", "aria-label": "Ask about this board", hidden: true }, [
+      h("header", {}, [
+        h("span", { class: "dge-ai-ico", html: icon("ask") }),
+        h("b", {}, ["Ask about this board"]),
+        h("button", { class: "dge-ask-close", title: "Close (Esc)", "aria-label": "Close", onclick: function () { closeAsk(); } }, ["×"])
+      ]),
+      askThread,
+      h("div", { class: "dge-ask-box" }, [askInput, h("button", { class: "primary", title: "Ask (Enter; ⇧Enter for a new line)", onclick: function () { sendQuestion(); } }, ["Ask"])])
+    ]);
+    askInput.addEventListener("keydown", function (e) {
+      e.stopPropagation();
+      if (e.key === "Enter" && !e.shiftKey) { e.preventDefault(); sendQuestion(); }
+      if (e.key === "Escape") { e.preventDefault(); closeAsk(); }
+    });
     // floating tool bar, bottom centre (as in schema): pointer and hand, then the blocks
     var tools = h("div", { class: "dge-tools", role: "toolbar", "aria-label": "Tools" });
-    [tools, zoomBar, aiFab, aiMenu].forEach(function (bar) {
+    [tools, zoomBar, aiFab, aiMenu, askPanel].forEach(function (bar) {
       ["pointerdown", "dblclick", "contextmenu"].forEach(function (ev) { bar.addEventListener(ev, function (e) { e.stopPropagation(); }); });
     });
-    var canvas = h("div", { class: "dge-canvas", tabindex: "0" }, [stage, tools, zoomBar, hint].concat(view ? [] : [aiMenu, aiFab]));
+    var canvas = h("div", { class: "dge-canvas", tabindex: "0" }, [stage, tools, zoomBar, hint].concat(view ? [] : [aiMenu, askPanel, aiFab]));
     var inspector = h("div", { class: "dge-inspector" });
     var commentsEl = h("div", { class: "dge-comments" });
     var panel = h("aside", { class: "dge-panel" }, [inspector, commentsEl]);
@@ -935,6 +956,85 @@
         h("button", { class: "primary", onclick: go }, ["Add (" + MOD + "↵)"])
       ]);
       setTimeout(function () { input.focus(); }, 0);
+    }
+    /* Ask: the conversation lasts while the panel is open; nothing is saved. */
+    function openAsk() {
+      closeAiMenu();
+      askPanel.hidden = false;
+      setTimeout(function () { askInput.focus(); }, 0);
+    }
+    function closeAsk() {
+      askPanel.hidden = true;
+      st.askHistory = [];
+      askThread.innerHTML = "";
+      canvas.focus({ preventScroll: true });
+    }
+    function sendQuestion() {
+      var q = askInput.value.trim();
+      if (!q || st.asking) return;
+      askInput.value = "";
+      var a = h("div", { class: "dge-ask-a dge-muted" }, [opts.ai ? "✦ Thinking…" : "✦ Waiting for the reply you paste…"]);
+      askThread.appendChild(h("div", { class: "dge-ask-q" }, [q]));
+      askThread.appendChild(a);
+      askThread.scrollTop = askThread.scrollHeight;
+      var history = (st.askHistory || []).slice(-4);
+      var prompt = st.session.question_prompt(JSON.stringify(history), q, isoDay(today()));
+      st.asking = true;
+      ask(prompt, "✦ Ask: " + q).then(function (text) {
+        text = String(text || "").trim();
+        if (!text) throw new Error("The reply was empty");
+        st.askHistory = history.concat([[q, text]]);
+        a.className = "dge-ask-a";
+        a.innerHTML = "";
+        renderAnswer(a, text);
+      }, function (e) {
+        a.className = "dge-ask-a dge-ask-err";
+        a.textContent = e && e.message === "cancelled" ? "Cancelled." : "No answer: " + (e && e.message || e);
+      }).then(function () {
+        st.asking = false;
+        askThread.scrollTop = askThread.scrollHeight;
+        if (!askPanel.hidden) askInput.focus();
+      });
+    }
+    /* An answer: paragraphs and bullets, **bold**, and [[canvas/id]] as links to that place. */
+    function renderAnswer(into, text) {
+      var refs = {};
+      JSON.parse(st.session.answer_refs(text)).forEach(function (r) { refs[r.ref] = r; });
+      var inline = function (line, parent) {
+        line.split(/(\[\[[^\]]+\]\]|\*\*[^*]+\*\*)/).forEach(function (part) {
+          var m = /^\[\[([^\]]+)\]\]$/.exec(part);
+          if (m) {
+            var r = refs[m[1].trim().replace(/^`|`$/g, "")];
+            if (!r || !r.label) return parent.appendChild(h("span", { class: "dge-ref missing", title: "Not on the board: " + m[1] }, [m[1]]));
+            var where = r.path.length ? (r.id ? "in " + r.path.join(" › ") : "a canvas") : "on the board";
+            return parent.appendChild(h("button", { class: "dge-ref", title: "Go to it (" + where + ")", onclick: function () { goToRef(r); } }, [r.label]));
+          }
+          var b = /^\*\*([^*]+)\*\*$/.exec(part);
+          if (b) return parent.appendChild(h("b", {}, [b[1]]));
+          if (part) parent.appendChild(document.createTextNode(part));
+        });
+      };
+      var list = null;
+      text.split(/\n/).forEach(function (line) {
+        var li = /^\s*(?:[-*•]|\d+[.)])\s+(.*)$/.exec(line);
+        if (li) {
+          if (!list) { list = h("ul"); into.appendChild(list); }
+          var item = h("li");
+          inline(li[1], item);
+          list.appendChild(item);
+          return;
+        }
+        list = null;
+        if (!line.trim()) return;
+        var para = h("p");
+        inline(line, para);
+        into.appendChild(para);
+      });
+    }
+    function goToRef(r) {
+      var here = JSON.stringify(st.canvasPath) === JSON.stringify(r.path);
+      if (!here && !openCanvas(r.path)) return;
+      if (r.id) followLink("#" + r.id);
     }
     /* Rethink: the model organises what was collected on the open canvas.
        Where the host knows an earlier version (`since()`: in git, where the
@@ -2974,6 +3074,7 @@
         return;
       }
       if (!aiMenu.hidden && e.key === "Escape") { e.preventDefault(); closeAiMenu(); return; }
+      if (!askPanel.hidden && e.key === "Escape") { e.preventDefault(); closeAsk(); return; }
       if (mod && e.key.toLowerCase() === "k" && !view) { e.preventDefault(); askAI(); return; }
       if (mod && e.key.toLowerCase() === "f") { e.preventDefault(); openFind(); return; }
       if (st.presenting) {

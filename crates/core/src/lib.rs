@@ -431,6 +431,22 @@ impl Session {
         prompt::prompt(&self.doc, opts)
     }
 
+    /// A prompt asking `question` about the whole board, canvases included,
+    /// after the `history` of this conversation (see [`prompt::question`]).
+    pub fn question_prompt(
+        &self,
+        history: &[(String, String)],
+        question: &str,
+        today: Option<i64>,
+    ) -> String {
+        prompt::question(&self.whole(), history, question, today)
+    }
+
+    /// The places on the board an answer points at (see [`prompt::answer_refs`]).
+    pub fn answer_refs(&self, answer: &str) -> Vec<prompt::AnswerRef> {
+        prompt::answer_refs(&self.whole(), answer)
+    }
+
     /// A prompt to rethink the open canvas (see [`prompt::rethink`]). With
     /// `since` (an earlier version of the whole board, any format; "": none
     /// of it existed), what changed in this canvas since is the new
@@ -477,6 +493,47 @@ mod tests {
         assert_eq!(detect(&mmd), Format::Mermaid);
         assert!(spec().contains("add_node") && !spec().contains("OPS_REFERENCE"));
         assert!(json_schema()["properties"]["nodes"].is_object());
+    }
+
+    #[test]
+    fn questions_read_every_canvas_and_answers_point_into_them() {
+        let src = "title: Checkout\npay: Payments [canvas: plan]\napi: Orders API\n\ncanvas plan: Delivery plan {\n  sso: SSO login [owner: ana]\n  canvas deep: Details {\n    okta: Use Okta\n  }\n}\n";
+        let mut s = Session::new();
+        s.set_source(src);
+        s.open_canvas(&["plan".into()]).unwrap();
+        let hist = vec![("Who owns SSO?".to_string(), "ana [[plan/sso]]".to_string())];
+        let p = s.question_prompt(&hist, "And what was decided?", None);
+        assert!(
+            p.contains("## The top board") && p.contains("Orders API"),
+            "{p}"
+        );
+        assert!(
+            p.contains("## Canvas `plan` (“Delivery plan”)") && p.contains("SSO login"),
+            "{p}"
+        );
+        assert!(
+            p.contains("## Canvas `plan/deep` (“Details”)") && p.contains("Use Okta"),
+            "{p}"
+        );
+        assert!(
+            p.contains("Q: Who owns SSO?\nA: ana [[plan/sso]]") && p.ends_with("code blocks.\n")
+        );
+        let refs = s.answer_refs("See [[api]], [[plan/sso]] and [[plan/deep/okta]], all of [[plan]]; [[nope]]; [[api]] again");
+        let got: Vec<(Vec<String>, Option<&str>, Option<&str>)> = refs
+            .iter()
+            .map(|r| (r.path.clone(), r.id.as_deref(), r.label.as_deref()))
+            .collect();
+        let p = |v: &[&str]| v.iter().map(|x| x.to_string()).collect::<Vec<_>>();
+        assert_eq!(
+            got,
+            vec![
+                (p(&[]), Some("api"), Some("Orders API")),
+                (p(&["plan"]), Some("sso"), Some("SSO login")),
+                (p(&["plan", "deep"]), Some("okta"), Some("Use Okta")),
+                (p(&["plan"]), None, Some("Delivery plan")),
+                (p(&[]), Some("nope"), None),
+            ]
+        );
     }
 
     #[test]
