@@ -4,6 +4,7 @@ mod export;
 mod png;
 mod server;
 mod skills;
+mod update;
 
 use std::collections::{HashMap, HashSet};
 use std::io::Read;

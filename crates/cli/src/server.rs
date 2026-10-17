@@ -199,6 +199,7 @@ pub fn serve(
     if open {
         open_browser(&url);
     }
+    crate::update::start();
     let author = std::process::Command::new("git")
         .args(["config", "user.name"])
         .output()
@@ -366,6 +367,18 @@ pub fn serve(
                     ),
                     Err(e) => respond_json(req, 200, json!({ "ok": false, "error": e })),
                 }
+            }
+            // a newer release, once the check is done (see `update`)
+            (Method::Get, "/api/update") => {
+                let current = env!("CARGO_PKG_VERSION");
+                let body = match crate::update::found() {
+                    None => json!({ "checked": false, "current": current }),
+                    Some(None) => json!({ "checked": true, "current": current }),
+                    Some(Some(u)) => {
+                        json!({ "checked": true, "current": current, "latest": u.latest, "how": u.how, "url": u.url })
+                    }
+                };
+                respond_json(req, 200, body)
             }
             // what a rethink takes as the new information (see `git_since`)
             (Method::Get, "/api/since") => {

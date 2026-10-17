@@ -82,6 +82,18 @@
         location.href = "?file=" + encodeURIComponent(to) + (id ? "&focus=" + encodeURIComponent(id) : "");
       }).catch(function (e) { editor.flash(e.message, true); });
     }
+    // a newer release: a badge in the top bar (the server checks in the background)
+    function checkUpdate(tries) {
+      fetch("api/update").then(function (r) { return r.json(); }).then(function (u) {
+        if (!u.checked) { if (tries < 5) setTimeout(function () { checkUpdate(tries + 1); }, 2000); return; }
+        if (!u.latest) return;
+        var a = document.getElementById("update");
+        a.textContent = "New: " + u.latest + " ↗";
+        a.href = u.url;
+        a.title = "diagram " + u.latest + " is out (you have " + u.current + "). " + (/^https?:/.test(u.how) ? "Download it from " + u.how : "Upgrade: " + u.how) + ". Click for what's new.";
+        a.hidden = false;
+      }).catch(function () { /* no server check: nothing to show */ });
+    }
     var ai = fetch("api/ai").then(function (r) { return r.json(); }).catch(function () { return {}; });
     return Promise.all([fetch(api("api/file")).then(function (r) { return r.json(); }), ai]).then(function (both) {
       var f = both[0], harness = both[1];
@@ -126,6 +138,7 @@
         }
       });
       status("Saved");
+      checkUpdate(0);
       // a merge that clashed: settle it first
       fetch(api("api/conflict")).then(function (r) { return r.json(); }).then(function (c) {
         if (!c.conflict) return;

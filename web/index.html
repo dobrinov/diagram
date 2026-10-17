@@ -10,11 +10,11 @@
   /* the shell around the editor: schema's top bar (../schema/web/app.css) */
   :root { color-scheme: light dark;
     --bg: #ffffff; --line: #e1e4e8; --line-strong: #c9ced5; --fg: #1c2026; --muted: #5b636e; --bg-hover: #eef0f3;
-    --mod: #935f00; --del: #c62a31;
+    --mod: #935f00; --del: #c62a31; --new: #0a62d0; --new-bg: #e8f0fd;
     --font-ui: -apple-system, BlinkMacSystemFont, "Segoe UI", "Noto Sans", Helvetica, Arial, sans-serif;
     --font-mono: ui-monospace, SFMono-Regular, "SF Mono", Menlo, Consolas, "Liberation Mono", monospace; }
   @media (prefers-color-scheme: dark) {
-    :root { --bg: #16191e; --line: #262b32; --line-strong: #3a414b; --fg: #e3e7ec; --muted: #9ba4af; --bg-hover: #1f232a; --mod: #e3ae4c; --del: #f07a7f; }
+    :root { --bg: #16191e; --line: #262b32; --line-strong: #3a414b; --fg: #e3e7ec; --muted: #9ba4af; --bg-hover: #1f232a; --mod: #e3ae4c; --del: #f07a7f; --new: #6aa6f9; --new-bg: #172538; }
   }
   html, body { margin: 0; height: 100%; }
   body { display: flex; flex-direction: column; font: 13px/1.45 var(--font-ui); background: var(--bg); color: var(--fg); }
@@ -28,6 +28,9 @@
   .app-bar .file:not(:empty) + .status:not(:empty)::before { content: "· "; }
   .app-bar .status.dirty { color: var(--mod); }
   .app-bar .status.error { color: var(--del); }
+  .app-bar .update { flex: none; padding: 3px 10px; border-radius: 999px; background: var(--new-bg); color: var(--new); font-size: 12px; font-weight: 600; text-decoration: none; white-space: nowrap; }
+  .app-bar .update:hover { text-decoration: underline; }
+  .app-bar .update[hidden] { display: none; }
   .app-bar select, .app-bar button, .app-bar label.btn { font: inherit; height: 28px; padding: 0 10px; border: 1px solid var(--line-strong); border-radius: 5px; background: var(--bg); color: inherit; cursor: pointer; display: inline-flex; align-items: center; gap: 6px; }
   .app-bar button:hover, .app-bar label.btn:hover { background: var(--bg-hover); }
   #editor { flex: 1; min-height: 0; }
@@ -42,6 +45,7 @@
   <span id="app-actions" style="display:flex;gap:6px"></span>
   <span class="file" id="file"></span>
   <span class="status" id="status"></span>
+  <a class="update" id="update" target="_blank" rel="noopener" hidden></a>
 </header>
 <div id="editor"><p id="boot">Loading…</p></div>
 <script src="pkg/diagram_wasm.js"></script>
