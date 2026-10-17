@@ -1,6 +1,7 @@
 // End-to-end test of Ask AI in a real browser, with a stand-in harness
 // (fake-ops.sh): the changes are shown, then kept; a reply that does not
-// apply is sent back and the corrected one shown, then discarded.
+// apply is sent back and the corrected one shown, then discarded; Rethink
+// shows the model's note with its changes.
 //   make e2e   (or: cd scripts/e2e && node ask.mjs)
 import { chromium } from "playwright";
 import { spawn } from "node:child_process";
@@ -62,6 +63,15 @@ try {
   await sleep(600);
   assert.equal(saved(), kept);
   assert.equal(await p.locator(".dge-preview-bar").count(), 0);
+
+  // Rethink (from the right-click menu on the empty board): the note comes with the changes
+  await p.locator(".dge-canvas").click({ position: { x: 20, y: 300 }, button: "right" });
+  await p.locator(".dge-menu button, .dge-menu [role=menuitem]", { hasText: "Rethink the board" }).first().click();
+  await p.waitForSelector(".dge-preview-bar");
+  assert.match(await p.locator(".dge-preview-bar").textContent(), /Put the storage in its own section\. \(1 op\)/);
+  await p.locator(".dge-preview-bar button.primary").click();
+  await sleep(700);
+  assert.match(saved(), /group storage: Storage \{\n\s+db: Postgres/);
   assert.deepEqual(errors, []);
   await browser.close();
   console.log("ok — ask e2e passed");

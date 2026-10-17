@@ -270,3 +270,14 @@ test("ask prompts", async () => {
   assert.match(askAgain(p, "{oops", "bad JSON"), /Error: bad JSON/);
   b.free();
 });
+
+test("rethink prompts", async () => {
+  const { replyNote } = await import("../index.mjs");
+  const b = Board.parse("a: Price matters\nb: Users want SSO\n");
+  assert.doesNotMatch(b.rethinkPrompt(), /What is new/);
+  const p = b.rethinkPrompt({ since: "a: Price matters\n", label: "the last commit" });
+  assert.match(p, /What is new since the last commit[\s\S]*Users want SSO/);
+  assert.throws(() => b.rethinkPrompt({ since: "a -> -> [" }), DiagramError);
+  assert.equal(replyNote('```json\n{"note": "Grouped them.", "ops": []}\n```'), "Grouped them.");
+  b.free();
+});

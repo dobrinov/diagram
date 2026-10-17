@@ -430,6 +430,35 @@ impl Session {
     pub fn prompt(&self, opts: &prompt::PromptOptions) -> String {
         prompt::prompt(&self.doc, opts)
     }
+
+    /// A prompt to rethink the open canvas (see [`prompt::rethink`]). With
+    /// `since` (an earlier version of the whole board, any format; "": none
+    /// of it existed), what changed in this canvas since is the new
+    /// information; `label` says what that version is.
+    pub fn rethink_prompt(&self, since: Option<&str>, label: &str) -> Result<String, String> {
+        let title = self
+            .canvas_trail()
+            .pop()
+            .map(|t| t.1)
+            .unwrap_or_else(|| "Board".into());
+        let old = match since {
+            None => None,
+            Some(s) if s.trim().is_empty() => Some(Document::default()),
+            Some(s) => {
+                let root = parse(s).map_err(|e| {
+                    let e: Vec<String> = e.iter().map(|d| d.to_string()).collect();
+                    format!("the earlier version: {}", e.join("; "))
+                })?;
+                // a canvas that was not there yet is new as a whole
+                Some(root.at(&self.canvas_path()).cloned().unwrap_or_default())
+            }
+        };
+        Ok(prompt::rethink(
+            &self.doc,
+            &title,
+            old.as_ref().map(|o| (o, label)),
+        ))
+    }
 }
 
 #[cfg(test)]
@@ -448,6 +477,53 @@ mod tests {
         assert_eq!(detect(&mmd), Format::Mermaid);
         assert!(spec().contains("add_node") && !spec().contains("OPS_REFERENCE"));
         assert!(json_schema()["properties"]["nodes"].is_object());
+    }
+
+    #[test]
+    fn rethink_shows_the_canvas_and_what_is_new_in_it() {
+        let old = "title: Checkout\npay: Payments [canvas: payments]\n\ncanvas payments: Payments flow {\n  intent: Create intent\n}\n";
+        let now = "title: Checkout\npay: Payments [canvas: payments]\nlate: Top-level note\n\ncanvas payments: Payments flow {\n  intent: Create intent\n  sca: Banks ask for 3DS on every card [sticky]\n}\n";
+        let mut s = Session::new();
+        s.set_source(now);
+        s.open_canvas(&["payments".into()]).unwrap();
+        let p = s
+            .rethink_prompt(Some(old), "where this branch left main")
+            .unwrap();
+        assert!(
+            p.starts_with("# Rethink the board \"Payments flow\""),
+            "{p}"
+        );
+        assert!(
+            p.contains("## What is new since where this branch left main"),
+            "{p}"
+        );
+        let new = &p[p.find("## What is new").unwrap()..p.find("## What to do").unwrap()];
+        assert!(
+            new.contains("Banks ask for 3DS")
+                && !new.contains("Top-level note")
+                && !new.contains("Create intent"),
+            "{new}"
+        );
+        // without an earlier version, or with nothing changed: no such section
+        assert!(!s.rethink_prompt(None, "").unwrap().contains("What is new"));
+        assert!(!s
+            .rethink_prompt(Some(now), "the last commit")
+            .unwrap()
+            .contains("What is new"));
+        // a canvas that did not exist then is new as a whole
+        let p = s.rethink_prompt(Some(""), "the last commit").unwrap();
+        assert!(p.contains("**2 added"), "{p}");
+        assert!(s.rethink_prompt(Some("a -> -> ["), "x").is_err());
+        assert_eq!(
+            prompt::reply_note("Sure.\n```json\n{\"note\": \" Grouped it. \", \"ops\": []}\n```")
+                .as_deref(),
+            Some("Grouped it.")
+        );
+        assert_eq!(prompt::reply_note("{\"ops\": []}"), None);
+        assert_eq!(
+            s.apply("{\"note\": \"Fine as it is.\", \"ops\": []}")["ok"],
+            true
+        );
     }
 
     #[test]

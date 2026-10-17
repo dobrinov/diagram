@@ -367,6 +367,15 @@ pub fn serve(
                     Err(e) => respond_json(req, 200, json!({ "ok": false, "error": e })),
                 }
             }
+            // what a rethink takes as the new information (see `git_since`)
+            (Method::Get, "/api/since") => {
+                let since = crate::git_since(&display);
+                respond_json(
+                    req,
+                    200,
+                    json!({ "ok": true, "source": since.as_ref().map(|s| &s.0), "label": since.as_ref().map(|s| &s.1) }),
+                )
+            }
             (Method::Get, p) => match assets::get(p) {
                 Some((bytes, ct)) => {
                     let h = Header::from_bytes("Content-Type", ct).unwrap();

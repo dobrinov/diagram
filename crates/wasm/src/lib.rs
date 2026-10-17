@@ -270,6 +270,17 @@ impl Diagram {
         diagram_core::prompt::ask(&self.inner.doc, &ids, request)
     }
 
+    /// A prompt to rethink the open canvas: organise what was collected on
+    /// it. `since` is an earlier version of the whole board (null: none; "":
+    /// the board did not exist), whose changes are the new information;
+    /// `label` says what it is. Returns `{prompt}` or `{error}`.
+    pub fn rethink_prompt(&self, since: Option<String>, label: &str) -> String {
+        match self.inner.rethink_prompt(since.as_deref(), label) {
+            Ok(p) => json!({ "prompt": p }).to_string(),
+            Err(e) => err(e),
+        }
+    }
+
     /// A small prompt asking a model to grow the topic `id`.
     /// Options: `{instructions, count, levels}`. Returns `{prompt}` or `{error}`.
     pub fn expand_prompt(&self, id: &str, options: &str) -> String {
@@ -414,6 +425,12 @@ pub fn split_markers(text: &str) -> String {
         Some((b, o, t)) => json!({"base": b, "ours": o, "theirs": t}).to_string(),
         None => "null".into(),
     }
+}
+
+/// The note in a model's reply to a rethink prompt, or "".
+#[wasm_bindgen]
+pub fn reply_note(reply: &str) -> String {
+    diagram_core::prompt::reply_note(reply).unwrap_or_default()
 }
 
 /// The prompt again after a reply that could not be applied.

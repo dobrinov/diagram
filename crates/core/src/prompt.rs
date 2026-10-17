@@ -239,6 +239,44 @@ pub fn ask(doc: &Document, ids: &[String], request: &str) -> String {
     s
 }
 
+/// A prompt asking a model to rethink a board (or the canvas `doc` is): to
+/// organise what has been collected on it so it reads well now. With
+/// `since` (an earlier version of it and what that version is, e.g. "where
+/// this branch left main"), what changed since is shown as the new
+/// information to revise the rest around. The model replies with a note and
+/// ops (see [`reply_note`]).
+pub fn rethink(doc: &Document, title: &str, since: Option<(&Document, &str)>) -> String {
+    let mut s = format!("# Rethink the board \"{title}\"\n\n");
+    s.push_str("People have been collecting information on this board: findings, ideas, notes, decisions, plans and comments, added one by one as they came. Organise it so it reads well now, taking everything on it into account.\n\n");
+    s.push_str("The board is written in the `diagram` language: one statement per line (`id: Label [attrs]` declares a box, `a -> b: label` connects two, `group id: Label { … }` is a section; `mindmap`, `gantt`, `chart`, `table` and `risks` blocks hold their items one per line; `comment` lines are discussion).\n\n");
+    if let Some(d) = &doc.description {
+        s.push_str(&format!("About the board: {d}\n\n"));
+    }
+    s.push_str(&format!(
+        "## The board\n\n```diagram\n{}```\n\n",
+        dsl::print_lean(doc)
+    ));
+    if let Some((old, label)) = since {
+        let d = crate::diff::diff(old, doc);
+        if !d.is_empty() {
+            s.push_str(&format!("## What is new since {label}\n\nThis is the new information. Revise the older parts of the board around it: what it confirms, changes, contradicts or makes obsolete.\n\n{}\n", crate::diff::markdown(&d, old, doc)));
+        }
+    }
+    s.push_str("## What to do\n\n- Put related items together in sections (`add_group` with `members`, or `update_node` with `group`), with short clear titles; move items whose place has changed; remove sections that end up empty.\n- Merge duplicates and near-duplicates into one item that keeps everything they said.\n- Fold loose stickies and settled discussion into the items they are about; resolve comments the board now answers (`resolve_comment` with a resolution).\n- Where newer information changes or contradicts an older item, update that item; mark what is superseded (in its label or a comment) rather than deleting it.\n- Make labels consistent; fix or remove arrows that no longer make sense, and add the ones that are missing.\n\nRules:\n- Keep every piece of information: reorganise and merge, never drop content.\n- Keep ids; to merge, keep one item and remove the others only after moving what they said into it.\n- Do not set `x`/`y` or move things: the layout follows the structure.\n- Leave the data inside blocks (gantt dates, table cells, chart values, columns) as it is unless the new information says otherwise.\n- If the board already reads well, change nothing and say so.\n\n");
+    s.push_str("## How to respond\n\nReply with a single ```json code block: a short note for the people on the board (one to three sentences: what you changed and why) and the operations, for example:\n\n```json\n{\"note\": \"Grouped the interview findings by theme and merged two duplicate pricing notes.\", \"ops\": [\n  {\"op\": \"add_group\", \"id\": \"pricing\", \"label\": \"Pricing\", \"members\": [\"n3\", \"n7\"]},\n  {\"op\": \"update_node\", \"id\": \"n3\", \"label\": \"Price is the main reason to churn (5 of 8 interviews)\"},\n  {\"op\": \"remove\", \"id\": \"n7\"}\n]}\n```\n\n");
+    s.push_str(OPS_REFERENCE);
+    s.push_str("\n\nThe batch is applied all at once or not at all, so it must be valid as a whole. No explanation is needed outside the code block.\n");
+    s
+}
+
+/// The `note` in a model's reply to [`rethink`], if it has one.
+pub fn reply_note(reply: &str) -> Option<String> {
+    let body = crate::ops::extract_json(reply)?;
+    let v: serde_json::Value = serde_json::from_str(body).ok()?;
+    let note = v.get("note")?.as_str()?.trim();
+    (!note.is_empty()).then(|| note.to_string())
+}
+
 /// The prompt again, after a reply that could not be applied: the reply and
 /// the error, to correct.
 pub fn ask_again(prompt: &str, reply: &str, error: &str) -> String {

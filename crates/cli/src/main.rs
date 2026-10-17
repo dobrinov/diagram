@@ -317,6 +317,49 @@ pub fn git_show_pub(reference: &str, file: &str) -> Result<String, String> {
     git_show(reference, file)
 }
 
+/// The version of `file` to rethink a board against, and what it is: on a
+/// branch, where it left the main branch (the file's text then, "" when it
+/// did not exist yet); on the main branch, the last commit. None when the
+/// file is not in git (or not committed yet).
+pub fn git_since(file: &str) -> Option<(String, String)> {
+    let abs = std::fs::canonicalize(file).ok()?;
+    let dir = abs.parent().unwrap_or(Path::new("."));
+    let git = |args: &[&str]| -> Option<String> {
+        let out = Command::new("git")
+            .arg("-C")
+            .arg(dir)
+            .args(args)
+            .output()
+            .ok()?;
+        out.status
+            .success()
+            .then(|| String::from_utf8_lossy(&out.stdout).trim().to_string())
+    };
+    git(&["ls-files", "--error-unmatch", &abs.to_string_lossy()])?;
+    let branch = git(&["rev-parse", "--abbrev-ref", "HEAD"]).unwrap_or_default();
+    // the main branch: what origin's HEAD points at, else main or master
+    let main = git(&["symbolic-ref", "--short", "refs/remotes/origin/HEAD"])
+        .or_else(|| {
+            ["main", "master"]
+                .into_iter()
+                .find(|b| git(&["rev-parse", "--verify", "--quiet", b]).is_some())
+                .map(String::from)
+        })
+        .unwrap_or_default();
+    let short = main.rsplit('/').next().unwrap_or("");
+    if !main.is_empty() && branch != short && branch != "HEAD" {
+        if let Some(base) = git(&["merge-base", "HEAD", &main]) {
+            if git(&["rev-parse", "HEAD"]).as_deref() != Some(base.as_str()) {
+                let label = format!("where the branch `{branch}` left `{short}`");
+                return Some((git_show(&base, file).unwrap_or_default(), label));
+            }
+        }
+    }
+    git_show("HEAD", file)
+        .ok()
+        .map(|s| (s, "the last commit".to_string()))
+}
+
 fn parse_doc(src: &str, what: &str) -> Result<Document, String> {
     diagram_core::parse(src).map_err(|errs| {
         format!(

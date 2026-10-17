@@ -1,5 +1,12 @@
 # Changelog
 
+## 0.31.0 — 2026-10-17
+
+- **✦ Rethink:** one click (the toolbar, or right-click on the empty board) has the AI organise what has been collected on the open canvas. It puts related items in sections, merges duplicates while keeping what each said, and folds loose stickies and settled discussion into the items they are about. It updates what newer information changed or contradicts, and fixes arrows. It keeps every piece of information and ids, and never moves things by hand. You see the changes highlighted, with the AI's note on what it did and why, before you keep or discard them.
+- **With git, the branch is the new information:** when the board is in git, Rethink also sends what changed since the branch left `main` (or since the last commit, on `main`), and the AI revises the older parts around it. Without git (a file that is not in a repository, the playground) it rethinks the canvas as it is.
+- Core `prompt::rethink`, `prompt::reply_note`, `Session::rethink_prompt`. WASM `rethink_prompt`, `reply_note`. npm `Board.rethinkPrompt({since, label})`, `replyNote`. Server `GET /api/since`; editor option `since()`.
+- Dark mode: a sticky shown as a change (added, changed, removed) had dark text on the dark change colour; it now uses the board's text colour.
+
 ## 0.30.0 — 2026-10-15
 
 - **Install it anywhere:** every tag `vX.Y.Z` builds diagram for macOS (Apple silicon and Intel), Linux (x86_64 and arm64) and Windows (x86_64), and publishes them on GitHub Releases with checksums and notes from this changelog. Homebrew: `brew install dobrinov/tap/diagram`.

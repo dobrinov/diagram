@@ -276,6 +276,7 @@
       var right = h("div", { class: "dge-group" });
       right.appendChild(btn({ title: "Present: the board's sections and blocks one at a time (← →, Esc)", onclick: function () { present(); } }, icon("present")));
       if (!view) right.appendChild(h("button", { class: "dge-ask-ai", title: "Ask AI (" + MOD + "K): describe a change; it uses your AI subscription's CLI, and you see the changes before keeping them", onclick: function () { askAI(); } }, ["✦ Ask AI"]));
+      if (!view) right.appendChild(h("button", { class: "dge-rethink", "data-act": "rethink", title: "Rethink: the AI organises what has been collected on this canvas (sections, duplicates, stale items). In git, what changed on this branch is the new information it revises the rest around. You see the changes before keeping them.", onclick: function () { rethink(); } }, ["✦ Rethink"]));
       right.appendChild(h("button", { title: "Export and share", onclick: function (e) { openExport(e.currentTarget); } }, ["Export ▾"]));
       if (!view && hasCode) right.appendChild(btn({ "data-act": "code", title: "Code (" + MOD + "/)", onclick: function () { showCode = !showCode; applyChrome(); } }, icon("code")));
       if (hasPanel) right.appendChild(btn({ "data-act": "panel", title: "Inspector & comments", onclick: function () { showPanel = !showPanel; applyChrome(); renderPanel(); } }, icon("panel")));
@@ -912,8 +913,22 @@
       ]);
       setTimeout(function () { input.focus(); }, 0);
     }
-    function askRound(prompt, round, req) {
-      if (opts.ai) flash(round ? "✦ The reply did not fit; asking again…" : "✦ Thinking…", false, 120000);
+    /* Rethink: the model organises what was collected on the open canvas.
+       Where the host knows an earlier version (`since()`: in git, where the
+       branch left main, or the last commit), what changed since is the new
+       information to revise the rest around. */
+    function rethink() {
+      if (st.preview) return flash("Keep or discard the AI's changes first", true);
+      var since = opts.since ? Promise.resolve(opts.since()).catch(function () { return null; }) : Promise.resolve(null);
+      since.then(function (v) {
+        var r = JSON.parse(st.session.rethink_prompt(v ? v.source : undefined, v ? v.label : ""));
+        if (r.error) return flash(r.error, true);
+        askRound(r.prompt, 0, "Rethink " + (st.canvasPath.length ? "this canvas" : "the board"),
+          v ? "✦ Rethinking, with what is new since " + v.label + "…" : "✦ Rethinking…");
+      });
+    }
+    function askRound(prompt, round, req, busy) {
+      if (opts.ai) flash(round ? "✦ The reply did not fit; asking again…" : busy || "✦ Thinking…", false, 180000);
       ask(prompt, "✦ " + req).then(function (text) {
         text = String(text || "");
         var test = new wasm.Diagram();
@@ -921,24 +936,26 @@
         var res = JSON.parse(test.apply(text));
         if (!res.ok) {
           test.free();
-          if (opts.ai && round < 2) return askRound(wasm.ask_again(prompt, text, res.error || "invalid reply"), round + 1, req);
+          if (opts.ai && round < 2) return askRound(wasm.ask_again(prompt, text, res.error || "invalid reply"), round + 1, req, busy);
           return flash("The AI's reply did not apply: " + (res.error || "no ops in it"), true);
         }
         var next = test.source("dsl");
         test.free();
-        startPreview(next, res.count);
+        var note = wasm.reply_note(text);
+        if (!res.count) return flash("✦ " + (note || "The AI changed nothing"), false, 8000);
+        startPreview(next, res.count, note);
       }, function (e) {
         if (String(e && e.message) !== "cancelled") flash("AI: " + (e && e.message || e), true);
       });
     }
     /* The AI's changes on the board, highlighted, until kept or discarded. */
-    function startPreview(next, count) {
+    function startPreview(next, count, note) {
       st.preview = { before: st.text, base: st.base, label: st.baseLabel };
       st.session.set_source(next);
       refreshDoc();
       setBase(st.preview.before, "before the AI");
       var bar = h("div", { class: "dge-preview-bar", role: "status" }, [
-        h("span", {}, ["✦ The AI's changes are highlighted (" + count + " op" + (count === 1 ? "" : "s") + ")"]),
+        h("span", { title: note || "" }, ["✦ " + (note ? note + " " : "The AI's changes are highlighted ") + "(" + count + " op" + (count === 1 ? "" : "s") + ")"]),
         h("button", { title: "What changed, as Markdown", onclick: function () { copyText(st.session.diff_markdown()).then(function () { flash("Change summary copied"); }); } }, ["Copy summary"]),
         h("button", { onclick: discardPreview }, ["Discard"]),
         h("button", { class: "primary", onclick: acceptPreview }, ["Keep"])
@@ -1565,6 +1582,7 @@
       var t = st.r && hit(e.target);
       var at = toDiagram(e.clientX, e.clientY);
       var items = t ? contextItems(t) : view ? [] : [
+        ["✦ Rethink " + (st.canvasPath.length ? "this canvas" : "the board"), function () { rethink(); }, "The AI organises what has been collected here; you see the changes first"],
         ["New canvas here…", function () { newCanvas(at); }, "A board inside this one, opened from a button here"],
         ["Insert image…", function () { pickImages(at); }, "Or paste an image, or drop image files on the board"]
       ];

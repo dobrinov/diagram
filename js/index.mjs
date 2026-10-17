@@ -2,7 +2,7 @@
 // browsers). A thin, typed layer over the WASM build in ./pkg (`make js`):
 // everything crosses the WASM boundary as JSON strings; this module parses
 // them, maps camelCase options and turns failures into DiagramError.
-import wbgInit, { initSync as wbgInitSync, Diagram, render as wRender, convert as wConvert, spec as wSpec, json_schema, version as wVersion, mindmap_prompt, reply_outline, ask_again as wasm_ask_again } from "./pkg/diagram_wasm.js";
+import wbgInit, { initSync as wbgInitSync, Diagram, render as wRender, convert as wConvert, spec as wSpec, json_schema, version as wVersion, mindmap_prompt, reply_outline, ask_again as wasm_ask_again, reply_note } from "./pkg/diagram_wasm.js";
 
 const WASM_URL = new URL("./pkg/diagram_wasm_bg.wasm", import.meta.url);
 
@@ -218,6 +218,11 @@ export class Board {
     return this.#live().ask_prompt(JSON.stringify(ids), String(request));
   }
 
+  /** A prompt asking a model to rethink the board (organise what was collected on it); with `since` (an earlier version's source, "" if it did not exist), what changed since is the new information. The reply goes to apply(); replyNote() reads its note. */
+  rethinkPrompt({ since, label = "the earlier version" } = {}) {
+    return parseResult(this.#live().rethink_prompt(since == null ? undefined : String(since), String(label))).prompt;
+  }
+
   /** Every gantt chart's tasks, planned against the forecast as of `today` (a Date or YYYY-MM-DD; default: now). */
   schedule({ today } = {}) {
     return parseResult(this.#live().schedule(isoDate(today ?? new Date())));
@@ -329,6 +334,11 @@ export function version() {
 
 /** A prompt asking a model for a new mindmap about `topic`; reply → replyOutline() → `add_outline`. */
 /** The ask prompt again after a reply that could not be applied: the reply and the error, to correct. */
+/** The note in a model's reply to rethinkPrompt() (what it changed and why), or "". */
+export function replyNote(reply) {
+  return reply_note(String(reply));
+}
+
 export function askAgain(prompt, reply, error) {
   need();
   return wasm_ask_again(String(prompt), String(reply), String(error));

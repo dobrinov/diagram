@@ -104,6 +104,12 @@
             return res.text;
           });
         } : null,
+        // Rethink takes what changed in git as the new information
+        since: function () {
+          return fetch(api("api/since")).then(function (r) { return r.json(); }).then(function (v) {
+            return v.ok && v.source != null ? { source: v.source, label: v.label } : null;
+          });
+        },
         onChange: function (text) {
           // back to what is on disk (e.g. an undo within the debounce): drop the pending save
           if (text === lastSaved) { clearTimeout(timer); status("Saved"); return; }

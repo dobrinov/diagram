@@ -258,9 +258,10 @@
 .dge-stage svg text { user-select: none; -webkit-user-select: none; }
 
 /* Ask AI: the bar over the board while the AI's changes are shown */
-.dge-preview-bar { position: absolute; left: 50%; top: 64px; transform: translateX(-50%); z-index: 6; display: flex; align-items: center; gap: 8px; padding: 6px 6px 6px 14px; border: 1px solid var(--line-strong); border-radius: 999px; background: var(--bg); box-shadow: var(--shadow); font-size: 13px; white-space: nowrap; }
+.dge-preview-bar { position: absolute; left: 50%; top: 64px; transform: translateX(-50%); z-index: 6; display: flex; align-items: center; gap: 8px; padding: 6px 6px 6px 14px; border: 1px solid var(--line-strong); border-radius: 20px; background: var(--bg); box-shadow: var(--shadow); font-size: 13px; white-space: nowrap; }
+.dge-preview-bar > span { white-space: normal; max-width: min(56vw, 560px); line-height: 1.35; }
 .dge-preview-bar button.primary { background: var(--accent); color: #fff; border-color: var(--accent); }
-.dge-ask-ai { font-weight: 600; }
+.dge-ask-ai, .dge-rethink { font-weight: 600; }
 
 /* Find (⌘F) */
 .dge-find { position: absolute; top: 56px; right: 16px; z-index: 6; display: flex; align-items: center; gap: 6px; padding: 4px 4px 4px 10px; border: 1px solid var(--line-strong); border-radius: var(--r-2); background: var(--bg); box-shadow: var(--shadow); }

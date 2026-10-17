@@ -2024,7 +2024,8 @@ fn node_svg(
         4.0 + nb.detail.len() as f64 * DETAIL_SIZE * LINE_H
     };
     let block = label_h + detail_h;
-    let sticky = node.shape == Shape::Sticky;
+    // a sticky drawn as a change has the change's fill, not its paper
+    let sticky = node.shape == Shape::Sticky && change.is_none();
     let (fg, detail_fg) = if sticky {
         (p.sticky_fg, "#1c202699")
     } else {
