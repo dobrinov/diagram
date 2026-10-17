@@ -1,5 +1,9 @@
 # Changelog
 
+## 0.34.1 — 2026-10-17
+
+- The AI button's icon is sparkles (one large, three small, in the logo's yellow) instead of a wand.
+
 ## 0.34.0 — 2026-10-17
 
 - **Your own file icons:** `diagram install-app` (once; `--remove` undoes it) gives `.diagram` files a document icon (the logo on a page) and makes a double-click open the board in the editor.

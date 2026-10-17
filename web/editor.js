@@ -60,7 +60,7 @@
     kanban: '<rect x="3" y="4" width="18" height="16" rx="2"/><path d="M9 4v16M15 4v16"/><rect x="4.8" y="7" width="2.4" height="2.4" rx=".6" fill="currentColor" stroke="none"/><rect x="4.8" y="11" width="2.4" height="2.4" rx=".6" fill="currentColor" stroke="none"/><rect x="10.8" y="7" width="2.4" height="2.4" rx=".6" fill="currentColor" stroke="none"/><rect x="16.8" y="7" width="2.4" height="2.4" rx=".6" fill="currentColor" stroke="none"/>',
     section: '<rect x="3" y="8" width="18" height="12" rx="2"/><rect x="3" y="3" width="9" height="3.5" rx="1.2" fill="currentColor" stroke="none"/>',
     fit: '<path d="M4 9V4h5M20 9V4h-5M4 15v5h5M20 15v5h-5"/>',
-    magic: '<path d="M4 20L15.5 8.5"/><path d="M13.5 6.5l4 4"/><path d="M18 2.5v3M16.5 4h3M20.5 9v2.4M19.3 10.2h2.4M8.5 3v2.4M7.3 4.2h2.4" stroke-width="1.5"/>',
+    magic: '<path d="M11.6 6.8Q13.76 12.54 18.8 15Q13.76 17.46 11.6 23.2Q9.44 17.46 4.4 15Q9.44 12.54 11.6 6.8Z M4.6 3.8Q5.5 6.32 7.6 7.4Q5.5 8.48 4.6 11Q3.7 8.48 1.6 7.4Q3.7 6.32 4.6 3.8Z M12.3 0.5Q12.9 2.18 14.3 2.9Q12.9 3.62 12.3 5.3Q11.7 3.62 10.3 2.9Q11.7 2.18 12.3 0.5Z M19.6 5.5Q20.29 7.46 21.9 8.3Q20.29 9.14 19.6 11.1Q18.91 9.14 17.3 8.3Q18.91 7.46 19.6 5.5Z" fill="currentColor" stroke="none"/>',
     rethink: '<rect x="3" y="4" width="7" height="6" rx="1.5"/><rect x="14" y="14" width="7" height="6" rx="1.5"/><path d="M14 7h3.5a2 2 0 012 2v2M10 17H6.5a2 2 0 01-2-2v-2"/><path d="M17.5 9.5l2 2 2-2M6.5 14.5l-2-2-2 2"/>',
     add: '<path d="M5 4h14v11l-5 5H5z"/><path d="M12 8v7M8.5 11.5h7"/>'
   };
