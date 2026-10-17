@@ -33,6 +33,14 @@ try {
   await p.goto(`http://127.0.0.1:${port}/`, { waitUntil: "domcontentloaded" });
   await p.waitForSelector(".dge-canvas svg"); await sleep(300);
 
+  // in comment mode a link is part of its box: the click comments on it, nothing is followed
+  await p.keyboard.press("c");
+  await p.locator('.dg-link[data-node="idea"]').click(); await sleep(300);
+  assert.match(p.url(), /:\d+\/$/);
+  assert.equal(await p.locator(".dge-bubble textarea").getAttribute("placeholder"), "Comment on Faster checkout…");
+  await p.keyboard.press("Escape");
+  await p.locator('.dge-tool[data-tool="select"]').click();
+
   // the badge says where it goes; clicking it opens the other board on m1
   const badge = p.locator('.dg-link[data-node="idea"]');
   assert.equal(await badge.locator("title").textContent(), "Go to m1 on plans/delivery.diagram");

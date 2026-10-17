@@ -117,7 +117,8 @@
 .dge .dg-edge.sel .dg-arrow, .dge .dg-edge:hover .dg-arrow { fill: var(--accent) !important; }
 .dge .dg-edge.cmt .dg-line { stroke: var(--pin) !important; }
 .dge .dg-pin { cursor: pointer; }
-.dge .dg-pin:hover circle, .dge .dg-pin.sel circle { r: 12px; }
+.dge .dg-pin { transform-box: fill-box; transform-origin: 30% 70%; transition: transform .1s ease; }
+.dge .dg-pin:hover, .dge .dg-pin.sel { transform: scale(1.12); }
 /* floating tool bar, bottom centre (mirrors schema's .tools) */
 .dge-tools { position: absolute; left: 50%; bottom: 12px; transform: translateX(-50%); z-index: 6; display: flex; align-items: center; gap: 4px; padding: 4px;
   background: var(--bg); border: 1px solid var(--line-strong); border-radius: var(--r-4); box-shadow: var(--shadow); }
@@ -185,7 +186,7 @@
 .dge-card.resolved { opacity: .7; }
 .dge-card-head { display: flex; align-items: center; flex-wrap: wrap; gap: 4px; font-size: 12px; color: var(--muted); }
 .dge-card-head b { color: var(--fg); }
-.dge-num { display: inline-grid; place-items: center; width: 18px; height: 18px; border-radius: 50%; background: var(--pin); color: #fff; font-size: 10px; font-weight: 700; }
+.dge-num { display: inline-grid; flex: none; place-items: center; width: 20px; height: 20px; border-radius: 50% 50% 50% 3px; background: var(--pin); color: #fff; font-size: 10px; font-weight: 700; }
 .dge-num.done { background: var(--muted); }
 .dge-cid { margin-left: auto; }
 .dge button.dge-link { min-height: 0; padding: 0; color: var(--accent); }

@@ -713,7 +713,12 @@ export interface EdgePath {
 export interface Pin {
   /** Comment id. */
   id: string;
+  /** Its place among the board's comments (1-based). */
   number: number;
+  /** Who wrote it (its initials are drawn in the bubble). */
+  author?: string | null;
+  /** How many replies it has. */
+  replies: number;
   x: number;
   y: number;
   resolved: boolean;

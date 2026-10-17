@@ -61,6 +61,9 @@ pub struct RenderOptions {
 pub struct Pin {
     pub id: String,
     pub number: usize,
+    /// Who wrote the comment, if anyone did.
+    pub author: Option<String>,
+    pub replies: usize,
     pub x: f64,
     pub y: f64,
     pub resolved: bool,
@@ -176,7 +179,8 @@ fn draw(doc: &Document, opts: &RenderOptions, def: Option<crate::model::ThemeDef
         bounds = bounds.union(&Rect {
             x: pin.x - 12.0,
             y: pin.y - 12.0,
-            w: 24.0,
+            // the reply count sticks out on the right
+            w: if pin.replies > 0 { 36.0 } else { 24.0 },
             h: 24.0,
         });
     }
@@ -624,18 +628,73 @@ fn draw(doc: &Document, opts: &RenderOptions, def: Option<crate::model::ThemeDef
         s.push_str(r#"<g class="dg-pins">"#);
         for pin in &pins {
             let fill = if pin.resolved { p.pin_resolved } else { p.pin };
+            // a speech bubble whose corner points at what it is about
+            let (x, y) = (pin.x, pin.y);
+            let (l, t, r, b) = (x - 12.0, y - 12.0, x + 12.0, y + 12.0);
             let _ = write!(
                 s,
-                r##"<g class="dg-pin" data-comment="{}"><circle cx="{}" cy="{}" r="11" fill="{}" stroke="{}" stroke-width="2.5" filter="url(#dg-shadow)"/><text x="{}" y="{}" font-size="11" font-weight="700" text-anchor="middle" fill="#ffffff">{}</text></g>"##,
+                r#"<g class="dg-pin" data-comment="{}"><path d="M{} {} A12 12 0 0 1 {} {} A12 12 0 0 1 {} {} A12 12 0 0 1 {} {} L{} {} A3 3 0 0 1 {} {} Z" fill="{}" stroke="{}" stroke-width="2" filter="url(#dg-shadow)"/>"#,
                 esc(&pin.id),
-                n(pin.x),
-                n(pin.y),
+                n(l),
+                n(y),
+                n(x),
+                n(t),
+                n(r),
+                n(y),
+                n(x),
+                n(b),
+                n(l + 3.0),
+                n(b),
+                n(l),
+                n(b - 3.0),
                 fill,
                 p.node_fill,
-                n(pin.x),
-                n(pin.y + 4.0),
-                pin.number
             );
+            match pin
+                .author
+                .as_deref()
+                .map(initials)
+                .filter(|i| !i.is_empty())
+            {
+                Some(i) => {
+                    let _ = write!(
+                        s,
+                        r#"<text x="{}" y="{}" font-size="{}" font-weight="700" text-anchor="middle" fill="{}">{}</text>"#,
+                        n(x),
+                        n(y + 3.5),
+                        if i.chars().count() > 1 { 9.5 } else { 11.0 },
+                        p.on_accent,
+                        esc(&i)
+                    );
+                }
+                // no author: lines of text in the bubble
+                None => {
+                    let _ = write!(
+                        s,
+                        r#"<path d="M{} {}h10M{} {}h6" stroke="{}" stroke-width="2" stroke-linecap="round"/>"#,
+                        n(x - 5.0),
+                        n(y - 2.5),
+                        n(x - 5.0),
+                        n(y + 2.5),
+                        p.on_accent
+                    );
+                }
+            }
+            if pin.replies > 0 {
+                let _ = write!(
+                    s,
+                    r#"<circle cx="{}" cy="{}" r="7" fill="{}" stroke="{}" stroke-width="1.5"/><text x="{}" y="{}" font-size="9" font-weight="700" text-anchor="middle" fill="{}">{}</text>"#,
+                    n(r + 5.0),
+                    n(t + 2.0),
+                    p.node_fill,
+                    fill,
+                    n(r + 5.0),
+                    n(t + 5.2),
+                    fill,
+                    pin.replies.min(99)
+                );
+            }
+            s.push_str("</g>");
         }
         s.push_str("</g>");
     }
@@ -2159,7 +2218,9 @@ fn pins(doc: &Document, lay: &Layout, edges: &[EdgePath], mode: CommentMode) -> 
         out.push(Pin {
             id: c.id.clone(),
             number: i + 1,
-            x: bx - *k as f64 * 18.0,
+            author: c.author.clone(),
+            replies: c.replies.len(),
+            x: bx - *k as f64 * 22.0,
             y: by,
             resolved,
         });
@@ -2192,6 +2253,21 @@ mod tests {
             Shape::ALL.len()
         );
         assert_eq!(r.pins.len(), 1);
+        // a pin is a speech bubble: the author's initials, the reply count, no number
+        let c =
+            dsl::parse("a: A\ncomment on a by ana: hm\nreply c1 by bo: yes\ncomment on a: and?")
+                .unwrap();
+        let r2 = render(&c, &RenderOptions::default());
+        assert_eq!(
+            (r2.pins[0].author.as_deref(), r2.pins[0].replies),
+            (Some("ana"), 1)
+        );
+        assert!(
+            r2.svg.contains(">AN</text>") && r2.svg.contains(">1</text>"),
+            "{}",
+            r2.svg
+        );
+        assert!(!r2.svg.contains(">2</text>"), "no number on the second pin");
         // the title is metadata: drawn only when asked for
         assert!(!r.svg.contains(">Shapes</text>"));
         let titled = RenderOptions {

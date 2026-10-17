@@ -1,5 +1,11 @@
 # Changelog
 
+## 0.33.0 — 2026-10-17
+
+- **Comments look like comments:** a comment is now a speech bubble on the corner of what it is about, with its author's initials (lines of text when there is no author) and a small count of replies. The number is gone from the board, the thread and the comment list; it was only the comment's place in the file. Hovering a bubble shows who wrote it, how it starts and how many replies it has. Clicking it opens the thread, headed "Comment on …".
+- **Comment mode does not follow links:** with the comment tool (or any tool that puts something on the board), clicking a box's link or canvas badge comments on the box. A box with a web link no longer opens a browser tab when clicked; links open from their badge, in select mode.
+- `Pin` (render output) has `author` and `replies`.
+
 ## 0.32.0 — 2026-10-17
 
 - **The AI button:** the AI now lives in a round button in the bottom-right corner of the board, with a magic-wand icon; hovering it says what is there. It opens two choices:

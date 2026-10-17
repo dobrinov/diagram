@@ -1616,12 +1616,20 @@
       openMenu(st.menuAt, items);
     });
 
+    // a box with a web link is an <a> in the drawing: the editor follows links
+    // from their badge (and never while placing something), not the browser
+    canvas.addEventListener("click", function (e) {
+      if (e.target.closest && e.target.closest(".dge-stage a")) e.preventDefault();
+    }, true);
     canvas.addEventListener("pointerdown", function (e) {
       if (!st.r) return;
       canvas.focus({ preventScroll: true });
       closeMenu();
       var p = toDiagram(e.clientX, e.clientY);
       var t = hit(e.target);
+      // with a tool that puts something on the board (a comment, a box…), a
+      // link or canvas badge is part of its box: nothing is followed
+      if (t && (t.type === "link" || t.type === "open") && st.tool !== "select" && st.tool !== "hand" && !view) t = { type: "node", id: t.id };
       if (e.button === 0 && t && t.type === "link" && !st.linking) { e.preventDefault(); followLink(t.link); return; }
       if (e.button === 0 && t && t.type === "open") { e.preventDefault(); openCanvas(st.canvasPath.concat([t.canvas])); return; }
       if (st.linking && e.button === 0) {
@@ -3230,7 +3238,6 @@
         commentsEl.appendChild(h("p", { class: "dge-muted" }, [view ? "No comments." : "No open comments. Press M and click something to comment on it."]));
       }
       list.forEach(function (c) {
-        var num = all.indexOf(c) + 1;
         var resolved = c.status === "resolved";
         var card = h("div", { class: "dge-card" + (resolved ? " resolved" : "") + (st.comment === c.id ? " active" : ""), "data-cid": c.id });
         card.addEventListener("click", function (e) {
@@ -3241,7 +3248,7 @@
           renderPanel();
         });
         var target = c.on ? h("button", { class: "dge-link", onclick: function () { select([c.on]); } }, [labelOf(c.on)]) : h("span", { class: "dge-muted" }, ["canvas"]);
-        card.appendChild(h("div", { class: "dge-card-head" }, [h("span", { class: "dge-num" + (resolved ? " done" : "") }, [String(num)]), h("b", {}, [c.author || "anonymous"]), " on ", target, h("code", { class: "dge-cid" }, [c.id])]));
+        card.appendChild(h("div", { class: "dge-card-head" }, [commentAvatar(c), h("b", {}, [c.author || "anonymous"]), " on ", target, h("code", { class: "dge-cid" }, [c.id])]));
         card.appendChild(h("div", { class: "dge-card-text" }, [c.text]));
         (c.replies || []).forEach(function (r) {
           card.appendChild(h("div", { class: "dge-reply" }, [h("b", {}, [r.author || "anonymous"]), " ", r.text]));
@@ -3287,6 +3294,13 @@
 
     function closeMenu() { menu.hidden = true; }
 
+    /* A comment's avatar: its author's initials (lines of text without one). */
+    function commentAvatar(c) {
+      var a = (c.author || "").trim(), w = a.split(/\s+/).filter(Boolean);
+      var ini = (w.length > 1 ? w[0].charAt(0) + w[1].charAt(0) : a.replace(/[^\p{L}\p{N}]/gu, "").slice(0, 2)).toUpperCase();
+      return h("span", { class: "dge-num" + (c.status === "resolved" ? " done" : ""), title: a || "No author" }, [ini || "…"]);
+    }
+    function repliesText(c) { var k = (c.replies || []).length; return k ? k + (k === 1 ? " reply" : " replies") : ""; }
     /* Comment popovers: a box to write a comment, or a thread with replies. */
     function closeBubble() { if (!bubble.hidden) { bubble.hidden = true; bubble.innerHTML = ""; st.comment = null; markSelection(); } }
     function placeBubble(cx, cy) {
@@ -3330,8 +3344,8 @@
       bubble.innerHTML = "";
       var resolved = c.status === "resolved";
       var head = h("div", { class: "dge-bubble-head" }, [
-        h("span", { class: "dge-num" + (resolved ? " done" : "") }, [String(all.indexOf(c) + 1)]),
-        h("span", { class: "dge-muted" }, [c.on ? "on " + labelOf(c.on) : "on the board"]),
+        commentAvatar(c),
+        h("span", { class: "dge-muted" }, [(resolved ? "Resolved comment " : "Comment ") + (c.on ? "on " + labelOf(c.on) : "on the board")]),
         h("span", { class: "dge-spacer" }),
         view ? null : h("button", { title: resolved ? "Reopen" : "Resolve", onclick: function () { applyOps([{ op: resolved ? "reopen_comment" : "resolve_comment", id: cid }]); closeBubble(); } }, [resolved ? "Reopen" : "✓ Resolve"]),
         view ? null : h("button", { class: "danger", title: "Delete the thread", onclick: function () { applyOps([{ op: "remove", id: cid }]); closeBubble(); } }, ["Delete"])
@@ -3639,6 +3653,28 @@
     });
     el.addEventListener("mouseout", function (e) {
       if (tipFor && !(e.relatedTarget && tipFor.contains(e.relatedTarget))) hideTip();
+    });
+    /* A comment pin's preview: who wrote it, how it starts, its replies. */
+    canvas.addEventListener("mouseover", function (e) {
+      var pin = e.target.closest && e.target.closest(".dg-pin");
+      if (!pin || pin === tipFor || st.drag) return;
+      var c = (st.doc.comments || []).find(function (x) { return x.id === pin.getAttribute("data-comment"); });
+      if (!c) return;
+      hideTip();
+      tipFor = pin;
+      tipTimer = setTimeout(function () {
+        if (tipFor !== pin || !bubble.hidden) return;
+        tip.innerHTML = "";
+        var head = h("div", { class: "dge-tip-head" }, [(c.author || "Comment") + (c.status === "resolved" ? " · resolved" : "")]);
+        if (repliesText(c)) head.appendChild(h("kbd", {}, [repliesText(c)]));
+        tip.appendChild(head);
+        tip.appendChild(h("div", { class: "dge-tip-more" }, [c.text.length > 160 ? c.text.slice(0, 157) + "…" : c.text]));
+        tip.hidden = false;
+        var box = el.getBoundingClientRect(), r = pin.getBoundingClientRect();
+        tip.style.left = Math.max(8, Math.min(r.left - box.left, box.width - tip.offsetWidth - 8)) + "px";
+        tip.style.top = (r.top - box.top - tip.offsetHeight - 8 < 8 ? r.bottom - box.top + 8 : r.top - box.top - tip.offsetHeight - 8) + "px";
+        tipShownAt = Date.now();
+      }, Date.now() - tipShownAt < 600 ? 0 : 250);
     });
     el.addEventListener("pointerdown", hideTip, true);
     el.addEventListener("wheel", hideTip, { passive: true });
